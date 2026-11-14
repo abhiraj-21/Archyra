@@ -1,0 +1,65 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+Archyra ("the architecture behind your code") analyzes a GitHub repository, builds a code graph (files, classes, methods, imports, calls, inheritance) and renders it as an explorable architecture diagram. AI explanations come later, on top of that graph.
+
+`Architecture.md` is the design source of truth for the roadmap, API contracts and data model. Read the relevant version section before implementing a feature, and update it when a design decision changes.
+
+## Repository layout
+
+- `backend/`: Spring Boot API and analysis engine. Build commands, package conventions and backend rules are in `backend/CLAUDE.md`.
+- `frontend/`: deferred until the backend V0.1 APIs are ready. The planned stack and UI rules are in `frontend/CLAUDE.md`.
+
+## System architecture
+
+```
+Frontend (React) ──REST──▶ Spring Boot API
+                              ├── Repository service ──▶ GitHub / git
+                              ├── Analysis service ──▶ Code Intelligence Model ──▶ Neo4j (graph) + pgvector (AI context)
+                              ├── User / Account service ──▶ PostgreSQL
+                              └── AI service (V1+) ──▶ Neo4j + pgvector ──▶ context builder ──▶ LLM
+```
+
+The core analysis pipeline works without any AI, and V0.1 must be useful on its own:
+repository → ingestion (clone, file discovery, language detection) → Tree-sitter parsing → AST and symbol/reference analysis → **Archyra Intermediate Representation (IR)** → graph builder → Neo4j → REST API → React Flow.
+
+The AI layer (V1+) consumes the graph; it does not replace it. The graph says what exists and how it connects, and the AI explains what those relationships mean.
+
+## Database boundaries
+
+Each store has one job. Do not duplicate data across them except for IDs.
+
+| Store | Owns | Notes |
+| --- | --- | --- |
+| PostgreSQL (Spring Data JPA) | Analysis metadata (`analyses`, `repositories`, `analysis_metadata`), and later users, usage limits, subscriptions and conversations | Relational and transactional data |
+| Neo4j | The code graph | Every graph node is scoped to an `analysisId` |
+| PostgreSQL + pgvector | Embeddings of code and graph context for RAG (V1+) | Same Postgres instance |
+
+The Neo4j model is meant to be stable ("the foundation you do not want to rebuild later"). Extend it rather than reshaping it:
+- Nodes: `Repository`, `Module`, `File`, `Class`, `Interface`, `Method`, `Function`
+- Relationships: `IMPORTS`, `CONTAINS`, `CALLS`, `DEPENDS_ON`, `EXTENDS`, `IMPLEMENTS`, `REFERENCES`
+
+(Neo4j is used throughout the architecture sections of `Architecture.md` but is missing from its "Technologies" list.)
+
+## API standards
+
+- Every route lives under `/api/v1`. Analysis data is nested under `/api/v1/analyses/{analysisId}/...` (`repository`, `files`, `classes`, `methods`, `nodes`, `graph`, `architecture`, `chat`, `explain`). The full target tree is at the end of `Architecture.md`.
+- **Analysis is asynchronous.** `POST /api/v1/analyses` with `{ "repositoryUrl" }` returns `{ analysisId, status: "QUEUED" }` immediately. Clients poll `GET /api/v1/analyses/{analysisId}` for `status` and `progress`. The statuses are `QUEUED`, `CLONING`, `PARSING`, `ANALYZING`, `BUILDING_GRAPH`, `COMPLETED` and `FAILED`.
+- **Extend endpoints instead of adding new ones.** `GET /graph` is the single graph endpoint for every version. It grows query parameters over time: `nodeType` and `relationshipType` in V0.1; `rootNodeId`, `depth`, `nodeTypes`, `relationshipTypes`, `direction` and `maxNodes` in V2; `level` in V3. The same rule applies to `/chat`, which gains `expertiseLevel` in V3.
+- Graph responses always use the React Flow shape: `{ nodes: [{ id, type, name, file, ... }], edges: [{ source, target, type }] }`. Expand-style endpoints add a `centerNode`.
+- List endpoints paginate with `page` and `size`. Filters are optional query parameters.
+- Errors return a machine-readable `code` plus a `message`. For example, a gated feature returns `403 { "code": "PREMIUM_FEATURE", "message": ... }`.
+- **Tier gating happens on the server** (Spring Security plus a subscription service), never only in the frontend.
+- AI responses include `sources` (the graph nodes they used). Architecture detection includes a `confidence` score and must not be presented as certain.
+- The graph and the AI share one expertise model: `BEGINNER`, `INTERMEDIATE` and `EXPERT`.
+
+## Roadmap
+
+- **V0.1 Codebase Understanding** (current): accept a GitHub URL, parse it, build the graph and the V0.1 endpoints (`analyses`, `repository`, `graph`, `nodes`, `files`, `classes`), and show basic technology/framework information. No AI and no auth.
+- **V0.5 Product Foundation**: Google OAuth and JWT through Spring Security (`/auth`, `/users/me`), analysis history (`GET`/`DELETE` analyses, `reanalyze`), usage limits (`/usage`), and an admin API with the `ADMIN` role (`/admin/users`, `/admin/stats`).
+- **V1 AI Codebase Explorer**: Spring AI, "Ask AI" chat with sources, conversations, `/architecture` interpretation, `/explain` for a node, and RAG over the graph plus pgvector. The LLM provider is undecided; the plan is to compare GPT, Gemini and Claude. Deployment happens after V1.
+- **V2 Interactive Architecture Graph** (premium): drill down from a class to its methods and then to their calls, using `nodes/{id}/relationships`, `nodes/{id}/expand`, `classes/{id}/methods` and `methods/{id}/dependencies`, plus parameters on `/graph`.
+- **V3 Adaptive Architecture**: graph views by expertise level. The free tier gets `BEGINNER` and limited `INTERMEDIATE`; `EXPERT` is premium only.
+
+Deferred until there is real load: Redis and RabbitMQ for background processing. Payments are planned through Razorpay.
