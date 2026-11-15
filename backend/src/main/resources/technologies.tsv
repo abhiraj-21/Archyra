@@ -1,0 +1,374 @@
+# ecosystem | pattern ('*' suffix = prefix match) | technology | category
+# categories: FRONTEND_FRAMEWORK BACKEND_FRAMEWORK MOBILE DESKTOP AI_ML DATA BLOCKCHAIN DATABASE INFRASTRUCTURE CI_CD BUILD_TOOL TESTING LIBRARY
+
+npm	react	React	FRONTEND_FRAMEWORK
+npm	react-dom	React	FRONTEND_FRAMEWORK
+npm	next	Next.js	FRONTEND_FRAMEWORK
+npm	vue	Vue	FRONTEND_FRAMEWORK
+npm	nuxt	Nuxt	FRONTEND_FRAMEWORK
+npm	@angular/core	Angular	FRONTEND_FRAMEWORK
+npm	svelte	Svelte	FRONTEND_FRAMEWORK
+npm	@sveltejs/kit	SvelteKit	FRONTEND_FRAMEWORK
+npm	solid-js	SolidJS	FRONTEND_FRAMEWORK
+npm	preact	Preact	FRONTEND_FRAMEWORK
+npm	astro	Astro	FRONTEND_FRAMEWORK
+npm	gatsby	Gatsby	FRONTEND_FRAMEWORK
+npm	@remix-run/*	Remix	FRONTEND_FRAMEWORK
+npm	@reduxjs/toolkit	Redux	LIBRARY
+npm	redux	Redux	LIBRARY
+npm	pinia	Pinia	LIBRARY
+npm	vuex	Vuex	LIBRARY
+npm	@tanstack/react-query	TanStack Query	LIBRARY
+npm	vite	Vite	BUILD_TOOL
+npm	webpack	Webpack	BUILD_TOOL
+npm	esbuild	esbuild	BUILD_TOOL
+npm	rollup	Rollup	BUILD_TOOL
+npm	turbo	Turborepo	BUILD_TOOL
+npm	nx	Nx	BUILD_TOOL
+npm	tailwindcss	Tailwind CSS	LIBRARY
+npm	bootstrap	Bootstrap	LIBRARY
+npm	jquery	jQuery	LIBRARY
+npm	@mui/*	Material UI	LIBRARY
+npm	antd	Ant Design	LIBRARY
+npm	express	Express	BACKEND_FRAMEWORK
+npm	fastify	Fastify	BACKEND_FRAMEWORK
+npm	koa	Koa	BACKEND_FRAMEWORK
+npm	@nestjs/*	NestJS	BACKEND_FRAMEWORK
+npm	@hapi/hapi	hapi	BACKEND_FRAMEWORK
+npm	socket.io	Socket.IO	LIBRARY
+npm	graphql	GraphQL	LIBRARY
+npm	@apollo/*	Apollo	LIBRARY
+npm	prisma	Prisma	DATABASE
+npm	@prisma/client	Prisma	DATABASE
+npm	typeorm	TypeORM	DATABASE
+npm	sequelize	Sequelize	DATABASE
+npm	mongoose	Mongoose	DATABASE
+npm	mongodb	MongoDB	DATABASE
+npm	pg	PostgreSQL	DATABASE
+npm	mysql	MySQL	DATABASE
+npm	mysql2	MySQL	DATABASE
+npm	redis	Redis	DATABASE
+npm	ioredis	Redis	DATABASE
+npm	sqlite3	SQLite	DATABASE
+npm	better-sqlite3	SQLite	DATABASE
+npm	firebase	Firebase	DATABASE
+npm	firebase-admin	Firebase	DATABASE
+npm	jest	Jest	TESTING
+npm	vitest	Vitest	TESTING
+npm	mocha	Mocha	TESTING
+npm	cypress	Cypress	TESTING
+npm	@playwright/test	Playwright	TESTING
+npm	react-native	React Native	MOBILE
+npm	expo	Expo	MOBILE
+npm	@ionic/*	Ionic	MOBILE
+npm	@capacitor/*	Capacitor	MOBILE
+npm	nativescript	NativeScript	MOBILE
+npm	electron	Electron	DESKTOP
+npm	@tauri-apps/api	Tauri	DESKTOP
+npm	@tensorflow/*	TensorFlow.js	AI_ML
+npm	openai	OpenAI SDK	AI_ML
+npm	@anthropic-ai/sdk	Anthropic SDK	AI_ML
+npm	langchain	LangChain	AI_ML
+npm	@langchain/*	LangChain	AI_ML
+npm	ethers	ethers.js	BLOCKCHAIN
+npm	web3	web3.js	BLOCKCHAIN
+npm	viem	viem	BLOCKCHAIN
+npm	wagmi	wagmi	BLOCKCHAIN
+npm	hardhat	Hardhat	BLOCKCHAIN
+npm	truffle	Truffle	BLOCKCHAIN
+npm	@openzeppelin/*	OpenZeppelin	BLOCKCHAIN
+npm	@solana/web3.js	Solana	BLOCKCHAIN
+npm	d3	D3	DATA
+npm	three	Three.js	LIBRARY
+
+pypi	django	Django	BACKEND_FRAMEWORK
+pypi	flask	Flask	BACKEND_FRAMEWORK
+pypi	fastapi	FastAPI	BACKEND_FRAMEWORK
+pypi	starlette	Starlette	BACKEND_FRAMEWORK
+pypi	tornado	Tornado	BACKEND_FRAMEWORK
+pypi	aiohttp	aiohttp	BACKEND_FRAMEWORK
+pypi	sanic	Sanic	BACKEND_FRAMEWORK
+pypi	pyramid	Pyramid	BACKEND_FRAMEWORK
+pypi	celery	Celery	LIBRARY
+pypi	pydantic	Pydantic	LIBRARY
+pypi	sqlalchemy	SQLAlchemy	DATABASE
+pypi	alembic	Alembic	DATABASE
+pypi	psycopg2	PostgreSQL	DATABASE
+pypi	psycopg2-binary	PostgreSQL	DATABASE
+pypi	psycopg	PostgreSQL	DATABASE
+pypi	pymysql	MySQL	DATABASE
+pypi	mysqlclient	MySQL	DATABASE
+pypi	pymongo	MongoDB	DATABASE
+pypi	redis	Redis	DATABASE
+pypi	elasticsearch	Elasticsearch	DATABASE
+pypi	numpy	NumPy	DATA
+pypi	pandas	pandas	DATA
+pypi	scipy	SciPy	DATA
+pypi	polars	Polars	DATA
+pypi	matplotlib	Matplotlib	DATA
+pypi	seaborn	Seaborn	DATA
+pypi	plotly	Plotly	DATA
+pypi	pyspark	Apache Spark	DATA
+pypi	dask	Dask	DATA
+pypi	apache-airflow	Apache Airflow	DATA
+pypi	airflow	Apache Airflow	DATA
+pypi	dbt-core	dbt	DATA
+pypi	streamlit	Streamlit	DATA
+pypi	jupyter	Jupyter	DATA
+pypi	notebook	Jupyter	DATA
+pypi	jupyterlab	Jupyter	DATA
+pypi	ipykernel	Jupyter	DATA
+pypi	tensorflow	TensorFlow	AI_ML
+pypi	tensorflow-gpu	TensorFlow	AI_ML
+pypi	keras	Keras	AI_ML
+pypi	torch	PyTorch	AI_ML
+pypi	pytorch-lightning	PyTorch Lightning	AI_ML
+pypi	lightning	PyTorch Lightning	AI_ML
+pypi	torchvision	PyTorch	AI_ML
+pypi	scikit-learn	scikit-learn	AI_ML
+pypi	sklearn	scikit-learn	AI_ML
+pypi	xgboost	XGBoost	AI_ML
+pypi	lightgbm	LightGBM	AI_ML
+pypi	transformers	Hugging Face Transformers	AI_ML
+pypi	datasets	Hugging Face Datasets	AI_ML
+pypi	langchain	LangChain	AI_ML
+pypi	langchain-*	LangChain	AI_ML
+pypi	llama-index	LlamaIndex	AI_ML
+pypi	openai	OpenAI SDK	AI_ML
+pypi	anthropic	Anthropic SDK	AI_ML
+pypi	mlflow	MLflow	AI_ML
+pypi	wandb	Weights & Biases	AI_ML
+pypi	ray	Ray	AI_ML
+pypi	jax	JAX	AI_ML
+pypi	opencv-python	OpenCV	AI_ML
+pypi	opencv-python-headless	OpenCV	AI_ML
+pypi	cv2	OpenCV	AI_ML
+pypi	spacy	spaCy	AI_ML
+pypi	nltk	NLTK	AI_ML
+pypi	gensim	Gensim	AI_ML
+pypi	gradio	Gradio	AI_ML
+pypi	pytest	pytest	TESTING
+pypi	web3	web3.py	BLOCKCHAIN
+pypi	brownie	Brownie	BLOCKCHAIN
+pypi	vyper	Vyper	BLOCKCHAIN
+pypi	kivy	Kivy	MOBILE
+pypi	pyqt5	Qt	DESKTOP
+pypi	pyqt6	Qt	DESKTOP
+pypi	pyside6	Qt	DESKTOP
+pypi	PyQt5	Qt	DESKTOP
+
+maven	org.springframework.boot:*	Spring Boot	BACKEND_FRAMEWORK
+maven	org.springframework.cloud:*	Spring Cloud	BACKEND_FRAMEWORK
+maven	org.springframework:*	Spring Framework	BACKEND_FRAMEWORK
+maven	io.quarkus:*	Quarkus	BACKEND_FRAMEWORK
+maven	io.micronaut:*	Micronaut	BACKEND_FRAMEWORK
+maven	io.ktor:*	Ktor	BACKEND_FRAMEWORK
+maven	io.vertx:*	Vert.x	BACKEND_FRAMEWORK
+maven	org.hibernate:*	Hibernate	DATABASE
+maven	org.hibernate.orm:*	Hibernate	DATABASE
+maven	jakarta.persistence:*	JPA	DATABASE
+maven	org.postgresql:postgresql	PostgreSQL	DATABASE
+maven	mysql:mysql-connector-java	MySQL	DATABASE
+maven	com.mysql:*	MySQL	DATABASE
+maven	org.mongodb:*	MongoDB	DATABASE
+maven	org.neo4j:*	Neo4j	DATABASE
+maven	redis.clients:jedis	Redis	DATABASE
+maven	org.flywaydb:*	Flyway	DATABASE
+maven	org.liquibase:*	Liquibase	DATABASE
+maven	org.apache.kafka:*	Apache Kafka	INFRASTRUCTURE
+maven	io.grpc:*	gRPC	LIBRARY
+maven	org.junit.jupiter:*	JUnit	TESTING
+maven	junit:junit	JUnit	TESTING
+maven	org.mockito:*	Mockito	TESTING
+maven	org.testcontainers:*	Testcontainers	TESTING
+maven	org.projectlombok:lombok	Lombok	LIBRARY
+maven	com.fasterxml.jackson.*	Jackson	LIBRARY
+maven	org.apache.spark:*	Apache Spark	DATA
+maven	org.apache.flink:*	Apache Flink	DATA
+maven	org.tensorflow:*	TensorFlow	AI_ML
+maven	ai.djl:*	Deep Java Library	AI_ML
+maven	androidx.*	Android	MOBILE
+maven	com.google.android.*	Android	MOBILE
+maven	org.web3j:*	web3j	BLOCKCHAIN
+maven	org.hyperledger.*	Hyperledger	BLOCKCHAIN
+
+gradle-plugin	org.springframework.boot	Spring Boot	BACKEND_FRAMEWORK
+gradle-plugin	io.quarkus	Quarkus	BACKEND_FRAMEWORK
+gradle-plugin	com.android.application	Android	MOBILE
+gradle-plugin	com.android.library	Android	MOBILE
+gradle-plugin	org.jetbrains.kotlin.android	Android	MOBILE
+gradle-plugin	org.jetbrains.kotlin.multiplatform	Kotlin Multiplatform	MOBILE
+gradle-plugin	org.jetbrains.compose	Compose Multiplatform	DESKTOP
+
+go	github.com/gin-gonic/gin	Gin	BACKEND_FRAMEWORK
+go	github.com/labstack/echo*	Echo	BACKEND_FRAMEWORK
+go	github.com/gofiber/fiber*	Fiber	BACKEND_FRAMEWORK
+go	github.com/go-chi/chi*	chi	BACKEND_FRAMEWORK
+go	github.com/gorilla/mux	Gorilla Mux	BACKEND_FRAMEWORK
+go	google.golang.org/grpc	gRPC	LIBRARY
+go	gorm.io/gorm	GORM	DATABASE
+go	github.com/jackc/pgx*	PostgreSQL	DATABASE
+go	github.com/lib/pq	PostgreSQL	DATABASE
+go	github.com/go-sql-driver/mysql	MySQL	DATABASE
+go	go.mongodb.org/mongo-driver*	MongoDB	DATABASE
+go	github.com/redis/go-redis*	Redis	DATABASE
+go	github.com/go-redis/redis*	Redis	DATABASE
+go	github.com/spf13/cobra	Cobra	LIBRARY
+go	github.com/stretchr/testify	testify	TESTING
+go	k8s.io/*	Kubernetes	INFRASTRUCTURE
+go	github.com/hashicorp/terraform-plugin*	Terraform	INFRASTRUCTURE
+go	github.com/aws/aws-sdk-go*	AWS SDK	INFRASTRUCTURE
+go	github.com/prometheus/client_golang	Prometheus	INFRASTRUCTURE
+go	github.com/nats-io/*	NATS	INFRASTRUCTURE
+go	github.com/segmentio/kafka-go	Apache Kafka	INFRASTRUCTURE
+go	github.com/confluentinc/confluent-kafka-go*	Apache Kafka	INFRASTRUCTURE
+go	github.com/ethereum/go-ethereum*	go-ethereum	BLOCKCHAIN
+go	github.com/cosmos/cosmos-sdk*	Cosmos SDK	BLOCKCHAIN
+go	github.com/hyperledger/*	Hyperledger	BLOCKCHAIN
+
+cargo	tokio	Tokio	LIBRARY
+cargo	actix-web	Actix Web	BACKEND_FRAMEWORK
+cargo	axum	Axum	BACKEND_FRAMEWORK
+cargo	rocket	Rocket	BACKEND_FRAMEWORK
+cargo	warp	Warp	BACKEND_FRAMEWORK
+cargo	serde	Serde	LIBRARY
+cargo	diesel	Diesel	DATABASE
+cargo	sqlx	SQLx	DATABASE
+cargo	sea-orm	SeaORM	DATABASE
+cargo	clap	clap	LIBRARY
+cargo	tauri	Tauri	DESKTOP
+cargo	bevy	Bevy	LIBRARY
+cargo	wasm-bindgen	WebAssembly	LIBRARY
+cargo	polars	Polars	DATA
+cargo	ndarray	ndarray	DATA
+cargo	tch	tch (PyTorch)	AI_ML
+cargo	burn	Burn	AI_ML
+cargo	candle-core	Candle	AI_ML
+cargo	solana-program	Solana	BLOCKCHAIN
+cargo	anchor-lang	Anchor	BLOCKCHAIN
+cargo	near-sdk	NEAR	BLOCKCHAIN
+cargo	ink	ink!	BLOCKCHAIN
+cargo	cosmwasm-std	CosmWasm	BLOCKCHAIN
+cargo	frame-support	Substrate	BLOCKCHAIN
+cargo	substrate-*	Substrate	BLOCKCHAIN
+cargo	ethers	ethers-rs	BLOCKCHAIN
+cargo	alloy	Alloy	BLOCKCHAIN
+
+composer	laravel/framework	Laravel	BACKEND_FRAMEWORK
+composer	illuminate/*	Laravel	BACKEND_FRAMEWORK
+composer	symfony/*	Symfony	BACKEND_FRAMEWORK
+composer	slim/slim	Slim	BACKEND_FRAMEWORK
+composer	cakephp/cakephp	CakePHP	BACKEND_FRAMEWORK
+composer	yiisoft/*	Yii	BACKEND_FRAMEWORK
+composer	livewire/livewire	Livewire	FRONTEND_FRAMEWORK
+composer	doctrine/*	Doctrine	DATABASE
+composer	phpunit/phpunit	PHPUnit	TESTING
+
+rubygems	rails	Ruby on Rails	BACKEND_FRAMEWORK
+rubygems	sinatra	Sinatra	BACKEND_FRAMEWORK
+rubygems	hanami	Hanami	BACKEND_FRAMEWORK
+rubygems	grape	Grape	BACKEND_FRAMEWORK
+rubygems	rspec*	RSpec	TESTING
+rubygems	minitest	Minitest	TESTING
+rubygems	activerecord	ActiveRecord	DATABASE
+rubygems	pg	PostgreSQL	DATABASE
+rubygems	mysql2	MySQL	DATABASE
+rubygems	redis	Redis	DATABASE
+rubygems	sidekiq	Sidekiq	LIBRARY
+rubygems	devise	Devise	LIBRARY
+rubygems	jekyll	Jekyll	FRONTEND_FRAMEWORK
+rubygems	fastlane	Fastlane	MOBILE
+rubygems	cocoapods	CocoaPods	MOBILE
+
+nuget	Microsoft.AspNetCore.Components*	Blazor	FRONTEND_FRAMEWORK
+nuget	Microsoft.AspNetCore*	ASP.NET Core	BACKEND_FRAMEWORK
+nuget	Microsoft.EntityFrameworkCore*	Entity Framework Core	DATABASE
+nuget	Npgsql*	PostgreSQL	DATABASE
+nuget	MongoDB.Driver	MongoDB	DATABASE
+nuget	StackExchange.Redis	Redis	DATABASE
+nuget	Xamarin.*	Xamarin	MOBILE
+nuget	Microsoft.Maui*	.NET MAUI	MOBILE
+nuget	Avalonia*	Avalonia	DESKTOP
+nuget	xunit*	xUnit	TESTING
+nuget	NUnit*	NUnit	TESTING
+nuget	MSTest*	MSTest	TESTING
+nuget	Newtonsoft.Json	Json.NET	LIBRARY
+nuget	MediatR	MediatR	LIBRARY
+nuget	Microsoft.ML*	ML.NET	AI_ML
+nuget	Nethereum.*	Nethereum	BLOCKCHAIN
+
+pub	flutter	Flutter	MOBILE
+pub	flutter_bloc	BLoC	LIBRARY
+pub	flutter_riverpod	Riverpod	LIBRARY
+pub	riverpod	Riverpod	LIBRARY
+pub	provider	Provider	LIBRARY
+pub	get	GetX	LIBRARY
+pub	dio	Dio	LIBRARY
+pub	sqflite	SQLite	DATABASE
+pub	firebase_core	Firebase	DATABASE
+pub	web3dart	web3dart	BLOCKCHAIN
+
+swiftpm	alamofire	Alamofire	LIBRARY
+swiftpm	vapor	Vapor	BACKEND_FRAMEWORK
+swiftpm	rxswift	RxSwift	LIBRARY
+swiftpm	realm-swift	Realm	DATABASE
+cocoapods	Alamofire	Alamofire	LIBRARY
+cocoapods	RxSwift	RxSwift	LIBRARY
+cocoapods	Firebase*	Firebase	DATABASE
+cocoapods	Realm*	Realm	DATABASE
+
+java-package	org.springframework.boot	Spring Boot	BACKEND_FRAMEWORK
+java-package	org.springframework	Spring Framework	BACKEND_FRAMEWORK
+java-package	jakarta.persistence	JPA	DATABASE
+java-package	javax.persistence	JPA	DATABASE
+java-package	org.hibernate	Hibernate	DATABASE
+java-package	org.junit	JUnit	TESTING
+java-package	org.mockito	Mockito	TESTING
+java-package	lombok	Lombok	LIBRARY
+java-package	com.fasterxml.jackson	Jackson	LIBRARY
+java-package	androidx	Android	MOBILE
+java-package	android	Android	MOBILE
+java-package	org.apache.kafka	Apache Kafka	INFRASTRUCTURE
+java-package	io.ktor	Ktor	BACKEND_FRAMEWORK
+java-package	io.quarkus	Quarkus	BACKEND_FRAMEWORK
+java-package	io.micronaut	Micronaut	BACKEND_FRAMEWORK
+java-package	org.web3j	web3j	BLOCKCHAIN
+java-package	org.apache.spark	Apache Spark	DATA
+
+csharp-namespace	Microsoft.AspNetCore	ASP.NET Core	BACKEND_FRAMEWORK
+csharp-namespace	Microsoft.EntityFrameworkCore	Entity Framework Core	DATABASE
+csharp-namespace	Xamarin	Xamarin	MOBILE
+csharp-namespace	Microsoft.Maui	.NET MAUI	MOBILE
+csharp-namespace	Nethereum	Nethereum	BLOCKCHAIN
+csharp-namespace	Microsoft.ML	ML.NET	AI_ML
+csharp-namespace	Xunit	xUnit	TESTING
+csharp-namespace	NUnit	NUnit	TESTING
+
+php-namespace	Illuminate	Laravel	BACKEND_FRAMEWORK
+php-namespace	Symfony	Symfony	BACKEND_FRAMEWORK
+php-namespace	Doctrine	Doctrine	DATABASE
+php-namespace	PHPUnit	PHPUnit	TESTING
+php-namespace	Livewire	Livewire	FRONTEND_FRAMEWORK
+
+docker-image	postgres	PostgreSQL	DATABASE
+docker-image	mysql	MySQL	DATABASE
+docker-image	mariadb	MariaDB	DATABASE
+docker-image	mongo	MongoDB	DATABASE
+docker-image	redis	Redis	DATABASE
+docker-image	neo4j	Neo4j	DATABASE
+docker-image	elasticsearch	Elasticsearch	DATABASE
+docker-image	rabbitmq	RabbitMQ	INFRASTRUCTURE
+docker-image	confluentinc/cp-kafka	Apache Kafka	INFRASTRUCTURE
+docker-image	bitnami/kafka	Apache Kafka	INFRASTRUCTURE
+docker-image	nginx	NGINX	INFRASTRUCTURE
+docker-image	traefik	Traefik	INFRASTRUCTURE
+docker-image	prom/prometheus	Prometheus	INFRASTRUCTURE
+docker-image	grafana/grafana	Grafana	INFRASTRUCTURE
+docker-image	localstack/localstack	LocalStack	INFRASTRUCTURE
+docker-image	minio/minio	MinIO	INFRASTRUCTURE
+docker-image	jupyter/*	Jupyter	DATA
+docker-image	tensorflow/*	TensorFlow	AI_ML
+docker-image	pytorch/*	PyTorch	AI_ML
+docker-image	ethereum/client-go	Geth	BLOCKCHAIN
+docker-image	trufflesuite/ganache*	Ganache	BLOCKCHAIN
+docker-image	hyperledger/*	Hyperledger	BLOCKCHAIN
