@@ -1,0 +1,10 @@
+.env
+# Tree-sitter native libraries built by scripts/build-native.sh
+native/
+
+# Build output and IDE files
+target/
+.idea/
+*.iml
+.DS_Store
+HELP.md
