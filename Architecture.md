@@ -439,6 +439,17 @@ analysisId
 }
 ```
 
+When the status is `FAILED`, the response also carries a `failureReason` (a user-safe message). The field is present only for `FAILED`; it is omitted for every other status.
+
+```
+{
+  "analysisId": "a8f31c",
+  "status": "FAILED",
+  "progress": 25,
+  "failureReason": "Repository is too large"
+}
+```
+
 Possible statuses:
 
 ```
@@ -471,6 +482,12 @@ Returns things such as:
   "methods": 412
 }
 ```
+
+Semantics (V0.1):
+
+- Only a `COMPLETED` analysis has a repository: unknown or malformed ids return `404 ANALYSIS_NOT_FOUND`; an analysis that is still running or `FAILED` returns `409 ANALYSIS_NOT_COMPLETED`.
+- `languages`: every language found, whether or not it has an extractor (SQL above has no code nodes), most files first. `files` is the number of files in those languages, from PostgreSQL (`analysis_metadata`).
+- `name`, `classes` and `methods` come from the graph and count the repository's own code only (external nodes excluded). `classes` counts `Class` nodes (enums and records included, interfaces not). `methods` counts `Method` and `Function` nodes, because languages without classes have functions only.
 
 ---
 
@@ -517,13 +534,41 @@ GET /api/v1/analyses/a8f31c/graph?nodeType=CLASS
 }
 ```
 
----
+Semantics (V0.1):
 
-# 5. Get a specific node
+- Only a `COMPLETED` analysis has a graph: unknown or malformed ids return `404 ANALYSIS_NOT_FOUND`, an analysis that is running or `FAILED` returns `409 ANALYSIS_NOT_COMPLETED`, and a `nodeType` or `relationshipType` that is not an enum value returns `400 VALIDATION_ERROR` listing the allowed values (case-sensitive, upper case).
+- The filters are independent. `nodeType` keeps only nodes of that type. `relationshipType` keeps only edges of that type and does not narrow the nodes. An edge is returned only if both of its ends are returned, so `?nodeType=CLASS` gives the classes and the relationships among them, and no edge points at a missing node. With neither filter the response is the whole graph.
+- External nodes (types outside the repository) are never returned, and neither are edges that touch them.
+- `file` is left out for nodes that have none (repository, module). Nodes and edges are sorted for a stable response.
+
 
 ### `GET /api/v1/analyses/{analysisId}/nodes/{nodeId}`
 
 Returns information about a class/file/function/etc.
+
+```
+{
+  "id": "class:com.foo.UserService",
+  "type": "CLASS",
+  "name": "UserService",
+  "qualifiedName": "com.foo.UserService",
+  "file": "src/UserService.java",
+  "line": 12,
+  "kind": "CLASS",
+  "parentId": "file:src/UserService.java",
+  "relationships": {
+    "outgoing": { "CONTAINS": 4, "DEPENDS_ON": 2 },
+    "incoming": { "DEPENDS_ON": 1 }
+  }
+}
+```
+
+Semantics (V0.1):
+
+- `nodeId` is the id the graph exposes. Ids contain `/`, `#`, `(`, `)` and spaces, so a client percent-encodes the whole id (`file%3Asrc%2Fmain%2FApp.java`); the server accepts an encoded slash (`TomcatConfig`).
+- Any node type works. Fields that do not apply are left out: `kind` is the declaration kind of a type (`CLASS`, `ENUM`, `RECORD`, ...), `language` replaces it for a file (display name, e.g. `Java`), `file` is absent for repository and module nodes, `parentId` is the containing node (absent for the repository).
+- `relationships` counts relationships by type to and from other nodes of the repository. External nodes are not counted, and types with no relationship are absent. `/nodes/{nodeId}/relationships` (V2) will list them.
+- An external node (outside the repository), an unknown id and an id that is not a node id all return `404 NODE_NOT_FOUND`. Unknown or malformed analysis ids return `404 ANALYSIS_NOT_FOUND`, an analysis that is not `COMPLETED` returns `409 ANALYSIS_NOT_COMPLETED`.
 
 ---
 
@@ -536,9 +581,32 @@ Query parameters:
 ```
 ?language=Java
 &path=src/main
+&page=0
+&size=50
 ```
 
-Both optional.
+All optional. Response:
+
+```
+{
+  "items": [
+    { "id": "file:src/main/App.java", "name": "App.java", "path": "src/main/App.java", "language": "Java" }
+  ],
+  "page": 0,
+  "size": 50,
+  "totalElements": 143,
+  "totalPages": 3
+}
+```
+
+Semantics (V0.1):
+
+- The filters are independent and combine with AND; with neither, every file is listed. Files are sorted by path.
+- `language` is a display name (`Java`, `C#`) or constant (`CSHARP`), in any case; an unknown value returns `400 VALIDATION_ERROR` listing the allowed ones.
+- `path` matches the file with exactly that path and everything below it, on whole segments (`src/main` does not match `src/mainframe`), case-sensitive. Leading `./` or `/` and trailing `/` are ignored. At most 500 characters.
+- Lists paginate (`page` is zero-based, default size 50, at most 200; anything else is `400`). `totalElements` counts the files that match the filters, over all pages.
+- Only files that are part of the graph are listed, i.e. files of analysed languages. Languages that are only counted (SQL, shell, ...) have no files here, although they are in `languages` and `files` of `/repository`.
+- Unknown or malformed analysis ids return `404 ANALYSIS_NOT_FOUND`, an analysis that is not `COMPLETED` returns `409 ANALYSIS_NOT_COMPLETED`.
 
 ---
 
@@ -547,6 +615,31 @@ Both optional.
 ### `GET /api/v1/analyses/{analysisId}/files/{fileId}`
 
 Returns metadata and extracted entities.
+
+`fileId` is the file's node id from the `/files` listing (`file:src/main/App.java`), percent-encoded like a `nodeId`.
+
+```
+{
+  "id": "file:src/main/App.java",
+  "name": "App.java",
+  "path": "src/main/App.java",
+  "language": "Java",
+  "module": { "id": "module:com.example", "type": "MODULE", "name": "com.example", "external": false },
+  "classes":    [ { "id": "class:com.example.App", "type": "CLASS", "name": "App", "kind": "CLASS", "line": 5, "parentId": "file:src/main/App.java" } ],
+  "interfaces": [],
+  "methods":    [ { "id": "method:com.example.App#run()", "type": "METHOD", "name": "run", "line": 8, "parentId": "class:com.example.App" } ],
+  "functions":  [],
+  "imports":    [ { "id": "external:class:java.util.List", "type": "CLASS", "name": "List", "qualifiedName": "java.util.List", "external": true } ],
+  "references": [ { "id": "class:com.example.Order", "type": "CLASS", "name": "Order", "qualifiedName": "com.example.Order", "file": "src/main/Order.java", "external": false } ]
+}
+```
+
+Semantics (V0.1):
+
+- Everything comes from the graph: `classes`, `interfaces`, `methods` and `functions` are the declarations contained in the file (nested types and their methods included, sorted by line); `parentId` says what contains each.
+- `imports` are the `IMPORTS` targets: other files of the repository (`type` `FILE`, with `file`) and external types or modules (`external: true`, `qualifiedName` such as `java.util.List`).
+- `references` are the `REFERENCES` targets of the file's declarations (field types, signatures, `new`), excluding types declared in the same file. Targets may be external.
+- Every list is present and empty when the file has nothing of that kind (a script has no classes). An id that is not a file of the analysis (unknown, a class id, an external node) returns `404 NODE_NOT_FOUND`.
 
 ---
 
@@ -566,6 +659,30 @@ Could return:
   "dependencies": [...]
 }
 ```
+
+`classId` is the class's node id (`class:com.foo.UserService`), percent-encoded like a `nodeId`. Example response:
+
+```
+{
+  "id": "class:com.foo.UserService",
+  "name": "UserService",
+  "qualifiedName": "com.foo.UserService",
+  "kind": "CLASS",
+  "file": "src/UserService.java",
+  "line": 7,
+  "parentId": "file:src/UserService.java",
+  "superclasses": [],
+  "methods":      [ { "id": "method:com.foo.UserService#find(String)", "type": "METHOD", "name": "find", "line": 9 } ],
+  "interfaces":   [ { "id": "interface:com.foo.UserApi", "type": "INTERFACE", "name": "UserApi", "qualifiedName": "com.foo.UserApi", "file": "src/UserApi.java", "external": false } ],
+  "dependencies": [ { "id": "interface:com.foo.UserRepository", "type": "INTERFACE", "name": "UserRepository", "qualifiedName": "com.foo.UserRepository", "file": "src/UserRepository.java", "external": false } ]
+}
+```
+
+Semantics (V0.1):
+
+- `/classes` serves `Class` nodes: classes, enums, records and structs, with `kind` telling which. Interfaces are not classes (an interface id returns `404 NODE_NOT_FOUND`); open them with `/nodes/{nodeId}`.
+- `methods` are the methods declared directly in the class (not those of nested classes). `interfaces` are the `IMPLEMENTS` targets and `superclasses` the `EXTENDS` targets (a list, because some languages allow several); both may be external (`external: true`, e.g. `java.io.Serializable`). `dependencies` are the `DEPENDS_ON` targets, which are always classes and interfaces of the repository.
+- `parentId` is the enclosing class of a nested class, otherwise the declaring file. Every list is present and empty when there is nothing to list.
 
 ---
 

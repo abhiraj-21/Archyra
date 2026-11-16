@@ -8,4 +8,6 @@ import org.springframework.data.jpa.repository.JpaRepository;
 public interface AnalysisMetadataRepository extends JpaRepository<AnalysisMetadata, UUID> {
 
 	List<AnalysisMetadata> findByAnalysisId(UUID analysisId);
+
+	List<AnalysisMetadata> findByAnalysisIdAndKind(UUID analysisId, MetadataKind kind);
 }

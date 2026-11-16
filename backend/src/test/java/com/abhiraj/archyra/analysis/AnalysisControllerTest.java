@@ -5,6 +5,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -23,6 +24,7 @@ import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
+import com.abhiraj.archyra.common.AnalysisNotFoundException;
 import com.abhiraj.archyra.common.GlobalExceptionHandler;
 import com.abhiraj.archyra.common.ServiceBusyException;
 
@@ -145,5 +147,43 @@ class AnalysisControllerTest {
 				.andExpect(status().isServiceUnavailable())
 				.andExpect(jsonPath("$.code").value("SERVICE_BUSY"))
 				.andExpect(jsonPath("$.message").value("Too many analyses are running."));
+	}
+
+	@Test
+	void statusReturns200WithIdStatusAndProgress() throws Exception {
+		given(analysisService.getStatus(ANALYSIS_ID))
+				.willReturn(new AnalysisStatusResponse(ANALYSIS_ID, AnalysisStatus.PARSING, 25, null));
+
+		mockMvc.perform(get(URL + "/" + ANALYSIS_ID))
+				.andExpect(status().isOk())
+				.andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
+				.andExpect(jsonPath("$.analysisId").value(ANALYSIS_ID))
+				.andExpect(jsonPath("$.status").value("PARSING"))
+				.andExpect(jsonPath("$.progress").value(25))
+				.andExpect(jsonPath("$.failureReason").doesNotExist())
+				.andExpect(jsonPath("$.length()").value(3));
+	}
+
+	@Test
+	void statusOfFailedAnalysisIncludesTheFailureReason() throws Exception {
+		given(analysisService.getStatus(ANALYSIS_ID)).willReturn(
+				new AnalysisStatusResponse(ANALYSIS_ID, AnalysisStatus.FAILED, 25, "Repository is too large"));
+
+		mockMvc.perform(get(URL + "/" + ANALYSIS_ID))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.status").value("FAILED"))
+				.andExpect(jsonPath("$.progress").value(25))
+				.andExpect(jsonPath("$.failureReason").value("Repository is too large"))
+				.andExpect(jsonPath("$.length()").value(4));
+	}
+
+	@Test
+	void statusOfUnknownAnalysisReturns404WithMachineReadableCode() throws Exception {
+		given(analysisService.getStatus(ANALYSIS_ID)).willThrow(new AnalysisNotFoundException("Analysis not found"));
+
+		mockMvc.perform(get(URL + "/" + ANALYSIS_ID))
+				.andExpect(status().isNotFound())
+				.andExpect(jsonPath("$.code").value("ANALYSIS_NOT_FOUND"))
+				.andExpect(jsonPath("$.message").value("Analysis not found"));
 	}
 }
