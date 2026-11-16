@@ -1,4 +1,6 @@
-# backend/CLAUDE.md
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository. It covers `backend/`.
 
 Backend-specific guidance. System-wide architecture, database boundaries, API standards and the roadmap are in the root `CLAUDE.md` and `Architecture.md`.
 
@@ -62,7 +64,7 @@ com.abhiraj.archyra
 ## V0.1 rules
 
 **Spring Web**
-- **Implemented so far:** `POST /api/v1/analyses` (plus the background pipeline behind it) and `GET /api/v1/analyses/{analysisId}` (`{ analysisId, status, progress }` from PostgreSQL, plus `failureReason` only when `FAILED`; a malformed or unknown id is `404 ANALYSIS_NOT_FOUND`). `GET /api/v1/analyses/{analysisId}/repository` (`codebase/`: languages and file count from `analysis_metadata`, name and class/method counts from Neo4j through `graph/GraphQueryService`; `409 ANALYSIS_NOT_COMPLETED` unless `COMPLETED`). `GET /api/v1/analyses/{analysisId}/graph` (`graph/`: `nodeType` and `relationshipType` filters, external nodes excluded, one Cypher query per label so the `(analysisId, nodeId)` indexes are used; a bad enum value is `400 VALIDATION_ERROR`). `GET /api/v1/analyses/{analysisId}/nodes/{nodeId}` (`graph/`: the label comes from the id prefix so the index is used; external nodes are `404 NODE_NOT_FOUND`; ids contain `/`, so `common/TomcatConfig` lets an encoded slash through) and `GET /api/v1/analyses/{analysisId}/files` (`codebase/`: `language`, `path`, `page`, `size`; File nodes only). `GET /files/{fileId}` and `GET /classes/{classId}` (`codebase/` controllers, `graph/CodeQueryService` queries; the id is the node id, `class:` only for classes, `NODE_NOT_FOUND` otherwise). All V0.1 endpoints are implemented.
+- **Implemented:** every V0.1 endpoint: `POST /analyses`, `GET /analyses/{id}`, `/repository`, `/graph`, `/nodes/{nodeId}`, `/files`, `/files/{fileId}` and `/classes/{classId}`. Per-endpoint behaviour (fields, filters, edge cases) is specified in `Architecture.md`, next to each endpoint; how they are wired is in "Read endpoints" below.
 - Routes are under `/api/v1`. Implement only the V0.1 endpoints from `Architecture.md` (`analyses`, `analyses/{id}`, `/repository`, `/graph`, `/nodes/{nodeId}`, `/files`, `/files/{fileId}`, `/classes/{classId}`).
 - `POST /api/v1/analyses` must return `{ analysisId, status: "QUEUED" }` without waiting for the analysis. Run the pipeline in the background with `@Async` on a dedicated, bounded `ThreadPoolTaskExecutor`. Do not add Redis or RabbitMQ yet.
 - Update the status and `progress` as the pipeline advances through `CLONING`, `PARSING`, `ANALYZING`, `BUILDING_GRAPH` and `COMPLETED`. Any failure sets `FAILED` with a reason; never leave an analysis stuck in an intermediate status.
@@ -125,8 +127,24 @@ The pipeline is language-neutral; only extractors and module resolvers know a la
 - A partially written graph is deleted when `BUILDING_GRAPH` fails. `AnalysisRecovery` marks analyses left `QUEUED` or in progress by a restart as `FAILED` (single instance assumed).
 - Parsing one bad file never fails the analysis; a repository with nothing parsable fails with a reason that lists the supported languages.
 
+## Read endpoints (implemented)
+
+Every read endpoint follows the same path, so a new one should reuse it:
+
+- **Controller** (`codebase/` for `/repository`, `/files`, `/classes`; `graph/` for `/graph`, `/nodes`) takes the `analysisId` as a plain `String` path variable and calls a service.
+- **`AnalysisService.requireCompleted(analysisId)`** is the single gate for serving results. It parses the id strictly as a canonical UUID (anything else cannot exist), then returns the UUID, or throws `AnalysisNotFoundException` (404) or `AnalysisNotCompletedException` (409, also for `FAILED`). `GraphService` calls it first, then hands `uuid.toString()` to the Neo4j queries, because that string is the `analysisId` stored on every node.
+- **Neo4j reads** live in `graph/GraphQueryService` (counts, graph, node, files) and `graph/CodeQueryService` (file and class details). Cypher is built only from fixed strings and the label/relationship enums; ids, filters and paging are always bound parameters.
+- **Postgres reads** go through `analysis/` services (`AnalysisService`, `AnalysisMetadataService`), never through its repositories from another feature.
+- **Errors** are one exception per outcome in `common/`, mapped in `GlobalExceptionHandler`: `AnalysisNotFoundException` 404 `ANALYSIS_NOT_FOUND`, `NodeNotFoundException` 404 `NODE_NOT_FOUND`, `AnalysisNotCompletedException` 409 `ANALYSIS_NOT_COMPLETED`, `InvalidRequestException` and a bad enum or number in a query parameter 400 `VALIDATION_ERROR`, `ServiceBusyException` 503. Messages never echo user input.
+- **Node ids** (`class:com.foo.A`, `file:src/A.java`, `method:com.foo.A#m(String)`) are what the API calls `nodeId`/`fileId`/`classId`. The prefix is the node type, so lookups pick the Neo4j label from it and use the `(analysisId, nodeId)` index; an unknown prefix is a 404 without a query. They contain `/`, `#`, `(` and spaces, so clients percent-encode the whole id and `common/TomcatConfig` sets Tomcat's `encodedSolidusHandling` to `passthrough`. Without it ids with a `/` never reach the controller.
+- **External nodes** (`external: true`: library types, external modules) exist in the graph but are never returned as nodes or counted, except as labelled targets in a file's `imports`/`references` and a class's `superclasses`/`interfaces`.
+- **Lists** paginate with a zero-based `page` and `size` (default 50, at most 200; out of range is a 400). Filters combine with AND.
+
 ## Testing
 
 - Language tests run the real parser over fixture repositories under `src/test/resources/fixtures/polyglot/<language>/` through `FixtureAnalysis` (discovery, parsing and resolution without Spring); they need the native libraries. Tests that load the Spring context (`ArchyraApplicationTests`, `AnalysisPipelineIntegrationTest`, `PolyglotPipelineIntegrationTest`) use Testcontainers (`TestcontainersConfiguration` with `@ServiceConnection`, profile `test`) and need Docker, not local installs. The pipeline integration tests run the whole pipeline against real PostgreSQL, Neo4j and the real parser; only `GitCloner` is mocked, so it copies fixtures (`sample-repo`, or several `polyglot/*` directories assembled into one mixed repository). `RealRepositoryAnalysisTest` (opt-in, network) analyses a dozen real repositories, one per language.
 - Test parsers and extractors as plain unit tests against small fixture source files under `src/test/resources/fixtures/`, without a Spring context.
 - Use `@WebMvcTest` slices for controllers.
+- Endpoint tests come in three layers: `@WebMvcTest` controller tests with a mocked service, Mockito unit tests of the services, and integration tests that run the real pipeline over `sample-repo`. The ones that need ids with slashes (`NodeEndpointHttpTest`, `FileAndClassEndpointHttpTest`) use `webEnvironment = RANDOM_PORT` and a real `HttpClient`, because MockMvc skips Tomcat and would not notice the `%2F` setting being removed.
+- Mockito runs in strict-stubs mode with `@ExtendWith(MockitoExtension.class)`: a stub unused by a test fails it. A shared `setUp` stub that only some tests use needs `lenient()` (see `AnalysisServiceTest`).
+- `./mvnw -q test` prints almost nothing on success; read the per-class counts in `target/surefire-reports/TEST-*.xml` (`tests`, `failures`, `errors`) when you need proof that a class actually ran.

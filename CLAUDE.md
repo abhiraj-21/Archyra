@@ -56,7 +56,7 @@ The Neo4j model is meant to be stable ("the foundation you do not want to rebuil
 
 ## Roadmap
 
-- **V0.1 Codebase Understanding** (current): accept a GitHub URL, parse it, build the graph and the V0.1 endpoints (`analyses`, `repository`, `graph`, `nodes`, `files`, `classes`), and show basic technology/framework information. No AI and no auth.
+- **V0.1 Codebase Understanding** (current): accept a GitHub URL, parse it, build the graph and the V0.1 endpoints (`analyses`, `repository`, `graph`, `nodes`, `files`, `classes`), and show basic technology/framework information. No AI and no auth. The backend endpoints are all implemented; technology/framework information is stored in `analysis_metadata` but not exposed by an endpoint yet.
 - **V0.5 Product Foundation**: Google OAuth and JWT through Spring Security (`/auth`, `/users/me`), analysis history (`GET`/`DELETE` analyses, `reanalyze`), usage limits (`/usage`), and an admin API with the `ADMIN` role (`/admin/users`, `/admin/stats`).
 - **V1 AI Codebase Explorer**: Spring AI, "Ask AI" chat with sources, conversations, `/architecture` interpretation, `/explain` for a node, and RAG over the graph plus pgvector. The LLM provider is undecided; the plan is to compare GPT, Gemini and Claude. Deployment happens after V1.
 - **V2 Interactive Architecture Graph** (premium): drill down from a class to its methods and then to their calls, using `nodes/{id}/relationships`, `nodes/{id}/expand`, `classes/{id}/methods` and `methods/{id}/dependencies`, plus parameters on `/graph`.
