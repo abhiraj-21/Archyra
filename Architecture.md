@@ -46,8 +46,8 @@
 - [ ]  Google authentication
 - [ ]  User accounts
 - [ ]  Repository history
-- [ ]  Usage tracking
-- [ ]  Free usage limits
+- [x]  Usage tracking
+- [x]  Free usage limits
 - [ ]  Admin dashboard
 - [ ]  Total users
 - [ ]  Active users
@@ -845,15 +845,36 @@ This is enough. You don't need a massive "repository management" subsystem.
 
 ### `GET /api/v1/usage`
 
-Returns:
+Authenticated. The user is always the caller (taken from the security context): there is no `userId` parameter, and nothing in a request can change a counter. Reading never creates rows or takes locks; a user with no row sees `used: 0`. Returns one entry for every usage type, `AI_QUERY` included, so the frontend does not change when the AI chat arrives:
 
 ```
 {
-  "analysesUsed": 3,
-  "analysesLimit": 5,
-  "resetAt": "..."
+  "plan": "FREE",
+  "usage": [
+    { "usageType": "REPOSITORY_ANALYSIS", "used": 3, "limit": 5,  "remaining": 2,  "limitReached": false },
+    { "usageType": "AI_QUERY",            "used": 0, "limit": 20, "remaining": 20, "limitReached": false }
+  ]
 }
 ```
+
+For a PREMIUM user `limit` and `remaining` are `null` (present, not omitted, not `-1`) and `limitReached` is `false`; `used` is still the true count:
+
+```
+{ "usageType": "REPOSITORY_ANALYSIS", "used": 12, "limit": null, "remaining": null, "limitReached": false }
+```
+
+`remaining = max(limit - used, 0)` and `limitReached = used >= limit` for FREE. `plan` is the effective plan (an expired PREMIUM shows `FREE`). There is no `resetAt`: the allowance is for life.
+
+> **Built in V0.5** (`usage/` package):
+>
+> - **Lifetime allowance.** A free user gets `archyra.usage.free-tier.repository-analysis-limit` analyses (default 5) in total, not per month, and nothing resets. The counter is `used_count` in `user_usage`, one row per user and usage type, created on first use. The limits come from configuration only (`archyra.usage.free-tier.*`; a missing or negative value fails startup). `AI_QUERY` exists in the enum and the configuration but nothing consumes it yet.
+> - **When a unit is consumed.** `AnalysisService.createAnalysis` calls `AnalysisRegistrar.registerOrReuse`, one short transaction that commits before the background pipeline starts. Every analysis creation goes through it (there is no `reanalyze` yet; when it is built it must use the same registrar).
+> - **Locking.** The transaction first creates the user's counter row if needed (`INSERT ... ON CONFLICT DO NOTHING`, so concurrent first requests cannot violate the unique constraint) and then locks it with `SELECT ... FOR UPDATE` (waiting at most 5 s, then `503 SERVICE_BUSY`). That serializes all analysis creation of one user, and only that user, and makes the duplicate check, the limit check, the increment and the insert race-free. Premium users take the same lock so that their counter stays exact. A guarded `UPDATE ... WHERE used_count < :limit` would solve the limit race but not the duplicate-request race, which needs the same serialization anyway.
+> - **Duplicates.** Under that lock, a request for a repository URL (compared exactly as validated) that the same user already has in `QUEUED`, `CLONING`, `PARSING`, `ANALYZING` or `BUILDING_GRAPH` returns that analysis (same `202 { analysisId, status }` shape), starts no pipeline and charges nothing. This check runs before the limit check, so a user at 5/5 who resubmits a running URL gets it back instead of a 403. A `COMPLETED` or `FAILED` analysis is not a duplicate: running it again is a new charge.
+> - **Limit.** A FREE user with `used_count >= limit` gets `403 USAGE_LIMIT_EXCEEDED` (`{ "code", "message" }`, the message names the configured limit) and no analysis row is created. 403 matches `PREMIUM_FEATURE`: a lifetime limit is not a "retry later" situation, which is what the `429` of `RATE_LIMITED` means.
+> - **Premium.** A PREMIUM user (from `User.effectivePlan`, read from the database, never the token) is never blocked, and the counter is still kept. Premium feature gating (`PREMIUM_FEATURE`) is unchanged.
+> - **Downgrade (intentional).** `used_count` is everything the user ever consumed. A former premium user with 12 analyses who is back on FREE is already over the limit: `used: 12, limit: 5, remaining: 0, limitReached: true`, and blocked until the limit is raised.
+> - **Refunds.** A unit goes back exactly once when the pipeline ends an analysis as `FAILED` (every failure path), when the executor rejects the submission (`503 SERVICE_BUSY`; the row stays as `FAILED`), and, at startup, for analyses interrupted by a restart or failed with a refund that did not go through. `FAILED` and the refund are written in one transaction, so a client that sees `FAILED` already has its unit back. `analyses.quota_charged` and `quota_refunded` make it idempotent: `UPDATE analyses SET quota_refunded = true WHERE id = ? AND quota_charged AND NOT quota_refunded` lets only the first caller go on to the guarded `used_count - 1` (`used_count > 0`, plus a `used_count >= 0` check constraint). A `COMPLETED` analysis is never refunded. Deleting an analysis never refunds either (the allowance is not given back by deleting), and an analysis that no longer exists cannot be refunded. Analyses from before this feature have `quota_charged = false`, so they can never trigger a refund, and users start at `used = 0` (no backfill).
 
 ---
 
@@ -883,6 +904,8 @@ Returns things like:
 }
 ```
 
+> **Built in V0.5:** each value is a database `count` query. `activeUsers` is enabled accounts that signed in during the last 30 days (`lastLoginAt`), `premiumUsers` counts PREMIUM plans that have not expired (same rule as `User.effectivePlan`), and `totalAnalyses` counts every analysis whatever its status. ADMIN only.
+
 ### `GET /api/v1/admin/users/{userId}`
 
 ### `PATCH /api/v1/admin/users/{userId}/status`
@@ -895,7 +918,7 @@ RequestBody:
 }
 ```
 
-> **Built in V0.5:** `GET /admin/users`, `GET /admin/users/{userId}` and this `PATCH`. Disabling ends all of the user's sessions, and an admin cannot disable themselves or the last enabled admin (409 `CANNOT_DISABLE_SELF` / `LAST_ADMIN`). `GET /admin/stats` and `GET /usage` are not built yet. Also built: `GET` and `PATCH /api/v1/users/me` (name only).
+> **Built in V0.5:** `GET /admin/users`, `GET /admin/users/{userId}` and this `PATCH`. Disabling ends all of the user's sessions, and an admin cannot disable themselves or the last enabled admin (409 `CANNOT_DISABLE_SELF` / `LAST_ADMIN`). `GET /admin/stats` is built (below); `GET /usage` is built (see Usage). Also built: `GET` and `PATCH /api/v1/users/me` (name only).
 
 ---
 

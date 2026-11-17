@@ -194,7 +194,7 @@ class AnalysisPipelineIntegrationTest {
 	@Test
 	void graphsOfDifferentAnalysesNeverConnect() {
 		UUID first = startAnalysis();
-		UUID second = startAnalysis();
+		UUID second = UUID.fromString(analysisService.createAnalysis(new CreateAnalysisRequest(URL + "-two")).analysisId()); // the same URL would join the running one
 		awaitFinished(first);
 		awaitFinished(second);
 

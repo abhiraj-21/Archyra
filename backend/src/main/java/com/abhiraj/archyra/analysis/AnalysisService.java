@@ -1,6 +1,8 @@
 package com.abhiraj.archyra.analysis;
 
-import org.springframework.core.task.TaskRejectedException;
+import java.util.concurrent.RejectedExecutionException;
+
+import org.springframework.dao.PessimisticLockingFailureException;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
@@ -31,15 +33,19 @@ public class AnalysisService {
 	private final AnalysisPipeline analysisPipeline;
 	private final AnalysisAccess access;
 	private final AnalysisCleanup cleanup;
+	private final AnalysisRegistrar registrar;
 	private final RateLimiter rateLimiter;
 
 	/**
-	 * Persists a new {@link AnalysisStatus#QUEUED} analysis owned by the signed-in caller, hands it to the
-	 * background pipeline and returns its identifier and status without waiting for the analysis.
+	 * Registers a new {@link AnalysisStatus#QUEUED} analysis owned by the signed-in caller, hands it to the
+	 * background pipeline and returns its identifier and status without waiting for the analysis. A free user pays
+	 * one unit of the lifetime allowance; asking again for a repository that is still being analysed returns that
+	 * analysis instead, free of charge.
 	 *
-	 * <p>Not transactional on purpose: the row must be committed before the pipeline thread looks it up.
+	 * <p>Not transactional on purpose: the registrar commits the row before the pipeline thread looks it up.
 	 *
-	 * @throws ServiceBusyException if the analysis queue is full
+	 * @throws com.abhiraj.archyra.common.UsageLimitExceededException if a free user has used all of the allowance
+	 * @throws ServiceBusyException if the analysis queue is full, or other requests of the same user hold the quota lock
 	 */
 	public CreateAnalysisResponse createAnalysis(CreateAnalysisRequest request) {
 		UUID owner = access.callerId();
@@ -47,19 +53,41 @@ public class AnalysisService {
 		if (!decision.allowed()) {
 			throw new RateLimitedException(decision.retryAfterSeconds()); // every analysis is a git clone
 		}
-		Analysis analysis = analysisRepository.save(Analysis.queued(request.repositoryUrl(), owner));
+
+		AnalysisRegistrar.Registration registration;
+		try {
+			registration = registrar.registerOrReuse(owner, request.repositoryUrl());
+		}
+		catch (PessimisticLockingFailureException ex) {
+			log.warn("Gave up waiting for the usage lock of a user: {}", ex.getClass().getSimpleName());
+			throw new ServiceBusyException("Too many requests are being processed for your account. Please try again.");
+		}
+		Analysis analysis = registration.analysis();
+		if (registration.reused()) {
+			log.info("Analysis {} is already running for {}; not starting another", analysis.getId(), analysis.getRepositoryUrl());
+			return new CreateAnalysisResponse(analysis.getId().toString(), analysis.getStatus());
+		}
 		log.info("Analysis {} created with status {} for {}",
 				analysis.getId(), analysis.getStatus(), analysis.getRepositoryUrl());
 
 		try {
 			analysisPipeline.run(analysis.getId());
 		}
-		catch (TaskRejectedException ex) {
-			analysis.markFailed("The server is busy; the analysis queue is full");
-			analysisRepository.save(analysis);
+		catch (RejectedExecutionException ex) { // includes Spring's TaskRejectedException
+			refundAndFail(analysis.getId(), "The server is busy; the analysis queue is full");
 			throw new ServiceBusyException("Too many analyses are running. Please try again later.");
 		}
 		return new CreateAnalysisResponse(analysis.getId().toString(), analysis.getStatus());
+	}
+
+	/** The row stays as FAILED, as before, and the unit goes back. A failure here must not hide the 503. */
+	private void refundAndFail(UUID analysisId, String reason) {
+		try {
+			registrar.failAndRefund(analysisId, reason);
+		}
+		catch (RuntimeException ex) {
+			log.error("Could not mark analysis {} as FAILED and return its quota unit; startup repair will retry", analysisId, ex);
+		}
 	}
 
 	/**
@@ -154,5 +182,10 @@ public class AnalysisService {
 	/** The message does not echo the id: it is user input. */
 	private static AnalysisNotFoundException notFound() {
 		return new AnalysisNotFoundException("Analysis not found");
+	}
+
+	/** Every analysis of every user. Not ownership-scoped, so only callers that have already checked for an administrator may use it. */
+	public long countAll() {
+		return analysisRepository.count();
 	}
 }

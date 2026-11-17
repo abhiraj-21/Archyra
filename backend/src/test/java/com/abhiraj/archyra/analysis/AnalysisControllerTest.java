@@ -256,4 +256,16 @@ class AnalysisControllerTest {
 				.andExpect(status().isConflict())
 				.andExpect(jsonPath("$.code").value("ANALYSIS_IN_PROGRESS"));
 	}
+
+	@Test
+	void anExceededAllowanceIs403WithTheUsageLimitCodeAndTheMessage() throws Exception {
+		given(analysisService.createAnalysis(any())).willThrow(new com.abhiraj.archyra.common.UsageLimitExceededException(
+				"You have used all 5 free repository analyses. Upgrade to Archyra Premium to continue."));
+
+		mockMvc.perform(post(URL).contentType(MediaType.APPLICATION_JSON).content(body("https://github.com/owner/repo")))
+				.andExpect(status().isForbidden())
+				.andExpect(jsonPath("$.length()").value(2))
+				.andExpect(jsonPath("$.code").value("USAGE_LIMIT_EXCEEDED"))
+				.andExpect(jsonPath("$.message").value("You have used all 5 free repository analyses. Upgrade to Archyra Premium to continue."));
+	}
 }

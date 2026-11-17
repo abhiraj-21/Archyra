@@ -17,6 +17,8 @@ class AnalysisRecoveryTest {
 
 	@Mock
 	AnalysisRepository analysisRepository;
+	@Mock
+	AnalysisRegistrar registrar;
 
 	@Test
 	void marksAnalysesThatWereInFlightAtShutdownAsFailed() {
@@ -26,7 +28,7 @@ class AnalysisRecoveryTest {
 		when(analysisRepository.findByStatusNotIn(List.of(AnalysisStatus.COMPLETED, AnalysisStatus.FAILED)))
 				.thenReturn(List.of(queued, parsing));
 
-		new AnalysisRecovery(analysisRepository).failInterruptedAnalyses();
+		new AnalysisRecovery(analysisRepository, registrar).failInterruptedAnalyses();
 
 		assertThat(queued.getStatus()).isEqualTo(AnalysisStatus.FAILED);
 		assertThat(parsing.getStatus()).isEqualTo(AnalysisStatus.FAILED);
@@ -39,8 +41,25 @@ class AnalysisRecoveryTest {
 		when(analysisRepository.findByStatusNotIn(List.of(AnalysisStatus.COMPLETED, AnalysisStatus.FAILED)))
 				.thenReturn(List.of());
 
-		new AnalysisRecovery(analysisRepository).failInterruptedAnalyses();
+		new AnalysisRecovery(analysisRepository, registrar).failInterruptedAnalyses();
 
 		verify(analysisRepository, never()).save(org.mockito.ArgumentMatchers.any());
+	}
+
+	@Test
+	void returnsTheUnitOfEveryFailedAnalysisThatWasNeverRefundedAndKeepsGoingAfterAnError() {
+		Analysis first = Analysis.queued("https://github.com/o/a", java.util.UUID.randomUUID());
+		Analysis second = Analysis.queued("https://github.com/o/b", java.util.UUID.randomUUID());
+		org.springframework.test.util.ReflectionTestUtils.setField(first, "id", java.util.UUID.randomUUID());
+		org.springframework.test.util.ReflectionTestUtils.setField(second, "id", java.util.UUID.randomUUID());
+		when(analysisRepository.findByStatusNotIn(List.of(AnalysisStatus.COMPLETED, AnalysisStatus.FAILED))).thenReturn(List.of());
+		when(analysisRepository.findByStatusAndQuotaChargedTrueAndQuotaRefundedFalse(AnalysisStatus.FAILED))
+				.thenReturn(List.of(first, second));
+		when(registrar.refundQuota(first.getId())).thenThrow(new IllegalStateException("db down"));
+
+		new AnalysisRecovery(analysisRepository, registrar).failInterruptedAnalyses();
+
+		verify(registrar).refundQuota(first.getId());
+		verify(registrar).refundQuota(second.getId());
 	}
 }

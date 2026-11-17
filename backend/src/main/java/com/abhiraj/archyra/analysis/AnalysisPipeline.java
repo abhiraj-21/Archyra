@@ -48,6 +48,7 @@ public class AnalysisPipeline {
 	private final TechnologyDetector technologyDetector;
 	private final AnalysisMetadataRepository metadataRepository;
 	private final GraphBuilder graphBuilder;
+	private final AnalysisRegistrar registrar;
 
 	/** Starts the pipeline for an already persisted analysis on the analysis executor. */
 	@Async(AsyncConfig.ANALYSIS_EXECUTOR)
@@ -145,6 +146,15 @@ public class AnalysisPipeline {
 			}
 		}
 
+		// FAILED and the quota refund are one transaction, so a failed analysis never keeps its unit.
+		try {
+			registrar.failAndRefund(analysisId, reason);
+			return;
+		}
+		catch (Throwable refundFailure) {
+			log.error("Could not mark analysis {} as FAILED together with its quota refund; recording FAILED alone, "
+					+ "startup repair returns the unit", analysisId, refundFailure);
+		}
 		try {
 			String storedReason = reason;
 			update(analysisId, analysis -> analysis.markFailed(storedReason));

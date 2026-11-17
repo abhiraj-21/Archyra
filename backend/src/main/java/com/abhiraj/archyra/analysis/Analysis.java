@@ -16,6 +16,7 @@ import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import org.hibernate.annotations.CreationTimestamp;
+import org.hibernate.annotations.DynamicUpdate;
 import org.hibernate.annotations.UpdateTimestamp;
 
 /**
@@ -23,6 +24,7 @@ import org.hibernate.annotations.UpdateTimestamp;
  * Neo4j and refers back to this row only by {@link #id}.
  */
 @Entity
+@DynamicUpdate // an entity save writes only what changed, so it can never overwrite quota_refunded, which has its own guarded UPDATE
 @Table(name = "analyses", indexes = @Index(name = "idx_analysis_owner", columnList = "user_id"))
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
@@ -59,6 +61,17 @@ public class Analysis {
 	@Column(name = "failure_reason", length = FAILURE_REASON_LENGTH)
 	private String failureReason;
 
+	/**
+	 * True when creating this analysis consumed one unit of the owner's allowance. Rows from before usage tracking
+	 * keep false, so they can never trigger a refund.
+	 */
+	@Column(name = "quota_charged", nullable = false, columnDefinition = "boolean not null default false")
+	private boolean quotaCharged;
+
+	/** True once that unit was returned. Set by one guarded UPDATE, which is what makes a refund happen only once. */
+	@Column(name = "quota_refunded", nullable = false, columnDefinition = "boolean not null default false")
+	private boolean quotaRefunded;
+
 	@CreationTimestamp
 	@Column(name = "created_at", nullable = false, updatable = false)
 	private Instant createdAt;
@@ -80,6 +93,11 @@ public class Analysis {
 			throw new IllegalArgumentException("An analysis must have an owner");
 		}
 		return new Analysis(repositoryUrl, ownerId);
+	}
+
+	/** Records that this analysis consumed a unit. Only the registrar charges, in the same transaction as the insert. */
+	void markQuotaCharged() {
+		this.quotaCharged = true;
 	}
 
 	/** COMPLETED and FAILED are final; nothing changes after them. */

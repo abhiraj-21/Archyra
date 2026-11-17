@@ -2,7 +2,7 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository. It covers `backend/`.
 
-System-wide architecture, database boundaries, API standards and the roadmap are in the root `CLAUDE.md` and `Architecture.md`. Setup, environment variables and provider configuration are in `README.md`. How the security works is in `specs/security/design.md`.
+System-wide architecture, database boundaries, API standards and the roadmap are in the root `CLAUDE.md` and `Architecture.md`. Setup, environment variables and provider configuration are in `README.md`. How the security works is in `specs/security/design.md`; the usage limits are specified in `specs/usage/spec-usage.md`. There is no linter or formatter configured: `./mvnw clean test` is the only check.
 
 ## Gotchas
 
@@ -10,6 +10,7 @@ System-wide architecture, database boundaries, API standards and the roadmap are
 - **`server.forward-headers-strategy` must stay `native`.** With `framework`, Spring 7 lets any client choose its own IP and dodge the rate limits.
 - **Passwords are limited to 72 bytes** (bcrypt in Spring Security 7 rejects more). Do not raise `PasswordPolicy` limits without changing the encoder.
 - **A class with two constructors needs `@Autowired` on the injection one**, otherwise the context fails with "No default constructor found" (this is the one exception to "no `@Autowired`").
+- **Tests that start many analyses as one user need the high free-tier limit.** `application-test.properties` raises `archyra.usage.free-tier.*` to 100000; only the `Usage*IntegrationTest` classes bind the real small limits. Starting the same repository URL again while it still runs returns the running analysis, so a test that wants two analyses must use two URLs.
 - **"Could not connect to Ryuk"** in a test run is a Docker/Testcontainers hiccup. Rerun before debugging.
 - The `.env` file is git-ignored and `.env.example` lists the variables. Run everything from `backend/`, since `.env` and `native/` resolve against the working directory.
 
@@ -60,6 +61,7 @@ com.abhiraj.archyra
 ├── auth/          # /api/v1/auth, refresh-token rotation, email flows, token purge, admin bootstrap
 │   └── oauth2/    # Google and GitHub login: second filter chain, account resolver, handlers
 ├── mail/          # EmailService and the asynchronous SMTP implementation
+├── usage/         # Lifetime usage counters (user_usage), free-tier limits from configuration, GET /api/v1/usage
 ├── security/      # Properties, JWT, API filter chain, rate limiting, entitlements, audit log
 └── common/        # Exceptions and their handler, shared config (clock, async, scheduling, Tomcat)
 ```
@@ -76,11 +78,22 @@ com.abhiraj.archyra
 - Ingestion: shallow clone (`--depth 1`) into a per-analysis temp directory, always deleted in `finally`. Enforce file-count and size limits; skip binaries, vendored code and build output.
 - A single `@RestControllerAdvice` in `common/` maps one exception per outcome to `{ code, message }`. Messages never echo user input.
 
+## Usage limits
+
+Free users have a lifetime allowance of analyses (`archyra.usage.free-tier.*`, never a literal in code); `usage/` holds the counters, `analysis/` consumes them. Full semantics: `Architecture.md` → Usage.
+
+- **All analysis creation must go through `AnalysisRegistrar`; never call the pipeline directly.** The registrar locks the user's `user_usage` row, checks for a running duplicate, checks the limit, increments and inserts the analysis in one transaction. `AnalysisService.createAnalysis` itself stays non-transactional.
+- **A new way to start an analysis (such as `reanalyze`) must use `registrar.registerOrReuse`.** Anything that ends an analysis as `FAILED` must use `registrar.failAndRefund` (or `refundQuota`), which is idempotent.
+- `UsageService.lock`, `charge` and `release` are `MANDATORY`-transactional on purpose: a unit is charged or released in the caller's transaction, never on its own. `UsageType` is a placeholder for the AI chat (`AI_QUERY`); a new type needs an enum value and one limit in `UsageProperties`, whose exhaustive switch will not compile without it.
+- `Analysis` is `@DynamicUpdate`. Keep it so: a full-row save would overwrite `quota_refunded` with a stale value and allow a second refund.
+- `GET /usage` returns `UsageResponse { plan, usage: [UsageEntry { usageType, used, limit, remaining, limitReached }] }`; `limit` and `remaining` are `null` for PREMIUM.
+- Usage integration tests extend `UsageIntegrationSupport` (stubbed pipeline) and use latches and barriers, never sleeps. Tests that create several analyses for one user must use a fresh user per test, because a free user stops at the limit.
+
 ## Analysis pipeline
 
 `AnalysisPipeline` runs on `analysisExecutor`: `CLONING` (5%) → `PARSING` (25%) → `ANALYZING` (60%) → `BUILDING_GRAPH` (80%) → `COMPLETED` (100%), each step a short write to PostgreSQL. Stages: `IngestionService` → `ParsingService` (one `LanguageExtractor` per file) → `ReferenceResolver` (whole-repository second pass, IR → `CodeGraphIR`) → `GraphBuilder` (batched Cypher). Graph semantics (ids, relationships, external nodes) are in `Architecture.md` → Notes.
 
-- Anything thrown ends the analysis as `FAILED`. Throw `AnalysisFailureException` for expected failures: its message is stored and shown to users, so no paths or internals. Other errors get a generic reason; details go to the log.
+- Anything thrown ends the analysis as `FAILED`, together with returning its usage unit (one transaction). Throw `AnalysisFailureException` for expected failures: its message is stored and shown to users, so no paths or internals. Other errors get a generic reason; details go to the log.
 - Never hold a database transaction while the pipeline runs, and keep `AnalysisService.createAnalysis` non-transactional: the row must be committed before the pipeline thread loads it.
 - A half-written graph is deleted when `BUILDING_GRAPH` fails. `AnalysisRecovery` marks analyses left in progress by a restart as `FAILED` (single instance assumed).
 - One unparsable file never fails the analysis; a repository with nothing parsable fails with a reason that lists the supported languages.

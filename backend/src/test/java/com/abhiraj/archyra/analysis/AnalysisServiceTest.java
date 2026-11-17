@@ -48,45 +48,48 @@ class AnalysisServiceTest {
 	private AnalysisCleanup cleanup;
 
 	@Mock
+	private AnalysisRegistrar registrar;
+
+	@Mock
 	private com.abhiraj.archyra.security.RateLimiter rateLimiter;
 
 	private AnalysisService service;
 
 	@BeforeEach
 	void setUp() {
-		service = new AnalysisService(analysisRepository, analysisPipeline, access, cleanup, rateLimiter);
+		service = new AnalysisService(analysisRepository, analysisPipeline, access, cleanup, registrar, rateLimiter);
 		lenient().when(access.callerId()).thenReturn(CALLER);
 		lenient().when(rateLimiter.tryConsume(any(), any()))
 				.thenReturn(new com.abhiraj.archyra.security.RateLimiter.Decision(true, 0));
-		// Simulate the persistence layer assigning a generated id on save.
-		lenient().when(analysisRepository.save(any(Analysis.class))).thenAnswer(invocation -> {
-			Analysis analysis = invocation.getArgument(0);
-			if (analysis.getId() == null) {
-				ReflectionTestUtils.setField(analysis, "id", UUID.randomUUID());
-			}
-			return analysis;
+		// Simulate the registrar: a new charged analysis with a generated id.
+		lenient().when(registrar.registerOrReuse(any(), any())).thenAnswer(invocation -> {
+			Analysis analysis = Analysis.queued(invocation.getArgument(1), invocation.getArgument(0));
+			ReflectionTestUtils.setField(analysis, "id", UUID.randomUUID());
+			return new AnalysisRegistrar.Registration(analysis, false);
 		});
 	}
 
+	private static Analysis running(AnalysisStatus status) {
+		Analysis analysis = Analysis.queued(URL, CALLER);
+		ReflectionTestUtils.setField(analysis, "id", UUID.randomUUID());
+		ReflectionTestUtils.setField(analysis, "status", status);
+		return analysis;
+	}
+
 	@Test
-	void persistsANewQueuedAnalysisForTheRequestedRepository() {
+	void registersTheAnalysisForTheCallerAndTheRequestedRepository() {
 		service.createAnalysis(new CreateAnalysisRequest(URL));
 
-		ArgumentCaptor<Analysis> saved = ArgumentCaptor.forClass(Analysis.class);
-		verify(analysisRepository).save(saved.capture());
-		assertThat(saved.getValue().getRepositoryUrl()).isEqualTo(URL);
-		assertThat(saved.getValue().getStatus()).isEqualTo(AnalysisStatus.QUEUED);
-		assertThat(saved.getValue().getProgress()).isZero();
-		assertThat(saved.getValue().getOwnerId()).isEqualTo(CALLER);
+		verify(registrar).registerOrReuse(CALLER, URL);
 	}
 
 	@Test
 	void responseCarriesThePersistedIdAndQueuedStatus() {
 		CreateAnalysisResponse response = service.createAnalysis(new CreateAnalysisRequest(URL));
 
-		ArgumentCaptor<Analysis> saved = ArgumentCaptor.forClass(Analysis.class);
-		verify(analysisRepository).save(saved.capture());
-		assertThat(response.analysisId()).isEqualTo(saved.getValue().getId().toString());
+		ArgumentCaptor<UUID> started = ArgumentCaptor.forClass(UUID.class);
+		verify(analysisPipeline).run(started.capture());
+		assertThat(response.analysisId()).isEqualTo(started.getValue().toString());
 		assertThat(response.status()).isEqualTo(AnalysisStatus.QUEUED);
 	}
 
@@ -100,26 +103,61 @@ class AnalysisServiceTest {
 	}
 
 	@Test
-	void startsThePipelineOnlyAfterTheAnalysisIsSaved() {
+	void startsThePipelineOnlyAfterTheAnalysisIsRegistered() {
 		CreateAnalysisResponse response = service.createAnalysis(new CreateAnalysisRequest(URL));
 
-		InOrder order = inOrder(analysisRepository, analysisPipeline);
-		order.verify(analysisRepository).save(any(Analysis.class));
+		InOrder order = inOrder(registrar, analysisPipeline);
+		order.verify(registrar).registerOrReuse(CALLER, URL);
 		order.verify(analysisPipeline).run(UUID.fromString(response.analysisId()));
 	}
 
 	@Test
-	void marksTheAnalysisFailedAndSignalsBusyWhenTheQueueIsFull() {
+	void aRepositoryThatIsAlreadyRunningReturnsTheExistingAnalysisWithoutStartingAnother() {
+		Analysis existing = running(AnalysisStatus.PARSING);
+		when(registrar.registerOrReuse(CALLER, URL)).thenReturn(new AnalysisRegistrar.Registration(existing, true));
+
+		CreateAnalysisResponse response = service.createAnalysis(new CreateAnalysisRequest(URL));
+
+		assertThat(response).isEqualTo(new CreateAnalysisResponse(existing.getId().toString(), AnalysisStatus.PARSING));
+		verifyNoInteractions(analysisPipeline);
+	}
+
+	@Test
+	void anExceededAllowanceStartsNothing() {
+		doThrow(new com.abhiraj.archyra.common.UsageLimitExceededException("limit")).when(registrar).registerOrReuse(any(), any());
+
+		assertThatThrownBy(() -> service.createAnalysis(new CreateAnalysisRequest(URL)))
+				.isInstanceOf(com.abhiraj.archyra.common.UsageLimitExceededException.class);
+		verifyNoInteractions(analysisPipeline);
+	}
+
+	@Test
+	void waitingTooLongForTheUsageLockIsAnsweredAsBusy() {
+		doThrow(new org.springframework.dao.CannotAcquireLockException("lock timeout")).when(registrar).registerOrReuse(any(), any());
+
+		assertThatThrownBy(() -> service.createAnalysis(new CreateAnalysisRequest(URL))).isInstanceOf(ServiceBusyException.class);
+		verifyNoInteractions(analysisPipeline);
+	}
+
+	@Test
+	void failsTheAnalysisReturnsTheUnitAndSignalsBusyWhenTheQueueIsFull() {
 		doThrow(new TaskRejectedException("queue full")).when(analysisPipeline).run(any());
 
 		assertThatThrownBy(() -> service.createAnalysis(new CreateAnalysisRequest(URL)))
 				.isInstanceOf(ServiceBusyException.class);
 
-		ArgumentCaptor<Analysis> saved = ArgumentCaptor.forClass(Analysis.class);
-		verify(analysisRepository, org.mockito.Mockito.times(2)).save(saved.capture());
-		Analysis analysis = saved.getAllValues().getLast();
-		assertThat(analysis.getStatus()).isEqualTo(AnalysisStatus.FAILED);
-		assertThat(analysis.getFailureReason()).contains("queue is full");
+		ArgumentCaptor<UUID> id = ArgumentCaptor.forClass(UUID.class);
+		verify(registrar).failAndRefund(id.capture(), org.mockito.ArgumentMatchers.contains("queue is full"));
+		verify(analysisPipeline).run(id.getValue());
+	}
+
+	@Test
+	void aFailingRefundDoesNotHideTheBusyAnswer() {
+		doThrow(new TaskRejectedException("queue full")).when(analysisPipeline).run(any());
+		doThrow(new IllegalStateException("db down")).when(registrar).failAndRefund(any(), any());
+
+		assertThatThrownBy(() -> service.createAnalysis(new CreateAnalysisRequest(URL)))
+				.isInstanceOf(ServiceBusyException.class);
 	}
 
 	@Test

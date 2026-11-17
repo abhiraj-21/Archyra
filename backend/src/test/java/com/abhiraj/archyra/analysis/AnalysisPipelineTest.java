@@ -65,6 +65,9 @@ class AnalysisPipelineTest {
 	AnalysisMetadataRepository metadataRepository;
 	@Mock
 	GraphBuilder graphBuilder;
+	@Mock
+	com.abhiraj.archyra.usage.UsageService usageService;
+	private AnalysisRegistrar registrar; // real, on the mocked repository: it writes FAILED and asks for the refund
 
 	private final UUID id = UUID.randomUUID();
 	private Analysis analysis;
@@ -95,8 +98,9 @@ class AnalysisPipelineTest {
 				.thenReturn(new ParseResult(repositoryIr, List.of(), 0));
 		when(referenceResolver.resolve(repositoryIr)).thenReturn(graph);
 
+		registrar = new AnalysisRegistrar(analysisRepository, usageService);
 		pipeline = new AnalysisPipeline(analysisRepository, ingestionService, parsingService, referenceResolver,
-				technologyDetector, metadataRepository, graphBuilder);
+				technologyDetector, metadataRepository, graphBuilder, registrar);
 	}
 
 	@Test
@@ -273,5 +277,40 @@ class AnalysisPipelineTest {
 		pipeline.run(id);
 
 		verify(technologyDetector).detect(root, List.of("A.java", "Dockerfile"), repositoryIr, Map.of(Language.JAVA, 1));
+	}
+
+	// ---- quota ---------------------------------------------------------------------------------
+
+	@Test
+	void aFailedAnalysisGetsItsQuotaUnitBack() {
+		UUID owner = analysis.getOwnerId();
+		when(analysisRepository.markQuotaRefunded(id)).thenReturn(1);
+		when(analysisRepository.findOwnerId(id)).thenReturn(Optional.of(owner));
+		when(parsingService.parse(any(), any(), any())).thenThrow(new AnalysisFailureException("nothing to parse"));
+
+		pipeline.run(id);
+
+		assertThat(analysis.getStatus()).isEqualTo(AnalysisStatus.FAILED);
+		verify(usageService).release(owner, com.abhiraj.archyra.usage.UsageType.REPOSITORY_ANALYSIS);
+	}
+
+	@Test
+	void aCompletedAnalysisIsNeverRefunded() {
+		pipeline.run(id);
+
+		assertThat(analysis.getStatus()).isEqualTo(AnalysisStatus.COMPLETED);
+		verify(analysisRepository, never()).markQuotaRefunded(any());
+		org.mockito.Mockito.verifyNoInteractions(usageService);
+	}
+
+	@Test
+	void whenTheRefundFailsTheFailedStatusIsStillRecorded() {
+		when(parsingService.parse(any(), any(), any())).thenThrow(new AnalysisFailureException("nothing to parse"));
+		when(analysisRepository.markQuotaRefunded(id)).thenThrow(new IllegalStateException("postgres hiccup"));
+
+		pipeline.run(id);
+
+		assertThat(analysis.getStatus()).isEqualTo(AnalysisStatus.FAILED);
+		assertThat(analysis.getFailureReason()).isEqualTo("nothing to parse");
 	}
 }
