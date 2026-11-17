@@ -108,33 +108,131 @@ class UsageLimitIntegrationTest extends UsageIntegrationSupport {
 		assertThat((Boolean) JsonPath.read(json, "$.usage[0].limitReached")).isTrue();
 	}
 
+	// ---- deleting ------------------------------------------------------------------------------
+
 	@Test
-	void deletingAnAnalysisDoesNotGiveTheUnitBack() throws Exception {
+	void deletingAnAnalysisGivesAFreeUserTheCreditBack() throws Exception {
+		User user = freeUser();
+		UUID first = createOk(user, freshUrl());
+		for (int i = 1; i < limit() - 1; i++) {
+			createOk(user, freshUrl());
+		}
+		assertThat(used(user)).isEqualTo(limit() - 1); // one below the cap, e.g. 4/5
+		finish(first, AnalysisStatus.COMPLETED);
+
+		assertThat(deleteAnalysis(user, first).getResponse().getStatus()).isEqualTo(204);
+
+		assertThat(used(user)).isEqualTo(limit() - 2); // 3/5
+		String json = body(usage(user));
+		assertThat((Integer) JsonPath.read(json, "$.usage[0].used")).isEqualTo(limit() - 2);
+		assertThat((Integer) JsonPath.read(json, "$.usage[0].remaining")).isEqualTo(2);
+		assertThat((Boolean) JsonPath.read(json, "$.usage[0].limitReached")).isFalse();
+	}
+
+	@Test
+	void aUserAtTheCapCanAnalyzeAnotherRepositoryAfterDeletingOne() throws Exception {
 		User user = freeUser();
 		UUID first = createOk(user, freshUrl());
 		for (int i = 1; i < limit(); i++) {
 			createOk(user, freshUrl());
 		}
+		assertThat(code(create(user, freshUrl()))).isEqualTo("USAGE_LIMIT_EXCEEDED");
 		finish(first, AnalysisStatus.COMPLETED);
 
 		assertThat(deleteAnalysis(user, first).getResponse().getStatus()).isEqualTo(204);
 
+		assertThat(create(user, freshUrl()).getResponse().getStatus()).isEqualTo(202);
 		assertThat(used(user)).isEqualTo(limit());
-		MvcResult refused = create(user, freshUrl());
-		assertThat(refused.getResponse().getStatus()).isEqualTo(403);
-		assertThat(code(refused)).isEqualTo("USAGE_LIMIT_EXCEEDED");
+		assertThat(code(create(user, freshUrl()))).isEqualTo("USAGE_LIMIT_EXCEEDED"); // and the cap holds again
 	}
 
 	@Test
-	void deletingAFailedAnalysisDoesNotChangeTheCounterEither() throws Exception {
+	void theCreditIsReturnedOnlyOncePerAnalysis() throws Exception {
 		User user = freeUser();
-		UUID id = createOk(user, freshUrl());
-		registrar.failAndRefund(id, "boom"); // the unit is already back
-		assertThat(used(user)).isZero();
+		UUID first = createOk(user, freshUrl());
+		createOk(user, freshUrl());
+		finish(first, AnalysisStatus.COMPLETED);
 
-		deleteAnalysis(user, id);
+		assertThat(deleteAnalysis(user, first).getResponse().getStatus()).isEqualTo(204);
+		assertThat(deleteAnalysis(user, first).getResponse().getStatus()).isEqualTo(404);
 
-		assertThat(used(user)).isZero(); // and deleting did not return a second one
+		assertThat(used(user)).isEqualTo(1);
+	}
+
+	@Test
+	void deletingAFailedAnalysisDoesNotReturnASecondCredit() throws Exception {
+		User user = freeUser();
+		UUID failed = createOk(user, freshUrl());
+		createOk(user, freshUrl());
+		registrar.failAndRefund(failed, "boom"); // the failure already returned its unit
+		assertThat(used(user)).isEqualTo(1);
+
+		assertThat(deleteAnalysis(user, failed).getResponse().getStatus()).isEqualTo(204);
+
+		assertThat(used(user)).isEqualTo(1);
+	}
+
+	@Test
+	void deletingAnAnalysisThatWasNeverCharged() throws Exception {
+		User user = freeUser();
+		createOk(user, freshUrl());
+		Analysis legacy = analyses.save(Analysis.queued(freshUrl(), user.getId())); // as before usage tracking
+		legacy.markCompleted();
+		analyses.save(legacy);
+
+		assertThat(deleteAnalysis(user, legacy.getId()).getResponse().getStatus()).isEqualTo(204);
+
+		assertThat(used(user)).isEqualTo(1);
+	}
+
+	@Test
+	void deletingARunningAnalysisIsRefusedAndReturnsNothing() throws Exception {
+		User user = freeUser();
+		UUID running = createOk(user, freshUrl());
+
+		MvcResult refused = deleteAnalysis(user, running);
+
+		assertThat(refused.getResponse().getStatus()).isEqualTo(409);
+		assertThat(used(user)).isEqualTo(1);
+	}
+
+	@Test
+	void deletingAnotherUsersAnalysisIs404AndChangesNoCounter() throws Exception {
+		User owner = freeUser();
+		User other = freeUser();
+		UUID theirs = createOk(owner, freshUrl());
+		finish(theirs, AnalysisStatus.COMPLETED);
+
+		assertThat(deleteAnalysis(other, theirs).getResponse().getStatus()).isEqualTo(404);
+
+		assertThat(used(owner)).isEqualTo(1);
+		assertThat(used(other)).isZero();
+	}
+
+	@Test
+	void aPremiumUsersDeleteReturnsNothingSoTheTrueCountStays() throws Exception {
+		User user = premiumUser();
+		UUID first = createOk(user, freshUrl());
+		createOk(user, freshUrl());
+		finish(first, AnalysisStatus.COMPLETED);
+
+		assertThat(deleteAnalysis(user, first).getResponse().getStatus()).isEqualTo(204);
+
+		assertThat(used(user)).isEqualTo(2);
+	}
+
+	@Test
+	void aUserWhosePremiumPlanHasExpiredGetsTheCredit() throws Exception {
+		User user = newUser(Plan.PREMIUM, Instant.now().plus(Duration.ofDays(1)));
+		UUID first = createOk(user, freshUrl());
+		createOk(user, freshUrl());
+		finish(first, AnalysisStatus.COMPLETED);
+		user.changePlan(Plan.PREMIUM, Instant.now().minus(Duration.ofMinutes(1)));
+		userService.save(user);
+
+		deleteAnalysis(user, first);
+
+		assertThat(used(user)).isEqualTo(1);
 	}
 
 	// ---- duplicates ----------------------------------------------------------------------------

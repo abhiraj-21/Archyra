@@ -116,7 +116,7 @@ Release the consumed unit **exactly once** when:
 - the pipeline marks the analysis `FAILED` (every failure path in `AnalysisPipeline`, including top-level catch blocks), or
 - submission is rejected with `503 SERVICE_BUSY` because the executor queue is full.
 
-**Do not** refund when an analysis is `COMPLETED`, and **never** refund because the user deleted it.
+**Do not** refund when an analysis is `COMPLETED`. ~~and **never** refund because the user deleted it.~~ **Amended later:** deleting an analysis now returns its credit to a FREE user (see `Architecture.md` → Usage); the guarded refund below still makes it happen at most once.
 
 Implement one method, `UsageService.refundForAnalysis(analysisId)`, in a transaction:
 ```
@@ -130,9 +130,9 @@ Step 1 is the idempotency guard. Calling the method any number of times, from an
 
 Notes:
 - If the refund fails while recording `FAILED`, log it with the analysis id at `ERROR` and **don't** swallow the `FAILED` status. Prefer doing both in one transaction if the pipeline's structure allows it.
-- If the analysis row no longer exists (deleted while running), no refund happens. This is intended and keeps delete from being a quota lever. Mention it in the docs.
+- If the analysis row no longer exists (deleted while running), no refund happens. (Amended: deleting a finished analysis does return its credit to a FREE user; an analysis that is gone cannot be refunded again.)
 - If the project has a startup/recovery job that fails stuck analyses, route it through the same refund method.
-- `DELETE /api/v1/analyses/{id}` must **not** touch the usage counter. Add a test.
+- ~~`DELETE /api/v1/analyses/{id}` must **not** touch the usage counter.~~ **Amended:** it returns the credit to a FREE user.
 
 ### 5.5 Other entry points
 Any other code path that starts a pipeline run is "creating an analysis". `POST /api/v1/analyses/{id}/reanalyze`, if it exists, must go through the **same** registrar and consume one unit. If you find such a path, wire it in and say so in the summary. Don't leave a bypass.

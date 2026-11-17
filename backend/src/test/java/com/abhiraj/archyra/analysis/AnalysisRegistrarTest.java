@@ -61,7 +61,7 @@ class AnalysisRegistrarTest {
 				.willReturn(Optional.empty());
 		given(analyses.save(any(Analysis.class))).willAnswer(invocation -> invocation.getArgument(0));
 
-		AnalysisRegistrar.Registration registration = registrar.registerOrReuse(user, URL);
+		AnalysisRegistrar.Registration registration = registrar.registerOrReuse(user, URL, null);
 
 		InOrder order = inOrder(usage, analyses);
 		order.verify(usage).lock(user, QUOTA);
@@ -77,12 +77,37 @@ class AnalysisRegistrarTest {
 	}
 
 	@Test
+	void aRerunRemembersWhichAnalysisItReplaces() {
+		UUID replaced = UUID.randomUUID();
+		given(analyses.findFirstByOwnerIdAndRepositoryUrlAndStatusInOrderByCreatedAtDesc(any(), any(), any())).willReturn(Optional.empty());
+		given(analyses.save(any(Analysis.class))).willAnswer(invocation -> invocation.getArgument(0));
+
+		Analysis created = registrar.registerOrReuse(user, URL, replaced).analysis();
+
+		assertThat(created.getReplacesAnalysisId()).isEqualTo(replaced);
+		assertThat(created.isQuotaCharged()).isTrue();
+	}
+
+	@Test
+	void aReusedRunningAnalysisIsNotMadeToReplaceAnything() {
+		Analysis running = stored(AnalysisStatus.PARSING);
+		given(analyses.findFirstByOwnerIdAndRepositoryUrlAndStatusInOrderByCreatedAtDesc(user, URL, AnalysisRegistrar.IN_PROGRESS))
+				.willReturn(Optional.of(running));
+
+		AnalysisRegistrar.Registration registration = registrar.registerOrReuse(user, URL, UUID.randomUUID());
+
+		assertThat(registration.reused()).isTrue();
+		assertThat(registration.analysis().getReplacesAnalysisId()).isNull();
+		verify(analyses, never()).save(any());
+	}
+
+	@Test
 	void aRunningAnalysisOfTheSameRepositoryIsReusedWithoutAChargeOrALimitCheck() {
 		Analysis running = stored(AnalysisStatus.CLONING);
 		given(analyses.findFirstByOwnerIdAndRepositoryUrlAndStatusInOrderByCreatedAtDesc(user, URL, AnalysisRegistrar.IN_PROGRESS))
 				.willReturn(Optional.of(running));
 
-		AnalysisRegistrar.Registration registration = registrar.registerOrReuse(user, URL);
+		AnalysisRegistrar.Registration registration = registrar.registerOrReuse(user, URL, null);
 
 		assertThat(registration.reused()).isTrue();
 		assertThat(registration.analysis()).isSameAs(running);
@@ -102,7 +127,7 @@ class AnalysisRegistrarTest {
 		given(analyses.findFirstByOwnerIdAndRepositoryUrlAndStatusInOrderByCreatedAtDesc(any(), any(), any())).willReturn(Optional.empty());
 		doThrow(new UsageLimitExceededException("limit")).when(usage).charge(user, QUOTA);
 
-		assertThatThrownBy(() -> registrar.registerOrReuse(user, URL)).isInstanceOf(UsageLimitExceededException.class);
+		assertThatThrownBy(() -> registrar.registerOrReuse(user, URL, null)).isInstanceOf(UsageLimitExceededException.class);
 		verify(analyses, never()).save(any());
 	}
 
@@ -161,5 +186,57 @@ class AnalysisRegistrarTest {
 		order.verify(analyses).save(analysis);
 		order.verify(analyses).markQuotaRefunded(analysis.getId());
 		order.verify(usage).release(user, QUOTA);
+	}
+
+	// ---- deleteAndCredit -----------------------------------------------------------------------
+
+	@Test
+	void deletingAFreeUsersChargedAnalysisReturnsItsCreditAndDeletesTheRow() {
+		Analysis analysis = stored(AnalysisStatus.COMPLETED);
+		given(usage.isHeldToFreeLimit(user)).willReturn(true);
+		given(analyses.markQuotaRefunded(analysis.getId())).willReturn(1);
+		given(analyses.findOwnerId(analysis.getId())).willReturn(Optional.of(user));
+
+		registrar.deleteAndCredit(analysis);
+
+		InOrder order = inOrder(analyses, usage);
+		order.verify(analyses).markQuotaRefunded(analysis.getId());
+		order.verify(usage).release(user, QUOTA);
+		order.verify(analyses).delete(analysis);
+	}
+
+	@Test
+	void deletingAnAnalysisThatWasNeverChargedOrIsAlreadyRefundedReturnsNothing() {
+		Analysis analysis = stored(AnalysisStatus.FAILED);
+		given(usage.isHeldToFreeLimit(user)).willReturn(true);
+		given(analyses.markQuotaRefunded(analysis.getId())).willReturn(0); // the guarded UPDATE matched no row
+
+		registrar.deleteAndCredit(analysis);
+
+		verify(usage, never()).release(any(), any());
+		verify(analyses).delete(analysis);
+	}
+
+	@Test
+	void deletingAPremiumUsersAnalysisReturnsNothing() {
+		Analysis analysis = stored(AnalysisStatus.COMPLETED);
+		given(usage.isHeldToFreeLimit(user)).willReturn(false);
+
+		registrar.deleteAndCredit(analysis);
+
+		verify(analyses, never()).markQuotaRefunded(any());
+		verify(usage, never()).release(any(), any());
+		verify(analyses).delete(analysis);
+	}
+
+	@Test
+	void deletingAnAnalysisWithoutAnOwnerReturnsNothing() {
+		Analysis analysis = stored(AnalysisStatus.COMPLETED);
+		ReflectionTestUtils.setField(analysis, "ownerId", null);
+
+		registrar.deleteAndCredit(analysis);
+
+		verifyNoInteractions(usage);
+		verify(analyses).delete(analysis);
 	}
 }

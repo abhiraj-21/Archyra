@@ -268,4 +268,46 @@ class AnalysisControllerTest {
 				.andExpect(jsonPath("$.code").value("USAGE_LIMIT_EXCEEDED"))
 				.andExpect(jsonPath("$.message").value("You have used all 5 free repository analyses. Upgrade to Archyra Premium to continue."));
 	}
+
+	// ---- reanalyze -----------------------------------------------------------------------------
+
+	private static final String REANALYZE = URL + "/" + ANALYSIS_ID + "/reanalyze";
+
+	@Test
+	void reanalyzeReturns202WithTheNewAnalysisInTheSameShapeAsCreate() throws Exception {
+		given(analysisService.reanalyze(ANALYSIS_ID)).willReturn(new CreateAnalysisResponse("new-id", AnalysisStatus.QUEUED));
+
+		mockMvc.perform(post(REANALYZE))
+				.andExpect(status().isAccepted())
+				.andExpect(jsonPath("$.length()").value(2))
+				.andExpect(jsonPath("$.analysisId").value("new-id"))
+				.andExpect(jsonPath("$.status").value("QUEUED"));
+	}
+
+	@Test
+	void reanalyzeOfAnUnknownOrForeignAnalysisIs404() throws Exception {
+		given(analysisService.reanalyze(ANALYSIS_ID)).willThrow(new AnalysisNotFoundException("Analysis not found"));
+
+		mockMvc.perform(post(REANALYZE))
+				.andExpect(status().isNotFound())
+				.andExpect(jsonPath("$.code").value("ANALYSIS_NOT_FOUND"));
+	}
+
+	@Test
+	void reanalyzeAtTheLimitIs403() throws Exception {
+		given(analysisService.reanalyze(ANALYSIS_ID)).willThrow(new com.abhiraj.archyra.common.UsageLimitExceededException("limit"));
+
+		mockMvc.perform(post(REANALYZE))
+				.andExpect(status().isForbidden())
+				.andExpect(jsonPath("$.code").value("USAGE_LIMIT_EXCEEDED"));
+	}
+
+	@Test
+	void reanalyzeWithAFullQueueIs503() throws Exception {
+		given(analysisService.reanalyze(ANALYSIS_ID)).willThrow(new ServiceBusyException("busy"));
+
+		mockMvc.perform(post(REANALYZE))
+				.andExpect(status().isServiceUnavailable())
+				.andExpect(jsonPath("$.code").value("SERVICE_BUSY"));
+	}
 }

@@ -62,7 +62,7 @@ class AnalysisServiceTest {
 		lenient().when(rateLimiter.tryConsume(any(), any()))
 				.thenReturn(new com.abhiraj.archyra.security.RateLimiter.Decision(true, 0));
 		// Simulate the registrar: a new charged analysis with a generated id.
-		lenient().when(registrar.registerOrReuse(any(), any())).thenAnswer(invocation -> {
+		lenient().when(registrar.registerOrReuse(any(), any(), any())).thenAnswer(invocation -> {
 			Analysis analysis = Analysis.queued(invocation.getArgument(1), invocation.getArgument(0));
 			ReflectionTestUtils.setField(analysis, "id", UUID.randomUUID());
 			return new AnalysisRegistrar.Registration(analysis, false);
@@ -80,7 +80,7 @@ class AnalysisServiceTest {
 	void registersTheAnalysisForTheCallerAndTheRequestedRepository() {
 		service.createAnalysis(new CreateAnalysisRequest(URL));
 
-		verify(registrar).registerOrReuse(CALLER, URL);
+		verify(registrar).registerOrReuse(CALLER, URL, null);
 	}
 
 	@Test
@@ -107,14 +107,14 @@ class AnalysisServiceTest {
 		CreateAnalysisResponse response = service.createAnalysis(new CreateAnalysisRequest(URL));
 
 		InOrder order = inOrder(registrar, analysisPipeline);
-		order.verify(registrar).registerOrReuse(CALLER, URL);
+		order.verify(registrar).registerOrReuse(CALLER, URL, null);
 		order.verify(analysisPipeline).run(UUID.fromString(response.analysisId()));
 	}
 
 	@Test
 	void aRepositoryThatIsAlreadyRunningReturnsTheExistingAnalysisWithoutStartingAnother() {
 		Analysis existing = running(AnalysisStatus.PARSING);
-		when(registrar.registerOrReuse(CALLER, URL)).thenReturn(new AnalysisRegistrar.Registration(existing, true));
+		when(registrar.registerOrReuse(CALLER, URL, null)).thenReturn(new AnalysisRegistrar.Registration(existing, true));
 
 		CreateAnalysisResponse response = service.createAnalysis(new CreateAnalysisRequest(URL));
 
@@ -124,7 +124,7 @@ class AnalysisServiceTest {
 
 	@Test
 	void anExceededAllowanceStartsNothing() {
-		doThrow(new com.abhiraj.archyra.common.UsageLimitExceededException("limit")).when(registrar).registerOrReuse(any(), any());
+		doThrow(new com.abhiraj.archyra.common.UsageLimitExceededException("limit")).when(registrar).registerOrReuse(any(), any(), any());
 
 		assertThatThrownBy(() -> service.createAnalysis(new CreateAnalysisRequest(URL)))
 				.isInstanceOf(com.abhiraj.archyra.common.UsageLimitExceededException.class);
@@ -133,7 +133,7 @@ class AnalysisServiceTest {
 
 	@Test
 	void waitingTooLongForTheUsageLockIsAnsweredAsBusy() {
-		doThrow(new org.springframework.dao.CannotAcquireLockException("lock timeout")).when(registrar).registerOrReuse(any(), any());
+		doThrow(new org.springframework.dao.CannotAcquireLockException("lock timeout")).when(registrar).registerOrReuse(any(), any(), any());
 
 		assertThatThrownBy(() -> service.createAnalysis(new CreateAnalysisRequest(URL))).isInstanceOf(ServiceBusyException.class);
 		verifyNoInteractions(analysisPipeline);
@@ -158,6 +158,99 @@ class AnalysisServiceTest {
 
 		assertThatThrownBy(() -> service.createAnalysis(new CreateAnalysisRequest(URL)))
 				.isInstanceOf(ServiceBusyException.class);
+	}
+
+	// ---- reanalyze -----------------------------------------------------------------------------
+
+	private Analysis owned(UUID id, AnalysisStatus status) {
+		Analysis analysis = Analysis.queued(URL, CALLER);
+		ReflectionTestUtils.setField(analysis, "id", id);
+		ReflectionTestUtils.setField(analysis, "status", status);
+		when(analysisRepository.findById(id)).thenReturn(Optional.of(analysis));
+		return analysis;
+	}
+
+	@ParameterizedTest
+	@ValueSource(strings = {"COMPLETED", "FAILED"})
+	void reanalyzingAFinishedAnalysisRegistersANewOneThatReplacesIt(String status) {
+		UUID source = UUID.randomUUID();
+		owned(source, AnalysisStatus.valueOf(status));
+
+		CreateAnalysisResponse response = service.reanalyze(source.toString());
+
+		verify(registrar).registerOrReuse(CALLER, URL, source);
+		ArgumentCaptor<UUID> started = ArgumentCaptor.forClass(UUID.class);
+		verify(analysisPipeline).run(started.capture());
+		assertThat(response.analysisId()).isEqualTo(started.getValue().toString()).isNotEqualTo(source.toString());
+		assertThat(response.status()).isEqualTo(AnalysisStatus.QUEUED);
+	}
+
+	@ParameterizedTest
+	@ValueSource(strings = {"QUEUED", "CLONING", "PARSING", "ANALYZING", "BUILDING_GRAPH"})
+	void reanalyzingARunningAnalysisReplacesNothingAndReturnsTheRunningOne(String status) {
+		UUID source = UUID.randomUUID();
+		Analysis running = owned(source, AnalysisStatus.valueOf(status));
+		when(registrar.registerOrReuse(CALLER, URL, null)).thenReturn(new AnalysisRegistrar.Registration(running, true));
+
+		CreateAnalysisResponse response = service.reanalyze(source.toString());
+
+		assertThat(response).isEqualTo(new CreateAnalysisResponse(source.toString(), AnalysisStatus.valueOf(status)));
+		verifyNoInteractions(analysisPipeline);
+	}
+
+	@Test
+	void reanalyzingAnotherUsersAnalysisIsNotFoundAndStartsNothing() {
+		UUID source = UUID.randomUUID();
+		Analysis foreign = Analysis.queued(URL, UUID.randomUUID());
+		ReflectionTestUtils.setField(foreign, "id", source);
+		when(analysisRepository.findById(source)).thenReturn(Optional.of(foreign));
+
+		assertThatThrownBy(() -> service.reanalyze(source.toString())).isInstanceOf(AnalysisNotFoundException.class);
+		verifyNoInteractions(registrar, analysisPipeline);
+	}
+
+	@Test
+	void reanalyzingAnUnknownOrMalformedIdIsNotFound() {
+		UUID unknown = UUID.randomUUID();
+		when(analysisRepository.findById(unknown)).thenReturn(Optional.empty());
+
+		assertThatThrownBy(() -> service.reanalyze(unknown.toString())).isInstanceOf(AnalysisNotFoundException.class);
+		assertThatThrownBy(() -> service.reanalyze("not-a-uuid")).isInstanceOf(AnalysisNotFoundException.class);
+		verifyNoInteractions(registrar, analysisPipeline);
+	}
+
+	@Test
+	void reanalyzingAtTheLimitIsRefusedLikeAnyNewAnalysis() {
+		UUID source = UUID.randomUUID();
+		owned(source, AnalysisStatus.COMPLETED);
+		doThrow(new com.abhiraj.archyra.common.UsageLimitExceededException("limit")).when(registrar).registerOrReuse(any(), any(), any());
+
+		assertThatThrownBy(() -> service.reanalyze(source.toString()))
+				.isInstanceOf(com.abhiraj.archyra.common.UsageLimitExceededException.class);
+		verifyNoInteractions(analysisPipeline);
+	}
+
+	@Test
+	void aRejectedReanalysisFailsItsOwnNewAnalysisReturnsTheUnitAndSignalsBusy() {
+		UUID source = UUID.randomUUID();
+		owned(source, AnalysisStatus.COMPLETED);
+		doThrow(new TaskRejectedException("queue full")).when(analysisPipeline).run(any());
+
+		assertThatThrownBy(() -> service.reanalyze(source.toString())).isInstanceOf(ServiceBusyException.class);
+
+		ArgumentCaptor<UUID> id = ArgumentCaptor.forClass(UUID.class);
+		verify(registrar).failAndRefund(id.capture(), org.mockito.ArgumentMatchers.contains("queue is full"));
+		assertThat(id.getValue()).isNotEqualTo(source); // the old analysis is not touched
+	}
+
+	@Test
+	void reanalyzingIsRateLimitedLikeCreating() {
+		UUID source = UUID.randomUUID();
+		owned(source, AnalysisStatus.COMPLETED);
+		when(rateLimiter.tryConsume(any(), any())).thenReturn(new com.abhiraj.archyra.security.RateLimiter.Decision(false, 30));
+
+		assertThatThrownBy(() -> service.reanalyze(source.toString())).isInstanceOf(com.abhiraj.archyra.common.RateLimitedException.class);
+		verifyNoInteractions(registrar, analysisPipeline);
 	}
 
 	@Test

@@ -141,6 +141,14 @@ class UsageServiceTest {
 		verify(repository).decrement(user, "REPOSITORY_ANALYSIS");
 	}
 
+	@Test
+	void aUserIsHeldToTheFreeLimitOnlyWhileTheEffectivePlanIsFree() {
+		given(entitlements.effectivePlan(user)).willReturn(Plan.FREE, Plan.PREMIUM);
+
+		assertThat(service.isHeldToFreeLimit(user)).isTrue();
+		assertThat(service.isHeldToFreeLimit(user)).isFalse();
+	}
+
 	// ---- reading -------------------------------------------------------------------------------
 
 	@Test

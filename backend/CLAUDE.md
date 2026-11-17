@@ -49,7 +49,7 @@ The base package is `com.abhiraj.archyra`, organised by feature (package-by-feat
 
 ```
 com.abhiraj.archyra
-├── analysis/      # Analysis lifecycle: /api/v1/analyses (create, list, status, delete), ownership, background AnalysisPipeline
+├── analysis/      # Analysis lifecycle: /api/v1/analyses (create, list, status, delete, reanalyze), ownership, AnalysisRegistrar (the only way to create or delete one), background AnalysisPipeline
 ├── ingestion/     # Clone repository, file discovery, language detection
 ├── parsing/       # TreeSitterExtractor base, ParsingService, ReferenceResolver (IR → code graph IR)
 │   └── lang/      # one extractor (and, where imports differ, one ModuleResolver) per language
@@ -83,8 +83,9 @@ com.abhiraj.archyra
 Free users have a lifetime allowance of analyses (`archyra.usage.free-tier.*`, never a literal in code); `usage/` holds the counters, `analysis/` consumes them. Full semantics: `Architecture.md` → Usage.
 
 - **All analysis creation must go through `AnalysisRegistrar`; never call the pipeline directly.** The registrar locks the user's `user_usage` row, checks for a running duplicate, checks the limit, increments and inserts the analysis in one transaction. `AnalysisService.createAnalysis` itself stays non-transactional.
-- **A new way to start an analysis (such as `reanalyze`) must use `registrar.registerOrReuse`.** Anything that ends an analysis as `FAILED` must use `registrar.failAndRefund` (or `refundQuota`), which is idempotent.
+- **A new way to start an analysis must use `registrar.registerOrReuse`.** `reanalyze` does: `AnalysisService.start` is the shared path, and a re-run passes the finished analysis it replaces, which `AnalysisCleanup.deleteReplaced` removes only after the new one is `COMPLETED` (it never throws and only touches a finished analysis of the same owner). Anything that ends an analysis as `FAILED` must use `registrar.failAndRefund` (or `refundQuota`), which is idempotent.
 - `UsageService.lock`, `charge` and `release` are `MANDATORY`-transactional on purpose: a unit is charged or released in the caller's transaction, never on its own. `UsageType` is a placeholder for the AI chat (`AI_QUERY`); a new type needs an enum value and one limit in `UsageProperties`, whose exhaustive switch will not compile without it.
+- **Deleting an analysis gives its credit back to a free user.** Every deletion goes through `AnalysisCleanup.delete` → `AnalysisRegistrar.deleteAndCredit` (refund guard plus row delete in one transaction); never delete an `Analysis` row any other way. Premium users, `FAILED` analyses (already refunded) and pre-usage rows return nothing.
 - `Analysis` is `@DynamicUpdate`. Keep it so: a full-row save would overwrite `quota_refunded` with a stale value and allow a second refund.
 - `GET /usage` returns `UsageResponse { plan, usage: [UsageEntry { usageType, used, limit, remaining, limitReached }] }`; `limit` and `remaining` are `null` for PREMIUM.
 - Usage integration tests extend `UsageIntegrationSupport` (stubbed pipeline) and use latches and barriers, never sleeps. Tests that create several analyses for one user must use a fresh user per test, because a free user stops at the limit.

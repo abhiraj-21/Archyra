@@ -48,10 +48,13 @@ class AnalysisRegistrar {
 	 * </ol>
 	 * The unit and the row commit together or not at all.
 	 *
+	 * @param replacesAnalysisId for a re-run, the finished analysis the new one replaces once it completes; null otherwise.
+	 *                           Ignored when a running analysis is reused.
+	 *
 	 * @throws com.abhiraj.archyra.common.UsageLimitExceededException if a free user has used up the allowance
 	 */
 	@Transactional
-	Registration registerOrReuse(UUID userId, String repositoryUrl) {
+	Registration registerOrReuse(UUID userId, String repositoryUrl, UUID replacesAnalysisId) {
 		usageService.lock(userId, QUOTA);
 
 		Optional<Analysis> running = analysisRepository
@@ -63,6 +66,7 @@ class AnalysisRegistrar {
 		usageService.charge(userId, QUOTA);
 		Analysis analysis = Analysis.queued(repositoryUrl, userId);
 		analysis.markQuotaCharged();
+		analysis.replaces(replacesAnalysisId);
 		return new Registration(analysisRepository.save(analysis), false);
 	}
 
@@ -97,5 +101,21 @@ class AnalysisRegistrar {
 		usageService.release(owner, QUOTA);
 		log.info("Returned one {} unit for analysis {}", QUOTA, analysisId);
 		return true;
+	}
+
+	/**
+	 * Deletes the analysis row and, for a user who is held to the free limit, gives the credit it used back, in one
+	 * transaction. Only an analysis that really consumed a unit and has not been refunded yet returns one (the same
+	 * guarded UPDATE as every refund), so deleting a failed analysis (already refunded), a pre-usage-tracking one or a
+	 * premium user's returns nothing, and a repeated delete cannot return twice. The graph and metadata are removed
+	 * by the caller before this.
+	 */
+	@Transactional
+	void deleteAndCredit(Analysis analysis) {
+		UUID owner = analysis.getOwnerId();
+		if (owner != null && usageService.isHeldToFreeLimit(owner)) {
+			refundQuota(analysis.getId());
+		}
+		analysisRepository.delete(analysis);
 	}
 }

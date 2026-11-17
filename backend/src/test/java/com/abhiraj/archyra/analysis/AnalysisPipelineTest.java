@@ -66,6 +66,8 @@ class AnalysisPipelineTest {
 	@Mock
 	GraphBuilder graphBuilder;
 	@Mock
+	AnalysisCleanup cleanup;
+	@Mock
 	com.abhiraj.archyra.usage.UsageService usageService;
 	private AnalysisRegistrar registrar; // real, on the mocked repository: it writes FAILED and asks for the refund
 
@@ -100,7 +102,7 @@ class AnalysisPipelineTest {
 
 		registrar = new AnalysisRegistrar(analysisRepository, usageService);
 		pipeline = new AnalysisPipeline(analysisRepository, ingestionService, parsingService, referenceResolver,
-				technologyDetector, metadataRepository, graphBuilder, registrar);
+				technologyDetector, metadataRepository, graphBuilder, registrar, cleanup);
 	}
 
 	@Test
@@ -312,5 +314,25 @@ class AnalysisPipelineTest {
 
 		assertThat(analysis.getStatus()).isEqualTo(AnalysisStatus.FAILED);
 		assertThat(analysis.getFailureReason()).isEqualTo("nothing to parse");
+	}
+
+	// ---- re-runs -------------------------------------------------------------------------------
+
+	@Test
+	void aCompletedAnalysisAsksToReplaceItsPredecessorAfterItIsCompleted() {
+		pipeline.run(id);
+
+		assertThat(analysis.getStatus()).isEqualTo(AnalysisStatus.COMPLETED);
+		verify(cleanup).deleteReplaced(analysis);
+	}
+
+	@Test
+	void aFailedAnalysisNeverReplacesAnything() {
+		when(parsingService.parse(any(), any(), any())).thenThrow(new AnalysisFailureException("nothing to parse"));
+
+		pipeline.run(id);
+
+		assertThat(analysis.getStatus()).isEqualTo(AnalysisStatus.FAILED);
+		verify(cleanup, never()).deleteReplaced(any());
 	}
 }

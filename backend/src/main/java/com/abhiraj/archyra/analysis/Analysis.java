@@ -72,6 +72,14 @@ public class Analysis {
 	@Column(name = "quota_refunded", nullable = false, columnDefinition = "boolean not null default false")
 	private boolean quotaRefunded;
 
+	/**
+	 * Set when this analysis is a re-run of an earlier, finished one: that analysis (graph, metadata and row) is
+	 * deleted once this one COMPLETES, so a failed re-run leaves the old results alone. Kept afterwards as a record;
+	 * it is a plain id, so it may point at a row that is gone.
+	 */
+	@Column(name = "replaces_analysis_id", updatable = false)
+	private UUID replacesAnalysisId;
+
 	@CreationTimestamp
 	@Column(name = "created_at", nullable = false, updatable = false)
 	private Instant createdAt;
@@ -98,6 +106,11 @@ public class Analysis {
 	/** Records that this analysis consumed a unit. Only the registrar charges, in the same transaction as the insert. */
 	void markQuotaCharged() {
 		this.quotaCharged = true;
+	}
+
+	/** Only the registrar sets this, before the first save. */
+	void replaces(UUID analysisId) {
+		this.replacesAnalysisId = analysisId;
 	}
 
 	/** COMPLETED and FAILED are final; nothing changes after them. */

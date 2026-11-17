@@ -34,6 +34,13 @@ public class AnalysisController {
 		return analysisService.list(page, size);
 	}
 
+	/** Runs an analysis again; the answer has the same shape as {@code POST /analyses}. */
+	@PostMapping("/{analysisId}/reanalyze")
+	@ResponseStatus(HttpStatus.ACCEPTED)
+	public CreateAnalysisResponse reanalyze(@PathVariable String analysisId) {
+		return analysisService.reanalyze(analysisId);
+	}
+
 	@DeleteMapping("/{analysisId}")
 	@ResponseStatus(HttpStatus.NO_CONTENT)
 	public void deleteAnalysis(@PathVariable String analysisId) {

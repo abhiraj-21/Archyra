@@ -180,4 +180,39 @@ class UsageConcurrencyIntegrationTest extends UsageIntegrationSupport {
 		assertThat(used(user)).isEqualTo(chargedAndNotRefunded(user));
 		assertThat(chargedAndNotRefunded(user)).isEqualTo((int) count(creates, 202));
 	}
+
+	@Test
+	void createsRacingWithDeletesLeaveACounterThatMatchesTheKeptAnalyses() throws Exception {
+		User user = freeUser();
+		List<UUID> finished = new ArrayList<>();
+		for (int i = 0; i < limit() - 1; i++) {
+			UUID id = createOk(user, freshUrl());
+			finish(id, AnalysisStatus.COMPLETED);
+			finished.add(id);
+		}
+
+		List<Callable<Outcome>> tasks = new ArrayList<>();
+		for (int i = 0; i < 6; i++) {
+			tasks.add(post(user, freshUrl()));
+		}
+		for (UUID id : finished) { // every analysis is deleted from two threads at once: it must be credited only once
+			for (int i = 0; i < 2; i++) {
+				tasks.add(() -> new Outcome(deleteAnalysis(user, id).getResponse().getStatus(), null, null));
+			}
+		}
+
+		List<Outcome> outcomes = inParallel(tasks);
+
+		List<Outcome> creates = outcomes.subList(0, 6);
+		assertThat(creates).allMatch(o -> o.status() == 202 || (o.status() == 403 && "USAGE_LIMIT_EXCEEDED".equals(o.code())));
+		List<Outcome> deletes = outcomes.subList(6, outcomes.size());
+		assertThat(deletes).allMatch(o -> o.status() == 204 || o.status() == 404);
+		// a second concurrent DELETE of the same row may also answer 204 (the row delete is idempotent); the credit is
+		// guarded, which the counter assertions below prove
+		assertThat(deletes.stream().filter(o -> o.status() == 204).count()).isGreaterThanOrEqualTo(finished.size());
+		assertThat(analysisRows(user)).isEqualTo((int) count(creates, 202));
+		assertThat(used(user)).isBetween(0, limit());
+		assertThat(used(user)).isEqualTo(chargedAndNotRefunded(user)); // deleted analyses took their units with them
+		assertThat(used(user)).isEqualTo(analysisRows(user));
+	}
 }

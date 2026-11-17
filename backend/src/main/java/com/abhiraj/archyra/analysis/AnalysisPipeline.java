@@ -49,6 +49,7 @@ public class AnalysisPipeline {
 	private final AnalysisMetadataRepository metadataRepository;
 	private final GraphBuilder graphBuilder;
 	private final AnalysisRegistrar registrar;
+	private final AnalysisCleanup cleanup;
 
 	/** Starts the pipeline for an already persisted analysis on the analysis executor. */
 	@Async(AsyncConfig.ANALYSIS_EXECUTOR)
@@ -81,6 +82,7 @@ public class AnalysisPipeline {
 
 			update(analysisId, Analysis::markCompleted);
 			log.info("Analysis {} completed for {}", analysisId, analysis.getRepositoryUrl());
+			cleanup.deleteReplaced(analysis); // a re-run replaces its predecessor only now; never throws
 		}
 		catch (Throwable failure) { // an analysis must never stay stuck, whatever was thrown
 			fail(analysisId, stage, failure);

@@ -48,6 +48,26 @@ public class AnalysisService {
 	 * @throws ServiceBusyException if the analysis queue is full, or other requests of the same user hold the quota lock
 	 */
 	public CreateAnalysisResponse createAnalysis(CreateAnalysisRequest request) {
+		return start(request.repositoryUrl(), null);
+	}
+
+	/**
+	 * Runs one of the caller's analyses again. It goes through the same path as a new analysis, so it is a charge
+	 * against the allowance for a free user, and a re-run of a repository that is still being analysed (this analysis
+	 * or a newer one) returns that running analysis instead. A new analysis with a new id is created; once it
+	 * COMPLETES it replaces this one, which is deleted (graph, metadata and row) for every plan. If the re-run fails
+	 * the old results are untouched.
+	 *
+	 * @throws AnalysisNotFoundException if the id is malformed, no such analysis exists, or it is someone else's
+	 * @throws com.abhiraj.archyra.common.UsageLimitExceededException if a free user has used all of the allowance
+	 * @throws ServiceBusyException if the analysis queue is full
+	 */
+	public CreateAnalysisResponse reanalyze(String analysisId) {
+		Analysis source = findOwned(analysisId);
+		return start(source.getRepositoryUrl(), source.isFinished() ? source.getId() : null);
+	}
+
+	private CreateAnalysisResponse start(String repositoryUrl, UUID replacesAnalysisId) {
 		UUID owner = access.callerId();
 		RateLimiter.Decision decision = rateLimiter.tryConsume(RateLimiter.Rule.CREATE_ANALYSIS, owner.toString());
 		if (!decision.allowed()) {
@@ -56,7 +76,7 @@ public class AnalysisService {
 
 		AnalysisRegistrar.Registration registration;
 		try {
-			registration = registrar.registerOrReuse(owner, request.repositoryUrl());
+			registration = registrar.registerOrReuse(owner, repositoryUrl, replacesAnalysisId);
 		}
 		catch (PessimisticLockingFailureException ex) {
 			log.warn("Gave up waiting for the usage lock of a user: {}", ex.getClass().getSimpleName());

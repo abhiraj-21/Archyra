@@ -67,6 +67,12 @@ public class UsageService {
 		repository.decrement(userId, type.name());
 	}
 
+	/** True while the user is held to the free-tier limits (FREE, or PREMIUM that has expired), as read from the database now. */
+	@Transactional(readOnly = true)
+	public boolean isHeldToFreeLimit(UUID userId) {
+		return entitlements.effectivePlan(userId) == Plan.FREE;
+	}
+
 	/** The caller's own counters. Read-only: it never creates a row and takes no lock. */
 	@Transactional(readOnly = true)
 	public UsageResponse usageOf(UUID userId) {
