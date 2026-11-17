@@ -20,8 +20,8 @@ class AnalysisRecoveryTest {
 
 	@Test
 	void marksAnalysesThatWereInFlightAtShutdownAsFailed() {
-		Analysis queued = Analysis.queued("https://github.com/o/a");
-		Analysis parsing = Analysis.queued("https://github.com/o/b");
+		Analysis queued = Analysis.queued("https://github.com/o/a", java.util.UUID.randomUUID());
+		Analysis parsing = Analysis.queued("https://github.com/o/b", java.util.UUID.randomUUID());
 		parsing.advanceTo(AnalysisStatus.PARSING, 25);
 		when(analysisRepository.findByStatusNotIn(List.of(AnalysisStatus.COMPLETED, AnalysisStatus.FAILED)))
 				.thenReturn(List.of(queued, parsing));

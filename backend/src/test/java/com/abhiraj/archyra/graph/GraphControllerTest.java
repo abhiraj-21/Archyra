@@ -1,6 +1,8 @@
 package com.abhiraj.archyra.graph;
 
 import static org.mockito.BDDMockito.given;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.verify;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -16,17 +18,20 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
+import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
 import com.abhiraj.archyra.common.AnalysisNotCompletedException;
 import com.abhiraj.archyra.common.AnalysisNotFoundException;
 import com.abhiraj.archyra.common.GlobalExceptionHandler;
+import com.abhiraj.archyra.security.SecuritySliceConfig;
 import com.abhiraj.archyra.ir.NodeType;
 import com.abhiraj.archyra.ir.RelationshipType;
 
 @WebMvcTest(GraphController.class)
-@Import(GlobalExceptionHandler.class)
+@Import({GlobalExceptionHandler.class, SecuritySliceConfig.class})
+@WithMockUser
 class GraphControllerTest {
 
 	private static final String ANALYSIS_ID = UUID.randomUUID().toString();
@@ -37,6 +42,9 @@ class GraphControllerTest {
 
 	@MockitoBean
 	private GraphService graphService;
+
+	@MockitoBean
+	private GraphPremiumGate premiumGate;
 
 	@Test
 	void returnsNodesAndEdgesInTheReactFlowShape() throws Exception {
@@ -129,5 +137,29 @@ class GraphControllerTest {
 		mockMvc.perform(get(URL))
 				.andExpect(status().isConflict())
 				.andExpect(jsonPath("$.code").value("ANALYSIS_NOT_COMPLETED"));
+	}
+
+	// ---- premium gate --------------------------------------------------------------------------
+
+	@Test
+	void theGateSeesEveryQueryParameterAndTheLevel() throws Exception {
+		given(graphService.getGraph(ANALYSIS_ID, null, null)).willReturn(new GraphResponse(List.of(), List.of()));
+
+		mockMvc.perform(get(URL).param("level", "EXPERT").param("depth", "2").param("rootNodeId", "class:A"))
+				.andExpect(status().isOk());
+
+		verify(premiumGate).check(java.util.Set.of("level", "depth", "rootNodeId"), "EXPERT");
+	}
+
+	@Test
+	void aPremiumFeatureOnTheFreePlanIs403WithTheDocumentedCodeAndNoGraphWork() throws Exception {
+		org.mockito.Mockito.doThrow(new com.abhiraj.archyra.common.PremiumRequiredException("Expert graph requires Archyra Premium."))
+				.when(premiumGate).check(any(), any());
+
+		mockMvc.perform(get(URL).param("level", "EXPERT"))
+				.andExpect(status().isForbidden())
+				.andExpect(jsonPath("$.code").value("PREMIUM_FEATURE"))
+				.andExpect(jsonPath("$.message").value("Expert graph requires Archyra Premium."));
+		org.mockito.Mockito.verifyNoInteractions(graphService);
 	}
 }

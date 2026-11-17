@@ -17,6 +17,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
+import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.context.annotation.Import;
 import org.springframework.data.neo4j.core.Neo4jClient;
 import org.springframework.test.context.ActiveProfiles;
@@ -32,6 +33,7 @@ import com.abhiraj.archyra.ingestion.GitCloner;
  */
 @SpringBootTest
 @AutoConfigureMockMvc
+@WithMockUser(username = "00000000-0000-4000-8000-0000000000a1")
 @Import(TestcontainersConfiguration.class)
 @ActiveProfiles("test")
 class PolyglotPipelineIntegrationTest {

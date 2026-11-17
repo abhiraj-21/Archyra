@@ -9,6 +9,7 @@ import org.springframework.web.bind.annotation.RestController;
 import com.abhiraj.archyra.ir.NodeType;
 import com.abhiraj.archyra.ir.RelationshipType;
 
+import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 
 @RestController
@@ -17,12 +18,15 @@ import lombok.RequiredArgsConstructor;
 public class GraphController {
 
 	private final GraphService graphService;
+	private final GraphPremiumGate premiumGate;
 
 	@GetMapping
 	public GraphResponse getGraph(
 			@PathVariable String analysisId,
 			@RequestParam(required = false) NodeType nodeType,
-			@RequestParam(required = false) RelationshipType relationshipType) {
+			@RequestParam(required = false) RelationshipType relationshipType,
+			HttpServletRequest request) {
+		premiumGate.check(request.getParameterMap().keySet(), request.getParameter("level"));
 		return graphService.getGraph(analysisId, nodeType, relationshipType);
 	}
 }

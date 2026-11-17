@@ -1,13 +1,20 @@
 package com.abhiraj.archyra.analysis;
 
 import org.springframework.core.task.TaskRejectedException;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 
 import java.util.UUID;
 
+import com.abhiraj.archyra.common.AnalysisInProgressException;
 import com.abhiraj.archyra.common.AnalysisNotCompletedException;
 import com.abhiraj.archyra.common.AnalysisNotFoundException;
+import com.abhiraj.archyra.common.InvalidRequestException;
+import com.abhiraj.archyra.common.RateLimitedException;
 import com.abhiraj.archyra.common.ServiceBusyException;
+import com.abhiraj.archyra.security.RateLimiter;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -17,19 +24,30 @@ import lombok.extern.slf4j.Slf4j;
 @RequiredArgsConstructor
 public class AnalysisService {
 
+	static final int DEFAULT_PAGE_SIZE = 50;
+	static final int MAX_PAGE_SIZE = 200;
+
 	private final AnalysisRepository analysisRepository;
 	private final AnalysisPipeline analysisPipeline;
+	private final AnalysisAccess access;
+	private final AnalysisCleanup cleanup;
+	private final RateLimiter rateLimiter;
 
 	/**
-	 * Persists a new {@link AnalysisStatus#QUEUED} analysis, hands it to the background pipeline and
-	 * returns its identifier and status without waiting for the analysis.
+	 * Persists a new {@link AnalysisStatus#QUEUED} analysis owned by the signed-in caller, hands it to the
+	 * background pipeline and returns its identifier and status without waiting for the analysis.
 	 *
 	 * <p>Not transactional on purpose: the row must be committed before the pipeline thread looks it up.
 	 *
 	 * @throws ServiceBusyException if the analysis queue is full
 	 */
 	public CreateAnalysisResponse createAnalysis(CreateAnalysisRequest request) {
-		Analysis analysis = analysisRepository.save(Analysis.queued(request.repositoryUrl()));
+		UUID owner = access.callerId();
+		RateLimiter.Decision decision = rateLimiter.tryConsume(RateLimiter.Rule.CREATE_ANALYSIS, owner.toString());
+		if (!decision.allowed()) {
+			throw new RateLimitedException(decision.retryAfterSeconds()); // every analysis is a git clone
+		}
+		Analysis analysis = analysisRepository.save(Analysis.queued(request.repositoryUrl(), owner));
 		log.info("Analysis {} created with status {} for {}",
 				analysis.getId(), analysis.getStatus(), analysis.getRepositoryUrl());
 
@@ -45,32 +63,78 @@ public class AnalysisService {
 	}
 
 	/**
-	 * Reads the current status and progress of an analysis from PostgreSQL, plus the failure reason when it FAILED.
+	 * Reads the current status and progress of one of the caller's analyses from PostgreSQL, plus the failure
+	 * reason when it FAILED.
 	 *
 	 * @param analysisId the id as it appears in the URL; anything that is not a UUID cannot exist
-	 * @throws AnalysisNotFoundException if the id is malformed or no such analysis exists
+	 * @throws AnalysisNotFoundException if the id is malformed, no such analysis exists, or it belongs to someone else
 	 */
 	public AnalysisStatusResponse getStatus(String analysisId) {
-		return analysisRepository.findById(parseId(analysisId))
-				.map(AnalysisStatusResponse::from)
-				.orElseThrow(AnalysisService::notFound);
+		return AnalysisStatusResponse.from(findOwned(analysisId));
 	}
 
 	/**
-	 * Checks that an analysis exists and has finished successfully, for endpoints that serve its results.
+	 * The caller's own analyses, newest first. Other users' analyses never appear, whatever their role.
+	 *
+	 * @param page zero-based page number
+	 * @param size page size, 1 to {@value #MAX_PAGE_SIZE}
+	 * @throws InvalidRequestException if page or size is out of range
+	 */
+	public AnalysisPageResponse list(int page, int size) {
+		if (page < 0) {
+			throw new InvalidRequestException("page must not be negative");
+		}
+		if (size < 1 || size > MAX_PAGE_SIZE) {
+			throw new InvalidRequestException("size must be between 1 and " + MAX_PAGE_SIZE);
+		}
+		Page<Analysis> result = analysisRepository.findByOwnerId(access.callerId(),
+				PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "createdAt").and(Sort.by("id"))));
+		return new AnalysisPageResponse(result.getContent().stream().map(AnalysisSummary::from).toList(),
+				page, size, result.getTotalElements(), result.getTotalPages());
+	}
+
+	/**
+	 * Deletes one of the caller's analyses with its graph and metadata.
+	 *
+	 * @throws AnalysisNotFoundException   if it does not exist or belongs to someone else
+	 * @throws AnalysisInProgressException if it is still queued or running
+	 */
+	public void delete(String analysisId) {
+		Analysis analysis = findOwned(analysisId);
+		if (!analysis.isFinished()) {
+			throw new AnalysisInProgressException("The analysis is still running; try again when it has finished");
+		}
+		cleanup.delete(analysis);
+		log.info("Analysis {} deleted by its owner", analysis.getId());
+	}
+
+	/**
+	 * Checks that the caller owns an analysis and that it has finished successfully, for endpoints that serve its
+	 * results. Every such endpoint goes through here, so this is where ownership is enforced.
 	 *
 	 * @return the analysis id, which is also the {@code analysisId} of its graph
-	 * @throws AnalysisNotFoundException     if the id is malformed or no such analysis exists
+	 * @throws AnalysisNotFoundException     if the id is malformed, no such analysis exists, or it is someone else's
 	 * @throws AnalysisNotCompletedException if the analysis is still running or FAILED
 	 */
 	public UUID requireCompleted(String analysisId) {
-		Analysis analysis = analysisRepository.findById(parseId(analysisId)).orElseThrow(AnalysisService::notFound);
+		Analysis analysis = findOwned(analysisId);
 		return switch (analysis.getStatus()) {
 			case COMPLETED -> analysis.getId();
 			case FAILED -> throw new AnalysisNotCompletedException("The analysis failed, so it has no results");
 			default -> throw new AnalysisNotCompletedException(
 					"The analysis has not completed yet (status: " + analysis.getStatus() + ")");
 		};
+	}
+
+	/**
+	 * The analysis if the caller owns it. Unknown, malformed, foreign and ownerless (pre-accounts) ids all give the
+	 * same 404, so ids cannot be probed.
+	 */
+	private Analysis findOwned(String analysisId) {
+		UUID caller = access.callerId();
+		return analysisRepository.findById(parseId(analysisId))
+				.filter(analysis -> caller.equals(analysis.getOwnerId()))
+				.orElseThrow(AnalysisService::notFound);
 	}
 
 	/** Accepts only the canonical UUID form, so loose inputs such as {@code 1-1-1-1-1} are rejected. */

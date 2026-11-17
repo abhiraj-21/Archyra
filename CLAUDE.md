@@ -32,7 +32,7 @@ Each store has one job. Do not duplicate data across them except for IDs.
 
 | Store | Owns | Notes |
 | --- | --- | --- |
-| PostgreSQL (Spring Data JPA) | Analysis metadata (`analyses`, `repositories`, `analysis_metadata`), and later users, usage limits, subscriptions and conversations | Relational and transactional data |
+| PostgreSQL (Spring Data JPA) | Analysis metadata (`analyses`, `analysis_metadata`), accounts and sessions (`users`, `linked_identities`, `refresh_tokens`, `one_time_tokens`), and later usage limits, subscriptions and conversations | Relational and transactional data. Schema comes from Hibernate `ddl-auto=update` today; add migrations before production |
 | Neo4j | The code graph | Every graph node is scoped to an `analysisId` |
 | PostgreSQL + pgvector | Embeddings of code and graph context for RAG (V1+) | Same Postgres instance |
 
@@ -50,14 +50,15 @@ The Neo4j model is meant to be stable ("the foundation you do not want to rebuil
 - Graph responses always use the React Flow shape: `{ nodes: [{ id, type, name, file, ... }], edges: [{ source, target, type }] }`. Expand-style endpoints add a `centerNode`.
 - List endpoints paginate with `page` and `size`. Filters are optional query parameters.
 - Errors return a machine-readable `code` plus a `message`. For example, a gated feature returns `403 { "code": "PREMIUM_FEATURE", "message": ... }`.
-- **Tier gating happens on the server** (Spring Security plus a subscription service), never only in the frontend.
+- **Tier gating happens on the server** (Spring Security plus a subscription service), never only in the frontend. The plan is read from the database on every check, never from the access token.
+- **Auth, ownership, premium and rate-limit rules, and their error codes:** an analysis is visible only to the user who started it (anything else is a 404), `/api/v1/**` needs a bearer token except the public `/auth/**` routes, and a refused request returns `{ code, message }` (for example `AUTHENTICATION_REQUIRED`, `PREMIUM_FEATURE`, `RATE_LIMITED`). Details: `backend/specs/security/design.md`.
 - AI responses include `sources` (the graph nodes they used). Architecture detection includes a `confidence` score and must not be presented as certain.
 - The graph and the AI share one expertise model: `BEGINNER`, `INTERMEDIATE` and `EXPERT`.
 
 ## Roadmap
 
-- **V0.1 Codebase Understanding** (current): accept a GitHub URL, parse it, build the graph and the V0.1 endpoints (`analyses`, `repository`, `graph`, `nodes`, `files`, `classes`), and show basic technology/framework information. No AI and no auth. The backend endpoints are all implemented; technology/framework information is stored in `analysis_metadata` but not exposed by an endpoint yet.
-- **V0.5 Product Foundation**: Google OAuth and JWT through Spring Security (`/auth`, `/users/me`), analysis history (`GET`/`DELETE` analyses, `reanalyze`), usage limits (`/usage`), and an admin API with the `ADMIN` role (`/admin/users`, `/admin/stats`).
+- **V0.1 Codebase Understanding** (done): accept a GitHub URL, parse it, build the graph and the V0.1 endpoints (`analyses`, `repository`, `graph`, `nodes`, `files`, `classes`), and show basic technology/framework information. No AI. The backend endpoints are all implemented; technology/framework information is stored in `analysis_metadata` but not exposed by an endpoint yet.
+- **V0.5 Product Foundation**: authentication and authorization are implemented (see `backend/specs/security/spec.md` and the Security section of `backend/CLAUDE.md`): email/password, Google and GitHub login, short-lived access JWT plus rotating refresh cookie, email verification and password reset, per-user ownership of analyses, server-side premium gating, rate limiting, `/users/me`, and the admin user API (`/admin/users`). Analysis history is partly done (`GET`/`DELETE /analyses`). Still to do: `reanalyze`, usage limits (`/usage`), and `GET /admin/stats`.
 - **V1 AI Codebase Explorer**: Spring AI, "Ask AI" chat with sources, conversations, `/architecture` interpretation, `/explain` for a node, and RAG over the graph plus pgvector. The LLM provider is undecided; the plan is to compare GPT, Gemini and Claude. Deployment happens after V1.
 - **V2 Interactive Architecture Graph** (premium): drill down from a class to its methods and then to their calls, using `nodes/{id}/relationships`, `nodes/{id}/expand`, `classes/{id}/methods` and `methods/{id}/dependencies`, plus parameters on `/graph`.
 - **V3 Adaptive Architecture**: graph views by expertise level. The free tier gets `BEGINNER` and limited `INTERMEDIATE`; `EXPERT` is premium only.

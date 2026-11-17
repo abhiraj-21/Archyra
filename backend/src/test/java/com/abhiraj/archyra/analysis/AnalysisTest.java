@@ -9,7 +9,7 @@ class AnalysisTest {
 
 	@Test
 	void queuedAnalysisStartsAtQueuedWithZeroProgress() {
-		Analysis analysis = Analysis.queued("https://github.com/owner/repo");
+		Analysis analysis = Analysis.queued("https://github.com/owner/repo", java.util.UUID.randomUUID());
 
 		assertThat(analysis.getRepositoryUrl()).isEqualTo("https://github.com/owner/repo");
 		assertThat(analysis.getStatus()).isEqualTo(AnalysisStatus.QUEUED);
@@ -19,7 +19,7 @@ class AnalysisTest {
 
 	@Test
 	void idAndTimestampsAreAssignedByPersistenceNotTheFactory() {
-		Analysis analysis = Analysis.queued("https://github.com/owner/repo");
+		Analysis analysis = Analysis.queued("https://github.com/owner/repo", java.util.UUID.randomUUID());
 
 		assertThat(analysis.getId()).isNull();
 		assertThat(analysis.getCreatedAt()).isNull();
@@ -28,7 +28,7 @@ class AnalysisTest {
 
 	@Test
 	void advancingMovesStatusAndProgress() {
-		Analysis analysis = Analysis.queued("https://github.com/owner/repo");
+		Analysis analysis = Analysis.queued("https://github.com/owner/repo", java.util.UUID.randomUUID());
 
 		analysis.advanceTo(AnalysisStatus.PARSING, 25);
 
@@ -39,7 +39,7 @@ class AnalysisTest {
 
 	@Test
 	void completingSetsFullProgress() {
-		Analysis analysis = Analysis.queued("https://github.com/owner/repo");
+		Analysis analysis = Analysis.queued("https://github.com/owner/repo", java.util.UUID.randomUUID());
 		analysis.advanceTo(AnalysisStatus.BUILDING_GRAPH, 80);
 
 		analysis.markCompleted();
@@ -52,7 +52,7 @@ class AnalysisTest {
 
 	@Test
 	void failingKeepsProgressAndStoresTheReason() {
-		Analysis analysis = Analysis.queued("https://github.com/owner/repo");
+		Analysis analysis = Analysis.queued("https://github.com/owner/repo", java.util.UUID.randomUUID());
 		analysis.advanceTo(AnalysisStatus.PARSING, 25);
 
 		analysis.markFailed("No source files could be analysed");
@@ -65,7 +65,7 @@ class AnalysisTest {
 
 	@Test
 	void aVeryLongFailureReasonIsCutToTheColumnLength() {
-		Analysis analysis = Analysis.queued("https://github.com/owner/repo");
+		Analysis analysis = Analysis.queued("https://github.com/owner/repo", java.util.UUID.randomUUID());
 
 		analysis.markFailed("x".repeat(5000));
 
@@ -74,9 +74,9 @@ class AnalysisTest {
 
 	@Test
 	void aFinishedAnalysisCannotChangeAgain() {
-		Analysis completed = Analysis.queued("https://github.com/owner/repo");
+		Analysis completed = Analysis.queued("https://github.com/owner/repo", java.util.UUID.randomUUID());
 		completed.markCompleted();
-		Analysis failed = Analysis.queued("https://github.com/owner/repo");
+		Analysis failed = Analysis.queued("https://github.com/owner/repo", java.util.UUID.randomUUID());
 		failed.markFailed("boom");
 
 		assertThatThrownBy(() -> completed.advanceTo(AnalysisStatus.PARSING, 25)).isInstanceOf(IllegalStateException.class);
@@ -87,7 +87,7 @@ class AnalysisTest {
 
 	@Test
 	void advanceToRefusesFinalStatuses() {
-		Analysis analysis = Analysis.queued("https://github.com/owner/repo");
+		Analysis analysis = Analysis.queued("https://github.com/owner/repo", java.util.UUID.randomUUID());
 
 		assertThatThrownBy(() -> analysis.advanceTo(AnalysisStatus.COMPLETED, 100)).isInstanceOf(IllegalArgumentException.class);
 		assertThatThrownBy(() -> analysis.advanceTo(AnalysisStatus.FAILED, 0)).isInstanceOf(IllegalArgumentException.class);

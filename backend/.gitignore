@@ -8,3 +8,6 @@ target/
 *.iml
 .DS_Store
 HELP.md
+
+# Personal session notes, never committed
+V0.5.md

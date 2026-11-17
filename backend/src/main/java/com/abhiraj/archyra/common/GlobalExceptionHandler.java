@@ -62,6 +62,53 @@ public class GlobalExceptionHandler {
 				.body(new ErrorResponse("ANALYSIS_NOT_COMPLETED", ex.getMessage()));
 	}
 
+	@ExceptionHandler(InvalidCredentialsException.class)
+	public ResponseEntity<ErrorResponse> handleInvalidCredentials(InvalidCredentialsException ex) {
+		return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(new ErrorResponse("INVALID_CREDENTIALS", ex.getMessage()));
+	}
+
+	@ExceptionHandler(EmailNotVerifiedException.class)
+	public ResponseEntity<ErrorResponse> handleEmailNotVerified(EmailNotVerifiedException ex) {
+		return ResponseEntity.status(HttpStatus.FORBIDDEN).body(new ErrorResponse("EMAIL_NOT_VERIFIED", ex.getMessage()));
+	}
+
+	@ExceptionHandler(AccountDisabledException.class)
+	public ResponseEntity<ErrorResponse> handleAccountDisabled(AccountDisabledException ex) {
+		return ResponseEntity.status(HttpStatus.FORBIDDEN).body(new ErrorResponse("ACCOUNT_DISABLED", ex.getMessage()));
+	}
+
+	@ExceptionHandler(InvalidTokenException.class)
+	public ResponseEntity<ErrorResponse> handleInvalidToken(InvalidTokenException ex) {
+		return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(new ErrorResponse("INVALID_OR_EXPIRED_TOKEN", ex.getMessage()));
+	}
+
+	@ExceptionHandler(PremiumRequiredException.class)
+	public ResponseEntity<ErrorResponse> handlePremiumRequired(PremiumRequiredException ex) {
+		return ResponseEntity.status(HttpStatus.FORBIDDEN).body(new ErrorResponse("PREMIUM_FEATURE", ex.getMessage()));
+	}
+
+	@ExceptionHandler(AnalysisInProgressException.class)
+	public ResponseEntity<ErrorResponse> handleAnalysisInProgress(AnalysisInProgressException ex) {
+		return ResponseEntity.status(HttpStatus.CONFLICT).body(new ErrorResponse("ANALYSIS_IN_PROGRESS", ex.getMessage()));
+	}
+
+	@ExceptionHandler(RateLimitedException.class)
+	public ResponseEntity<ErrorResponse> handleRateLimited(RateLimitedException ex) {
+		return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
+				.header("Retry-After", String.valueOf(ex.retryAfterSeconds()))
+				.body(new ErrorResponse("RATE_LIMITED", ex.getMessage()));
+	}
+
+	@ExceptionHandler(UserNotFoundException.class)
+	public ResponseEntity<ErrorResponse> handleUserNotFound(UserNotFoundException ex) {
+		return ResponseEntity.status(HttpStatus.NOT_FOUND).body(new ErrorResponse("USER_NOT_FOUND", ex.getMessage()));
+	}
+
+	@ExceptionHandler(AdminRuleViolationException.class)
+	public ResponseEntity<ErrorResponse> handleAdminRule(AdminRuleViolationException ex) {
+		return ResponseEntity.status(HttpStatus.CONFLICT).body(new ErrorResponse(ex.code(), ex.getMessage()));
+	}
+
 	@ExceptionHandler(ServiceBusyException.class)
 	public ResponseEntity<ErrorResponse> handleBusy(ServiceBusyException ex) {
 		return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)

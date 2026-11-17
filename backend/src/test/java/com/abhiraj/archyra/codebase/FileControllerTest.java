@@ -18,12 +18,14 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
+import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
 import com.abhiraj.archyra.common.AnalysisNotCompletedException;
 import com.abhiraj.archyra.common.AnalysisNotFoundException;
 import com.abhiraj.archyra.common.GlobalExceptionHandler;
+import com.abhiraj.archyra.security.SecuritySliceConfig;
 import com.abhiraj.archyra.common.InvalidRequestException;
 import com.abhiraj.archyra.common.NodeNotFoundException;
 import com.abhiraj.archyra.graph.EntitySummary;
@@ -32,7 +34,8 @@ import com.abhiraj.archyra.graph.NodeRef;
 import com.abhiraj.archyra.ir.NodeType;
 
 @WebMvcTest(FileController.class)
-@Import(GlobalExceptionHandler.class)
+@Import({GlobalExceptionHandler.class, SecuritySliceConfig.class})
+@WithMockUser
 class FileControllerTest {
 
 	private static final String ANALYSIS_ID = UUID.randomUUID().toString();

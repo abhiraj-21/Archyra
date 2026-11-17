@@ -776,6 +776,21 @@ Returns the currently authenticated user.
 
 Google OAuth itself can have dedicated auth routes, but I'd let Spring Security handle most of that machinery rather than designing a huge custom authentication API.
 
+#### Implemented in V0.5 (security)
+
+Full spec: `backend/specs/security/spec.md`. How it works, as built:
+
+- **Login methods:** email + password, Google and GitHub (Spring's own `/oauth2/authorization/{google|github}`).
+- **Tokens:** a 15-minute access JWT (HS256, `sub` = user id, `roles` claim, never the plan) sent as `Authorization: Bearer ...`, plus an opaque refresh token in an `HttpOnly; SameSite=Strict; Path=/api/v1/auth` cookie, rotated on every use. Presenting an old refresh token revokes the whole login family. Only SHA-256 hashes of refresh, verification and reset tokens are stored.
+- **Endpoints under `/api/v1/auth`:** `POST /register`, `/login`, `/refresh`, `/logout`, `/verify-email`, `/resend-verification`, `/forgot-password`, `/reset-password`; `GET /csrf`, `/me`. `/refresh` and `/logout` need the CSRF header (`X-XSRF-TOKEN`, from `GET /csrf`). Register, resend and forgot always answer 202 with the same body, so an email's registration status is never revealed.
+- **Social login** ends with a redirect to `{frontend-base-url}/auth/callback` (or `/login?error=<code>`); the SPA then calls `/auth/refresh` like after any login. No token ever appears in a URL.
+- **Ownership:** an analysis belongs to the user who started it, and to nobody else (admins included). Anything not yours is a 404, so ids cannot be probed.
+- **Premium:** enforced on the server from the database plan (never the token). On `GET .../graph`, FREE gets no parameters, `nodeType`, `relationshipType` and `level=BEGINNER`; everything else is `403 PREMIUM_FEATURE`.
+- **Errors** keep the `{ code, message }` shape, e.g. `AUTHENTICATION_REQUIRED` (401), `ACCESS_DENIED`, `CSRF_TOKEN_INVALID`, `PREMIUM_FEATURE` (403), `INVALID_CREDENTIALS` (401), `EMAIL_NOT_VERIFIED`, `ACCOUNT_DISABLED` (403), `RATE_LIMITED` (429, with `Retry-After`).
+- **Passwords** are hashed with the delegating encoder (bcrypt), so they are limited to 72 bytes.
+- **Deployment notes:** the SPA and the API must share a registrable domain (the refresh cookie is `SameSite=Strict`); behind a proxy use `server.forward-headers-strategy=native`.
+
+
 ---
 
 # User
@@ -821,6 +836,8 @@ Deletes an analysis.
 Starts another analysis of the repository.
 
 This is enough. You don't need a massive "repository management" subsystem.
+
+> **Built in V0.5:** `GET /api/v1/analyses` (the caller's own, newest first, `page` and `size`; no `status` filter yet) and `DELETE /api/v1/analyses/{analysisId}` (409 `ANALYSIS_IN_PROGRESS` while it runs). `reanalyze` is not built yet.
 
 ---
 
@@ -877,6 +894,8 @@ RequestBody:
   "enabled": false
 }
 ```
+
+> **Built in V0.5:** `GET /admin/users`, `GET /admin/users/{userId}` and this `PATCH`. Disabling ends all of the user's sessions, and an admin cannot disable themselves or the last enabled admin (409 `CANNOT_DISABLE_SELF` / `LAST_ADMIN`). `GET /admin/stats` and `GET /usage` are not built yet. Also built: `GET` and `PATCH /api/v1/users/me` (name only).
 
 ---
 

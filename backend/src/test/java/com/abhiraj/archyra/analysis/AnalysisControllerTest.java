@@ -21,15 +21,18 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
+import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
 import com.abhiraj.archyra.common.AnalysisNotFoundException;
 import com.abhiraj.archyra.common.GlobalExceptionHandler;
+import com.abhiraj.archyra.security.SecuritySliceConfig;
 import com.abhiraj.archyra.common.ServiceBusyException;
 
 @WebMvcTest(AnalysisController.class)
-@Import(GlobalExceptionHandler.class)
+@Import({GlobalExceptionHandler.class, SecuritySliceConfig.class})
+@WithMockUser
 class AnalysisControllerTest {
 
 	private static final String URL = "/api/v1/analyses";
@@ -114,7 +117,17 @@ class AnalysisControllerTest {
 			"https://github.com/../repo",
 			"https://github.com/owner/..",
 			"https://github.com/owner/re..po",
-			"https://github.com/owner/repo/../other"
+			"https://github.com/owner/repo/../other",
+			"https://user:secret@github.com/owner/repo",
+			"https://token@github.com/owner/repo",
+			"https://github.com:443@evil.example/owner/repo",
+			"ssh://git@github.com/owner/repo",
+			"git://github.com/owner/repo",
+			"git@github.com:owner/repo.git",
+			"https://github.com/owner/repo\\n",
+			"https://github.com/owner/repo ",
+			"--upload-pack=touch /tmp/x",
+			"https://github.com/-owner/repo;rm -rf /"
 	})
 	void invalidRepositoryUrlReturns400(String url) throws Exception {
 		mockMvc.perform(post(URL).contentType(MediaType.APPLICATION_JSON).content(body(url)))
@@ -185,5 +198,62 @@ class AnalysisControllerTest {
 				.andExpect(status().isNotFound())
 				.andExpect(jsonPath("$.code").value("ANALYSIS_NOT_FOUND"))
 				.andExpect(jsonPath("$.message").value("Analysis not found"));
+	}
+
+	// ---- list and delete -----------------------------------------------------------------------
+
+	@Test
+	void listReturnsTheCallersAnalysesWithPaging() throws Exception {
+		given(analysisService.list(0, 50)).willReturn(new AnalysisPageResponse(
+				java.util.List.of(new AnalysisSummary(ANALYSIS_ID, "https://github.com/owner/repo", AnalysisStatus.COMPLETED, 100,
+						java.time.Instant.parse("2026-01-01T00:00:00Z"))), 0, 50, 1, 1));
+
+		mockMvc.perform(get(URL))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.items[0].analysisId").value(ANALYSIS_ID))
+				.andExpect(jsonPath("$.items[0].status").value("COMPLETED"))
+				.andExpect(jsonPath("$.totalElements").value(1));
+	}
+
+	@Test
+	void listPassesPageAndSizeToTheService() throws Exception {
+		given(analysisService.list(2, 10)).willReturn(new AnalysisPageResponse(java.util.List.of(), 2, 10, 0, 0));
+
+		mockMvc.perform(get(URL).param("page", "2").param("size", "10")).andExpect(status().isOk());
+
+		verify(analysisService).list(2, 10);
+	}
+
+	@Test
+	void listWithANonNumericPageIs400() throws Exception {
+		mockMvc.perform(get(URL).param("page", "x")).andExpect(status().isBadRequest())
+				.andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
+	}
+
+	@Test
+	void deleteReturns204() throws Exception {
+		mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete(URL + "/" + ANALYSIS_ID))
+				.andExpect(status().isNoContent());
+
+		verify(analysisService).delete(ANALYSIS_ID);
+	}
+
+	@Test
+	void deletingSomeoneElsesOrUnknownAnalysisIs404() throws Exception {
+		org.mockito.Mockito.doThrow(new AnalysisNotFoundException("Analysis not found")).when(analysisService).delete(ANALYSIS_ID);
+
+		mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete(URL + "/" + ANALYSIS_ID))
+				.andExpect(status().isNotFound())
+				.andExpect(jsonPath("$.code").value("ANALYSIS_NOT_FOUND"));
+	}
+
+	@Test
+	void deletingARunningAnalysisIs409() throws Exception {
+		org.mockito.Mockito.doThrow(new com.abhiraj.archyra.common.AnalysisInProgressException("still running"))
+				.when(analysisService).delete(ANALYSIS_ID);
+
+		mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete(URL + "/" + ANALYSIS_ID))
+				.andExpect(status().isConflict())
+				.andExpect(jsonPath("$.code").value("ANALYSIS_IN_PROGRESS"));
 	}
 }

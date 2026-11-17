@@ -33,6 +33,7 @@ import com.abhiraj.archyra.common.ServiceBusyException;
 class AnalysisServiceTest {
 
 	private static final String URL = "https://github.com/owner/repo";
+	private static final UUID CALLER = UUID.randomUUID();
 
 	@Mock
 	private AnalysisRepository analysisRepository;
@@ -40,11 +41,23 @@ class AnalysisServiceTest {
 	@Mock
 	private AnalysisPipeline analysisPipeline;
 
+	@Mock
+	private AnalysisAccess access;
+
+	@Mock
+	private AnalysisCleanup cleanup;
+
+	@Mock
+	private com.abhiraj.archyra.security.RateLimiter rateLimiter;
+
 	private AnalysisService service;
 
 	@BeforeEach
 	void setUp() {
-		service = new AnalysisService(analysisRepository, analysisPipeline);
+		service = new AnalysisService(analysisRepository, analysisPipeline, access, cleanup, rateLimiter);
+		lenient().when(access.callerId()).thenReturn(CALLER);
+		lenient().when(rateLimiter.tryConsume(any(), any()))
+				.thenReturn(new com.abhiraj.archyra.security.RateLimiter.Decision(true, 0));
 		// Simulate the persistence layer assigning a generated id on save.
 		lenient().when(analysisRepository.save(any(Analysis.class))).thenAnswer(invocation -> {
 			Analysis analysis = invocation.getArgument(0);
@@ -64,6 +77,7 @@ class AnalysisServiceTest {
 		assertThat(saved.getValue().getRepositoryUrl()).isEqualTo(URL);
 		assertThat(saved.getValue().getStatus()).isEqualTo(AnalysisStatus.QUEUED);
 		assertThat(saved.getValue().getProgress()).isZero();
+		assertThat(saved.getValue().getOwnerId()).isEqualTo(CALLER);
 	}
 
 	@Test
@@ -111,7 +125,7 @@ class AnalysisServiceTest {
 	@Test
 	void statusReturnsIdStatusAndProgressOfTheStoredAnalysis() {
 		UUID id = UUID.randomUUID();
-		Analysis analysis = Analysis.queued(URL);
+		Analysis analysis = Analysis.queued(URL, CALLER);
 		ReflectionTestUtils.setField(analysis, "id", id);
 		analysis.advanceTo(AnalysisStatus.PARSING, 25);
 		when(analysisRepository.findById(id)).thenReturn(Optional.of(analysis));
@@ -124,7 +138,7 @@ class AnalysisServiceTest {
 	@Test
 	void statusOfFailedAnalysisIncludesTheFailureReason() {
 		UUID id = UUID.randomUUID();
-		Analysis analysis = Analysis.queued(URL);
+		Analysis analysis = Analysis.queued(URL, CALLER);
 		ReflectionTestUtils.setField(analysis, "id", id);
 		analysis.advanceTo(AnalysisStatus.PARSING, 25);
 		analysis.markFailed("Repository is too large");
@@ -137,7 +151,7 @@ class AnalysisServiceTest {
 	@Test
 	void statusOfCompletedAnalysisHasNoFailureReason() {
 		UUID id = UUID.randomUUID();
-		Analysis analysis = Analysis.queued(URL);
+		Analysis analysis = Analysis.queued(URL, CALLER);
 		ReflectionTestUtils.setField(analysis, "id", id);
 		analysis.markCompleted();
 		when(analysisRepository.findById(id)).thenReturn(Optional.of(analysis));
@@ -148,7 +162,7 @@ class AnalysisServiceTest {
 	@Test
 	void statusAcceptsUpperCaseIds() {
 		UUID id = UUID.randomUUID();
-		Analysis analysis = Analysis.queued(URL);
+		Analysis analysis = Analysis.queued(URL, CALLER);
 		ReflectionTestUtils.setField(analysis, "id", id);
 		when(analysisRepository.findById(id)).thenReturn(Optional.of(analysis));
 
@@ -176,7 +190,7 @@ class AnalysisServiceTest {
 	// ---- requireCompleted ----------------------------------------------------------------------
 
 	private Analysis stored(UUID id, AnalysisStatus status) {
-		Analysis analysis = Analysis.queued(URL);
+		Analysis analysis = Analysis.queued(URL, CALLER);
 		ReflectionTestUtils.setField(analysis, "id", id);
 		ReflectionTestUtils.setField(analysis, "status", status);
 		when(analysisRepository.findById(id)).thenReturn(Optional.of(analysis));
@@ -218,5 +232,125 @@ class AnalysisServiceTest {
 
 		assertThatThrownBy(() -> service.requireCompleted(id.toString())).isInstanceOf(AnalysisNotFoundException.class);
 		assertThatThrownBy(() -> service.requireCompleted("a8f31c")).isInstanceOf(AnalysisNotFoundException.class);
+	}
+
+	// ---- ownership -----------------------------------------------------------------------------
+
+	private Analysis ownedBy(UUID owner, UUID id, AnalysisStatus status) {
+		Analysis analysis = owner == null ? ownerless() : Analysis.queued(URL, owner);
+		ReflectionTestUtils.setField(analysis, "id", id);
+		ReflectionTestUtils.setField(analysis, "status", status);
+		when(analysisRepository.findById(id)).thenReturn(Optional.of(analysis));
+		return analysis;
+	}
+
+	private static Analysis ownerless() {
+		Analysis analysis = Analysis.queued(URL, UUID.randomUUID());
+		ReflectionTestUtils.setField(analysis, "ownerId", null); // a row from before accounts existed
+		return analysis;
+	}
+
+	@Test
+	void anotherUsersAnalysisIsNotFoundForStatusAndResultsAlike() {
+		UUID id = UUID.randomUUID();
+		ownedBy(UUID.randomUUID(), id, AnalysisStatus.COMPLETED);
+
+		assertThatThrownBy(() -> service.getStatus(id.toString())).isInstanceOf(AnalysisNotFoundException.class)
+				.hasMessage("Analysis not found");
+		assertThatThrownBy(() -> service.requireCompleted(id.toString())).isInstanceOf(AnalysisNotFoundException.class);
+		assertThatThrownBy(() -> service.delete(id.toString())).isInstanceOf(AnalysisNotFoundException.class);
+		verifyNoInteractions(cleanup);
+	}
+
+	@Test
+	void anAnalysisWithoutAnOwnerIsVisibleToNobody() {
+		UUID id = UUID.randomUUID();
+		ownedBy(null, id, AnalysisStatus.COMPLETED);
+
+		assertThatThrownBy(() -> service.getStatus(id.toString())).isInstanceOf(AnalysisNotFoundException.class);
+		assertThatThrownBy(() -> service.requireCompleted(id.toString())).isInstanceOf(AnalysisNotFoundException.class);
+	}
+
+	@Test
+	void theOwnerSeesTheirOwnAnalysis() {
+		UUID id = UUID.randomUUID();
+		ownedBy(CALLER, id, AnalysisStatus.COMPLETED);
+
+		assertThat(service.getStatus(id.toString()).analysisId()).isEqualTo(id.toString());
+		assertThat(service.requireCompleted(id.toString())).isEqualTo(id);
+	}
+
+	// ---- list ----------------------------------------------------------------------------------
+
+	@Test
+	void listReturnsOnlyTheCallersAnalysesNewestFirst() {
+		UUID id = UUID.randomUUID();
+		Analysis analysis = Analysis.queued(URL, CALLER);
+		ReflectionTestUtils.setField(analysis, "id", id);
+		analysis.markCompleted();
+		when(analysisRepository.findByOwnerId(any(UUID.class), any(org.springframework.data.domain.Pageable.class)))
+				.thenReturn(new org.springframework.data.domain.PageImpl<>(java.util.List.of(analysis),
+						org.springframework.data.domain.PageRequest.of(1, 10), 11));
+
+		AnalysisPageResponse response = service.list(1, 10);
+
+		ArgumentCaptor<org.springframework.data.domain.Pageable> pageable =
+				ArgumentCaptor.forClass(org.springframework.data.domain.Pageable.class);
+		verify(analysisRepository).findByOwnerId(org.mockito.ArgumentMatchers.eq(CALLER), pageable.capture());
+		assertThat(pageable.getValue().getPageNumber()).isEqualTo(1);
+		assertThat(pageable.getValue().getPageSize()).isEqualTo(10);
+		assertThat(pageable.getValue().getSort().getOrderFor("createdAt").isDescending()).isTrue();
+		assertThat(response.items()).extracting(AnalysisSummary::analysisId).containsExactly(id.toString());
+		assertThat(response.totalElements()).isEqualTo(11);
+		assertThat(response.totalPages()).isEqualTo(2);
+	}
+
+	@ParameterizedTest
+	@ValueSource(ints = {0, -1, 201})
+	void listRejectsASizeOutOfRange(int size) {
+		assertThatThrownBy(() -> service.list(0, size)).isInstanceOf(com.abhiraj.archyra.common.InvalidRequestException.class);
+		verifyNoInteractions(analysisRepository);
+	}
+
+	@Test
+	void listRejectsANegativePage() {
+		assertThatThrownBy(() -> service.list(-1, 10)).isInstanceOf(com.abhiraj.archyra.common.InvalidRequestException.class);
+	}
+
+	// ---- delete --------------------------------------------------------------------------------
+
+	@ParameterizedTest
+	@ValueSource(strings = {"COMPLETED", "FAILED"})
+	void deleteRemovesAFinishedAnalysis(String status) {
+		UUID id = UUID.randomUUID();
+		Analysis analysis = ownedBy(CALLER, id, AnalysisStatus.valueOf(status));
+
+		service.delete(id.toString());
+
+		verify(cleanup).delete(analysis);
+	}
+
+	@ParameterizedTest
+	@ValueSource(strings = {"QUEUED", "CLONING", "PARSING", "ANALYZING", "BUILDING_GRAPH"})
+	void deleteRefusesAnAnalysisThatIsStillRunning(String status) {
+		UUID id = UUID.randomUUID();
+		ownedBy(CALLER, id, AnalysisStatus.valueOf(status));
+
+		assertThatThrownBy(() -> service.delete(id.toString()))
+				.isInstanceOf(com.abhiraj.archyra.common.AnalysisInProgressException.class);
+		verifyNoInteractions(cleanup);
+	}
+
+	// ---- rate limit ----------------------------------------------------------------------------
+
+	@Test
+	void startingAnAnalysisIsLimitedPerUserBeforeAnythingIsSaved() {
+		when(rateLimiter.tryConsume(com.abhiraj.archyra.security.RateLimiter.Rule.CREATE_ANALYSIS, CALLER.toString()))
+				.thenReturn(new com.abhiraj.archyra.security.RateLimiter.Decision(false, 1800));
+
+		assertThatThrownBy(() -> service.createAnalysis(new CreateAnalysisRequest(URL)))
+				.isInstanceOfSatisfying(com.abhiraj.archyra.common.RateLimitedException.class,
+						ex -> assertThat(ex.retryAfterSeconds()).isEqualTo(1800));
+		verifyNoInteractions(analysisRepository, analysisPipeline);
 	}
 }

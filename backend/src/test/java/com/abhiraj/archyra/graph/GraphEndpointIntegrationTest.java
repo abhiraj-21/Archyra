@@ -24,6 +24,7 @@ import org.springframework.context.annotation.Import;
 import org.springframework.data.neo4j.core.Neo4jClient;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.util.FileSystemUtils;
 
@@ -42,6 +43,7 @@ import com.jayway.jsonpath.JsonPath;
  */
 @SpringBootTest
 @AutoConfigureMockMvc
+@WithMockUser(username = "00000000-0000-4000-8000-0000000000a1")
 @Import(TestcontainersConfiguration.class)
 @ActiveProfiles("test")
 class GraphEndpointIntegrationTest {

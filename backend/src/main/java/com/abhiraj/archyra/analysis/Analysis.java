@@ -10,6 +10,7 @@ import jakarta.persistence.Enumerated;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
+import jakarta.persistence.Index;
 import jakarta.persistence.Table;
 import lombok.AccessLevel;
 import lombok.Getter;
@@ -22,7 +23,7 @@ import org.hibernate.annotations.UpdateTimestamp;
  * Neo4j and refers back to this row only by {@link #id}.
  */
 @Entity
-@Table(name = "analyses")
+@Table(name = "analyses", indexes = @Index(name = "idx_analysis_owner", columnList = "user_id"))
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class Analysis {
@@ -33,6 +34,15 @@ public class Analysis {
 	@Id
 	@GeneratedValue(strategy = GenerationType.UUID)
 	private UUID id;
+
+	/**
+	 * The user who started the analysis, and the only one who may read or delete it. Always set for new rows; null
+	 * only for rows created before accounts existed, which no one can see and {@code LegacyAnalysisPurger} deletes
+	 * at startup. Kept as a plain id: accounts belong to the
+	 * {@code user} feature, which this one does not reach into.
+	 */
+	@Column(name = "user_id", updatable = false)
+	private UUID ownerId;
 
 	@Column(name = "repository_url", nullable = false, length = 200, updatable = false)
 	private String repositoryUrl;
@@ -57,15 +67,19 @@ public class Analysis {
 	@Column(name = "updated_at", nullable = false)
 	private Instant updatedAt;
 
-	private Analysis(String repositoryUrl) {
+	private Analysis(String repositoryUrl, UUID ownerId) {
 		this.repositoryUrl = repositoryUrl;
+		this.ownerId = ownerId;
 		this.status = AnalysisStatus.QUEUED;
 		this.progress = 0;
 	}
 
-	/** A new analysis always starts as {@link AnalysisStatus#QUEUED} with 0% progress. */
-	public static Analysis queued(String repositoryUrl) {
-		return new Analysis(repositoryUrl);
+	/** A new analysis always starts as {@link AnalysisStatus#QUEUED} with 0% progress and belongs to {@code ownerId}. */
+	public static Analysis queued(String repositoryUrl, UUID ownerId) {
+		if (ownerId == null) {
+			throw new IllegalArgumentException("An analysis must have an owner");
+		}
+		return new Analysis(repositoryUrl, ownerId);
 	}
 
 	/** COMPLETED and FAILED are final; nothing changes after them. */

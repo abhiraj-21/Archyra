@@ -31,6 +31,8 @@ import com.abhiraj.archyra.TestcontainersConfiguration;
 @EnabledIfEnvironmentVariable(named = "ARCHYRA_NETWORK_TESTS", matches = "true")
 class RealRepositoryAnalysisTest {
 
+	private static final UUID OWNER = UUID.fromString("00000000-0000-4000-8000-0000000000a1");
+
 	@Autowired
 	AnalysisService analysisService;
 	@Autowired
@@ -62,7 +64,7 @@ class RealRepositoryAnalysisTest {
 	@MethodSource("repositories")
 	void analysesARealRepository(String url, String language, String technology) {
 		long start = System.currentTimeMillis();
-		UUID id = UUID.fromString(analysisService.createAnalysis(new CreateAnalysisRequest(url)).analysisId());
+		UUID id = UUID.fromString(com.abhiraj.archyra.security.TestCaller.runAs(OWNER, () -> analysisService.createAnalysis(new CreateAnalysisRequest(url))).analysisId());
 
 		await().atMost(Duration.ofMinutes(4)).pollInterval(Duration.ofSeconds(1))
 				.until(() -> analysisRepository.findById(id).map(Analysis::isFinished).orElse(false));

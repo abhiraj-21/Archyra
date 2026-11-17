@@ -22,6 +22,7 @@ import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import com.abhiraj.archyra.security.JwtService;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.context.annotation.Import;
@@ -70,7 +71,25 @@ class FileAndClassEndpointHttpTest {
 	@MockitoBean
 	GitCloner gitCloner;
 
+	@Autowired
+	JwtService jwtService;
+
 	private final HttpClient http = HttpClient.newHttpClient();
+
+	/** A request carrying a real access token for some user. */
+	private HttpRequest.Builder request(URI uri) {
+		return HttpRequest.newBuilder(uri).header("Authorization", "Bearer " + jwtService.issueFor(user()).value());
+	}
+
+	/** The signed-in user; also the owner of every analysis these tests create. */
+	private static final java.util.UUID OWNER = java.util.UUID.fromString("00000000-0000-4000-8000-0000000000a1");
+
+	private static com.abhiraj.archyra.user.User user() {
+		com.abhiraj.archyra.user.User user = com.abhiraj.archyra.user.User.registered(
+				"http-test@example.com", "Http Test", null, java.time.Instant.now());
+		org.springframework.test.util.ReflectionTestUtils.setField(user, "id", OWNER);
+		return user;
+	}
 
 	@BeforeEach
 	void cloneTheSampleRepository() {
@@ -345,7 +364,7 @@ class FileAndClassEndpointHttpTest {
 	}
 
 	private HttpResponse<String> send(String path) throws Exception {
-		return http.send(HttpRequest.newBuilder(URI.create("http://localhost:" + port + path)).build(),
+		return http.send(request(URI.create("http://localhost:" + port + path)).build(),
 				HttpResponse.BodyHandlers.ofString());
 	}
 
@@ -355,8 +374,8 @@ class FileAndClassEndpointHttpTest {
 	}
 
 	private UUID completedAnalysis() {
-		UUID id = UUID.fromString(analysisService
-				.createAnalysis(new CreateAnalysisRequest("https://github.com/example/sample-shop")).analysisId());
+		UUID id = UUID.fromString(com.abhiraj.archyra.security.TestCaller.runAs(OWNER, () -> analysisService
+				.createAnalysis(new CreateAnalysisRequest("https://github.com/example/sample-shop"))).analysisId());
 		await().atMost(Duration.ofSeconds(90)).pollInterval(Duration.ofMillis(200))
 				.until(() -> analysisRepository.findById(id).map(Analysis::isFinished).orElse(false));
 		assertThat(analysisRepository.findById(id).orElseThrow().getStatus()).isEqualTo(AnalysisStatus.COMPLETED);

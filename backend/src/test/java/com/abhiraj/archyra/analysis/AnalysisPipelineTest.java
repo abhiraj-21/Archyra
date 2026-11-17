@@ -77,7 +77,7 @@ class AnalysisPipelineTest {
 
 	@BeforeEach
 	void setUp() {
-		analysis = Analysis.queued(URL);
+		analysis = Analysis.queued(URL, java.util.UUID.randomUUID());
 		ReflectionTestUtils.setField(analysis, "id", id);
 		when(analysisRepository.findById(id)).thenReturn(Optional.of(analysis));
 		// Record the state at every save, because the same entity instance is mutated in place.
