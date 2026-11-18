@@ -29,7 +29,19 @@ class OAuth2LoginFailureHandler implements AuthenticationFailureHandler {
 	@Override
 	public void onAuthenticationFailure(HttpServletRequest request, HttpServletResponse response,
 			AuthenticationException exception) throws IOException {
+		if (LinkContext.read(request.getSession(false)).isPresent()) {
+			// A link, not a login: back to Settings, and the link context goes with the session.
+			HandshakeSession.discard(request, response);
+			OAuth2LinkHandler.redirectError(response, properties, linkCodeFor(exception));
+			return;
+		}
 		redirect(request, response, codeFor(exception));
+	}
+
+	/** The login code mapped onto the link allow-list; anything else (an unverified email does not apply) is a plain failure. */
+	static String linkCodeFor(AuthenticationException exception) {
+		String code = codeFor(exception);
+		return SocialLoginErrors.LINK_ALL.contains(code) ? code : SocialLoginErrors.FAILED;
 	}
 
 	void redirect(HttpServletRequest request, HttpServletResponse response, String code) throws IOException {

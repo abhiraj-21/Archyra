@@ -796,13 +796,15 @@ Full spec: `backend/specs/security/spec.md`. How it works, as built:
     - 400: `VALIDATION_ERROR` (lists allowed values for an enum parameter), `INVALID_REQUEST_BODY` (missing or malformed JSON), `INVALID_OR_EXPIRED_TOKEN` (verification or reset link)
     - 401: `AUTHENTICATION_REQUIRED` (with `WWW-Authenticate: Bearer`), `INVALID_CREDENTIALS`, `REFRESH_TOKEN_INVALID` (refresh failed; the cookie is cleared)
     - 403: `ACCESS_DENIED`, `CSRF_TOKEN_INVALID`, `EMAIL_NOT_VERIFIED`, `ACCOUNT_DISABLED`, `PREMIUM_FEATURE`, `USAGE_LIMIT_EXCEEDED`
-    - 404: `ANALYSIS_NOT_FOUND`, `NODE_NOT_FOUND`, `USER_NOT_FOUND`
-    - 409: `ANALYSIS_NOT_COMPLETED`, `ANALYSIS_IN_PROGRESS`, `CANNOT_DISABLE_SELF`, `LAST_ADMIN`
+    - 404: `ANALYSIS_NOT_FOUND`, `NODE_NOT_FOUND`, `USER_NOT_FOUND`, `IDENTITY_NOT_FOUND`
+    - 409: `ANALYSIS_NOT_COMPLETED`, `ANALYSIS_IN_PROGRESS`, `CANNOT_DISABLE_SELF`, `LAST_ADMIN`, `PROVIDER_ALREADY_LINKED`, `LAST_LOGIN_METHOD`
     - 429: `RATE_LIMITED` (with `Retry-After` in seconds); 503: `SERVICE_BUSY`
 - **Request and response bodies:** `POST /register` takes `{ name, email, password }`; `POST /login` takes `{ email, password }` and returns `{ accessToken, tokenType: "Bearer", expiresIn }` (seconds); `/refresh` returns the same. `POST /verify-email` takes `{ token }`; `/resend-verification` and `/forgot-password` take `{ email }`; `/reset-password` takes `{ token, newPassword }`. Register, verify, resend, forgot and reset answer `{ message }`. `GET /csrf` returns `{ headerName: "X-XSRF-TOKEN", token }`.
 - **Passwords** are hashed with the delegating encoder (bcrypt), so they are limited to 8 to 72 **bytes** (not the 8 to 128 characters of the security spec; the validation message still says 128 characters). A password equal to the email or on a short common list is refused.
 - **Deployment notes:** the SPA and the API must share a registrable domain (the refresh cookie is `SameSite=Strict`); behind a proxy use `server.forward-headers-strategy=native`.
 
+
+- **Linking Google/GitHub from Settings** (`/users/me/linked-identities`, below) is a separate flow from login. The login resolver is unchanged (it still matches by `(provider, providerUserId)`, then by verified email); a link never looks an account up by email.
 
 ---
 
@@ -835,6 +837,26 @@ Get current user.
 >   "linkedProviders": ["GITHUB"]
 > }
 > ```
+
+### Linked sign-in methods (Settings)
+
+> **Built:** `GET /api/v1/users/me/linked-identities`, `POST /api/v1/users/me/linked-identities/{provider}/link-intent` and `DELETE /api/v1/users/me/linked-identities/{provider}` (`{provider}` is `google` or `github`, lower case; anything else is `400 VALIDATION_ERROR`). All need a bearer token; `GET /users/me` and its `linkedProviders` are unchanged.
+>
+> ```
+> GET  → { "hasPassword": true, "identities": [ { "provider": "google", "email": "…"|null, "login": null, "linkedAt": "2026-11-19T…Z" } ] }
+> POST → { "authorizationUrl": "/oauth2/authorization/google?link_intent=<token>" }   (+ Set-Cookie: link_binding=…)
+> DELETE → 204
+> ```
+>
+> - **`hasPassword`** is `users.password_hash IS NOT NULL`. That is reliable: accounts created by a social login have a null hash (never a placeholder), and a social takeover of an unverified account clears it. Sign-in with an unusable dummy hash exists only inside `AppUserDetailsService`.
+> - **Starting a link.** `link-intent` creates an `oauth_link_intents` row (`token_hash` unique, `binding_hash`, `user_id`, `provider`, `created_at`, `expires_at` 5 minutes, `consumed_at`): two random 256-bit secrets, only their SHA-256 hashes stored. The token goes in the URL; the binding secret goes in an `HttpOnly; SameSite=Strict; Path=/oauth2/authorization; Max-Age=300` cookie (`link_binding`, `Secure` unless `COOKIE_SECURE=false`). Already linked is `409 PROVIDER_ALREADY_LINKED`; limited per user by `app.security.rate-limit.link-intent-per-user-per-hour` (default 10, `429 RATE_LIMITED`). Expired and used rows are purged lazily and daily.
+> - **Browser binding.** `LinkAuthorizationFilter` runs before Spring's authorization-redirect filter on `GET /oauth2/authorization/{provider}`. With `link_intent` it requires a valid, unexpired, unused intent **for that provider** and a matching binding cookie, then consumes the intent, copies `{userId, provider, expiresAt}` into a fresh handshake session and deletes the cookie. Otherwise it redirects to `{frontend-base-url}/settings?link_error=link_expired`. Without this, an attacker could send a victim a crafted `link_intent` URL that attaches the **victim's** Google/GitHub identity to the **attacker's** account. A request without `link_intent` clears any link context left in the session.
+> - **Link mode.** The presence of that session context is the only thing that makes the callback a link. The user-info services then return a `LinkPrincipal` (provider id, email, GitHub login) and **never call the account resolver**, so nothing is created, matched by email or taken over; the provider's email need not be verified (it is display-only and never changes the account email). `OAuth2LinkHandler` resolves the user strictly from the session, issues no tokens or cookies, destroys the session, and redirects to `/settings?link=ok&provider=<p>` or `/settings?link_error=<code>`, where `<code>` is one of `oauth_cancelled`, `oauth_failed`, `oauth_account_disabled`, `identity_already_linked` (the identity belongs to another account; nothing changes and the owner is not named), `provider_already_linked` (this user already has a different identity of that provider), `link_expired` (also re-checked against the deadline stored in the session). Linking the same identity again is a success.
+> - **Schema:** `linked_identities` gains nullable `provider_login` and a unique `(user_id, provider)`; `provider_email` becomes nullable (a startup step drops the old NOT NULL, because `ddl-auto=update` never relaxes a constraint). `created_at` was already there and is the "linked on" date.
+> - **Unlink.** `404 IDENTITY_NOT_FOUND` if not linked; `409 LAST_LOGIN_METHOD` if it would leave the account with no password and no other identity. Link and unlink both take a pessimistic lock on the user row, so two concurrent unlinks cannot both pass that check.
+> - **Notification emails.** A link and an unlink each send one notice (provider, time, a "wasn't you? reset your password" link to `/forgot-password`, no token) **after the transaction commits**; a mail failure is logged and never fails the operation.
+> - **Set a password** for an OAuth-only user is not built; they use Forgot password, which works for an account without a password (`AccountEmailFlows.forgotPassword` only needs an enabled account, and the reset sets the first password).
+> - Link and unlink never touch the refresh cookie or refresh-token families.
 
 ---
 

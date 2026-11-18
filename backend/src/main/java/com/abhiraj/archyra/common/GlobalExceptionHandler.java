@@ -115,6 +115,11 @@ public class GlobalExceptionHandler {
 		return ResponseEntity.status(HttpStatus.CONFLICT).body(new ErrorResponse(ex.code(), ex.getMessage()));
 	}
 
+	@ExceptionHandler(LinkedIdentityRuleException.class)
+	public ResponseEntity<ErrorResponse> handleLinkedIdentityRule(LinkedIdentityRuleException ex) {
+		return ResponseEntity.status(ex.status()).body(new ErrorResponse(ex.code(), ex.getMessage()));
+	}
+
 	@ExceptionHandler(ServiceBusyException.class)
 	public ResponseEntity<ErrorResponse> handleBusy(ServiceBusyException ex) {
 		return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)

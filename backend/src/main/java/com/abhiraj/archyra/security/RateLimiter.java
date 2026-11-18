@@ -23,9 +23,9 @@ import io.github.bucket4j.ConsumptionProbe;
 @Component
 public class RateLimiter {
 
-	/** What is limited. The key is the client IP, except for {@link #CREATE_ANALYSIS}, which is per user id. */
+	/** What is limited. The key is the client IP, except for {@link #CREATE_ANALYSIS} and {@link #LINK_INTENT}, which are per user id. */
 	public enum Rule {
-		LOGIN, SENSITIVE, CREATE_ANALYSIS
+		LOGIN, SENSITIVE, CREATE_ANALYSIS, LINK_INTENT
 	}
 
 	/** @param retryAfterSeconds how long until a request would be let through; 0 when allowed */
@@ -44,6 +44,7 @@ public class RateLimiter {
 		add(Rule.LOGIN, config.loginPerIpPerMinute(), Duration.ofMinutes(1));
 		add(Rule.SENSITIVE, config.sensitivePerIpPerHour(), Duration.ofHours(1));
 		add(Rule.CREATE_ANALYSIS, config.createAnalysisPerUserPerHour(), Duration.ofHours(1));
+		add(Rule.LINK_INTENT, config.linkIntentPerUserPerHour(), Duration.ofHours(1));
 	}
 
 	private void add(Rule rule, long capacity, Duration period) {

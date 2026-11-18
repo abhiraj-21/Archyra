@@ -20,6 +20,14 @@ interface UserRepository extends JpaRepository<User, UUID> {
 
 	boolean existsByRole(Role role);
 
+	/**
+	 * Locks one account row until the transaction ends. Linking and unlinking take it, so two requests for the same
+	 * user cannot both pass a "is this the last way to sign in" check.
+	 */
+	@Lock(LockModeType.PESSIMISTIC_WRITE)
+	@Query("select u from User u where u.id = :id")
+	Optional<User> findByIdForUpdate(@Param("id") UUID id);
+
 	/** Locks every enabled account of the role, so two administrators cannot disable each other at the same moment. */
 	@Lock(LockModeType.PESSIMISTIC_WRITE)
 	@Query("select u from User u where u.role = :role and u.enabled = true")

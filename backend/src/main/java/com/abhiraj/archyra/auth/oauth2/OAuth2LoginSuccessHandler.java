@@ -38,10 +38,17 @@ class OAuth2LoginSuccessHandler implements AuthenticationSuccessHandler {
 	private final OAuth2LoginFailureHandler failureHandler;
 	private final ClientIpResolver clientIps;
 	private final Clock clock;
+	private final OAuth2LinkHandler linkHandler;
 
 	@Override
 	public void onAuthenticationSuccess(HttpServletRequest request, HttpServletResponse response,
 			Authentication authentication) throws IOException {
+		// A handshake started from Settings is a link, not a login: no tokens, no cookies, handled on its own.
+		var link = LinkContext.read(request.getSession(false));
+		if (link.isPresent()) {
+			linkHandler.complete(request, response, authentication, link.get());
+			return;
+		}
 		if (!(authentication.getPrincipal() instanceof SocialPrincipal principal)) {
 			failureHandler.redirect(request, response, SocialLoginErrors.FAILED);
 			return;

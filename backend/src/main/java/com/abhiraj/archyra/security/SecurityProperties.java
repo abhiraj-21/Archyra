@@ -116,11 +116,13 @@ public record SecurityProperties(
 	 * @param loginPerIpPerMinute        {@code POST /auth/login} per client IP
 	 * @param sensitivePerIpPerHour      register, forgot-password and resend-verification per client IP
 	 * @param createAnalysisPerUserPerHour {@code POST /analyses} per signed-in user (it triggers a git clone)
+	 * @param linkIntentPerUserPerHour   starting an account link ({@code .../link-intent}) per signed-in user
 	 */
 	public record RateLimit(
 			@DefaultValue("10") @Min(1) int loginPerIpPerMinute,
 			@DefaultValue("5") @Min(1) int sensitivePerIpPerHour,
-			@DefaultValue("10") @Min(1) int createAnalysisPerUserPerHour) {
+			@DefaultValue("10") @Min(1) int createAnalysisPerUserPerHour,
+			@DefaultValue("10") @Min(1) int linkIntentPerUserPerHour) {
 	}
 
 	public record Lockout(

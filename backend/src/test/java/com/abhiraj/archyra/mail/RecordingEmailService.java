@@ -1,5 +1,6 @@
 package com.abhiraj.archyra.mail;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.regex.Matcher;
@@ -8,7 +9,18 @@ import java.util.regex.Pattern;
 /** Remembers the emails a flow asked for, so tests can read the link without an SMTP server. */
 public class RecordingEmailService implements EmailService {
 
-	public record Sent(String kind, String to, String name, String link) {
+	/**
+	 * @param kind      {@code VERIFY}, {@code RESET}, {@code ACCOUNT_EXISTS}, {@code IDENTITY_LINKED} or {@code IDENTITY_UNLINKED}
+	 * @param link      the tokened link, or for {@code ACCOUNT_EXISTS} the sign-in page (no token)
+	 * @param resetLink only for {@code ACCOUNT_EXISTS}: the forgot-password page
+	 * @param providers only for {@code ACCOUNT_EXISTS}: the social logins named in the notice; for the identity notices the
+	 *                  one provider they are about, and {@code link} is the forgot-password page (no token)
+	 */
+	public record Sent(String kind, String to, String name, String link, String resetLink, List<String> providers) {
+
+		public Sent(String kind, String to, String name, String link) {
+			this(kind, to, name, link, null, List.of());
+		}
 
 		/** The one-time token in the link. */
 		public String token() {
@@ -21,6 +33,12 @@ public class RecordingEmailService implements EmailService {
 	}
 
 	private final List<Sent> sent = new CopyOnWriteArrayList<>();
+	private volatile boolean failIdentityNotices;
+
+	/** Makes the identity notices throw, to prove a mail failure never fails the link or unlink that triggered it. */
+	public void failIdentityNotices(boolean fail) {
+		this.failIdentityNotices = fail;
+	}
 
 	@Override
 	public void sendVerificationEmail(String to, String name, String link) {
@@ -30,6 +48,28 @@ public class RecordingEmailService implements EmailService {
 	@Override
 	public void sendPasswordResetEmail(String to, String name, String link) {
 		sent.add(new Sent("RESET", to, name, link));
+	}
+
+	@Override
+	public void sendAccountExistsNotice(String to, String name, List<String> providers, String loginLink, String resetLink) {
+		sent.add(new Sent("ACCOUNT_EXISTS", to, name, loginLink, resetLink, providers));
+	}
+
+	@Override
+	public void sendIdentityLinkedNotice(String to, String name, String provider, Instant at, String resetLink) {
+		identityNotice("IDENTITY_LINKED", to, name, provider, resetLink);
+	}
+
+	@Override
+	public void sendIdentityUnlinkedNotice(String to, String name, String provider, Instant at, String resetLink) {
+		identityNotice("IDENTITY_UNLINKED", to, name, provider, resetLink);
+	}
+
+	private void identityNotice(String kind, String to, String name, String provider, String resetLink) {
+		if (failIdentityNotices) {
+			throw new IllegalStateException("simulated mail failure");
+		}
+		sent.add(new Sent(kind, to, name, resetLink, resetLink, List.of(provider)));
 	}
 
 	public List<Sent> sentTo(String address) {

@@ -14,6 +14,7 @@ import org.springframework.security.oauth2.core.user.OAuth2User;
 import org.springframework.stereotype.Service;
 
 import com.abhiraj.archyra.auth.oauth2.SocialAccountResolver.ProviderIdentity;
+import com.abhiraj.archyra.user.IdentityLinkService;
 import com.abhiraj.archyra.user.Provider;
 
 import lombok.extern.slf4j.Slf4j;
@@ -54,6 +55,9 @@ class SocialOAuth2UserService implements OAuth2UserService<OAuth2UserRequest, OA
 			if (id == null || String.valueOf(id).isBlank()) {
 				throw new SocialLoginException(SocialLoginErrors.FAILED, "GitHub profile without an id");
 			}
+			if (LinkContext.current().isPresent()) {
+				return linkPrincipal(request, profile, String.valueOf(id), provider);
+			}
 			String email = emailClient.primaryVerifiedEmail(request.getAccessToken().getTokenValue()).orElse(null);
 			String name = profile.getAttribute("name") != null ? profile.getAttribute("name") : profile.getAttribute("login");
 			var resolution = resolver.resolve(new ProviderIdentity(provider, String.valueOf(id), email, email != null, name));
@@ -68,5 +72,22 @@ class SocialOAuth2UserService implements OAuth2UserService<OAuth2UserRequest, OA
 			log.warn("Social login failed ({})", ex.getClass().getSimpleName());
 			throw new OAuth2AuthenticationException(new OAuth2Error(SocialLoginErrors.FAILED));
 		}
+	}
+
+	/**
+	 * Link mode: report who GitHub says the person is and nothing else; the account resolver is never called. The
+	 * primary verified email is shown when GitHub gives one, but it is not required and its absence is not an error.
+	 */
+	private OAuth2User linkPrincipal(OAuth2UserRequest request, OAuth2User profile, String id, Provider provider) {
+		String email = null;
+		try {
+			email = emailClient.primaryVerifiedEmail(request.getAccessToken().getTokenValue()).orElse(null);
+		}
+		catch (SocialLoginException ex) {
+			log.info("No GitHub email for the link: {}", ex.getMessage());
+		}
+		Object login = profile.getAttribute("login");
+		return new LinkOAuth2User(profile.getAttributes(),
+				new IdentityLinkService.ProviderIdentityDetails(provider, id, email, login == null ? null : login.toString()));
 	}
 }

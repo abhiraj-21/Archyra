@@ -6,10 +6,13 @@ import org.springframework.core.annotation.Order;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
 import org.springframework.security.config.http.SessionCreationPolicy;
+import org.springframework.security.oauth2.client.web.OAuth2AuthorizationRequestRedirectFilter;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.context.RequestAttributeSecurityContextRepository;
 
+import com.abhiraj.archyra.security.SecurityAuditLogger;
 import com.abhiraj.archyra.security.SecurityConfig;
+import com.abhiraj.archyra.security.SecurityProperties;
 
 /**
  * Filter chain 1 of 2: only {@code /oauth2/**} (start of the login) and {@code /login/oauth2/**} (the provider's
@@ -27,8 +30,12 @@ class OAuth2LoginSecurityConfig {
 	@Order(1)
 	SecurityFilterChain oauth2LoginFilterChain(HttpSecurity http, SocialOidcUserService oidcUserService,
 			SocialOAuth2UserService oauth2UserService, OAuth2LoginSuccessHandler successHandler,
-			OAuth2LoginFailureHandler failureHandler) {
+			OAuth2LoginFailureHandler failureHandler, LinkIntentService linkIntents, LinkBindingCookie linkBindingCookie,
+			SecurityProperties properties, SecurityAuditLogger audit) {
 		http
+				// Decides login versus link before Spring redirects to the provider (see LinkAuthorizationFilter).
+				.addFilterBefore(new LinkAuthorizationFilter(linkIntents, linkBindingCookie, properties, audit),
+						OAuth2AuthorizationRequestRedirectFilter.class)
 				.securityMatcher("/oauth2/**", "/login/oauth2/**")
 				.authorizeHttpRequests(authorize -> authorize.anyRequest().permitAll())
 				.oauth2Login(login -> login

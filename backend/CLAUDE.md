@@ -11,6 +11,7 @@ System-wide architecture, database boundaries, API standards and the roadmap are
 - **Passwords are limited to 72 bytes** (bcrypt in Spring Security 7 rejects more). Do not raise `PasswordPolicy` limits without changing the encoder.
 - **A class with two constructors needs `@Autowired` on the injection one**, otherwise the context fails with "No default constructor found" (this is the one exception to "no `@Autowired`").
 - **Tests that start many analyses as one user need the high free-tier limit.** `application-test.properties` raises `archyra.usage.free-tier.*` to 100000; only the `Usage*IntegrationTest` classes bind the real small limits. Starting the same repository URL again while it still runs returns the running analysis, so a test that wants two analyses must use two URLs.
+- **`redirect_uri_mismatch` is a provider-console problem, not a code one.** With `forward-headers-strategy=native` and the dev proxy's `Host`/`X-Forwarded-*`, the redirect URI is `http://localhost:5173/login/oauth2/code/{google,github}` (`OAuth2RedirectUriHttpTest` pins it over real HTTP; never hard-code a redirect URI). A GitHub OAuth App accepts one callback URL, Google several. See `README.md` → Provider set-up.
 - **"Could not connect to Ryuk"** in a test run is a Docker/Testcontainers hiccup. Rerun before debugging.
 - The `.env` file is git-ignored and `.env.example` lists the variables. Run everything from `backend/`, since `.env` and `native/` resolve against the working directory.
 
@@ -59,11 +60,11 @@ com.abhiraj.archyra
 ├── codebase/      # Read endpoints: /repository, /files, /classes
 ├── user/          # Accounts, linked social identities, /users/me, admin API (/admin/users); UserService is the entry point
 ├── auth/          # /api/v1/auth, refresh-token rotation, email flows, token purge, admin bootstrap
-│   └── oauth2/    # Google and GitHub login: second filter chain, account resolver, handlers
+│   └── oauth2/    # Google and GitHub login: second filter chain, account resolver, handlers; account linking (link intents, binding cookie, link-mode handler, /users/me/linked-identities)
 ├── mail/          # EmailService and the asynchronous SMTP implementation
 ├── usage/         # Lifetime usage counters (user_usage), free-tier limits from configuration, GET /api/v1/usage
 ├── security/      # Properties, JWT, API filter chain, rate limiting, entitlements, audit log
-└── common/        # Exceptions and their handler, shared config (clock, async, scheduling, Tomcat)
+└── common/        # Exceptions and their handler, shared config (clock, async, scheduling, Tomcat), TestPathClassifier (is this path test code?)
 ```
 
 - Controllers are thin: validate, call a service, map to a DTO. They never return JPA or Neo4j entities.
@@ -109,6 +110,7 @@ Every read endpoint follows one path, so a new one should reuse it:
 - **Node ids** (`class:com.foo.A`, `file:src/A.java`, `method:com.foo.A#m(String)`) are the API's `nodeId`/`fileId`/`classId`. The prefix is the node type; an unknown prefix is a 404 without a query. They contain `/`, `#`, `(` and spaces, so clients percent-encode them, `common/TomcatConfig` passes `%2F` through and `SecurityConfig.httpFirewall()` allows it. Without both, ids with a `/` never reach the controller.
 - **External nodes** (`external: true`: library types, external modules) exist in the graph but are never returned or counted, except as labelled targets in `imports`/`references` and in a class's `superclasses`/`interfaces`.
 - Lists paginate with zero-based `page` and `size` (default 50, at most 200; out of range is a 400). Filters combine with AND.
+- **Every endpoint that returns graph or file nodes must populate `test` through `common/TestPathClassifier`** (never a second copy of the rules). It is computed at read time from the stored `file` path, so it works on old analyses; `Method`/`Function`/`Class`/`Interface`/`File` nodes carry `file`, a `Module` is a test only if it has files and all are tests (read with the node), the `Repository` never is. `GET /files?test=true|false` needs the flag before paging, so with `test` the matching rows (id, name, path, language) are classified in Java and then paged; without it the paging stays in Cypher. Changing the rule table means changing `TestPathClassifierTest` and the table in `Architecture.md`.
 
 ## Neo4j rules
 
@@ -141,6 +143,8 @@ Summary; the full design is in `specs/security/design.md`, requirements in `spec
 
 - Two filter chains: the stateless API chain (`security/SecurityConfig`, JWT resource server) and a handshake-only chain for `/oauth2/**` (`auth/oauth2`). Everything under `/api/v1` needs a token except the public `/auth/**` routes. Admin routes need ROLE_ADMIN and are re-checked against the database.
 - Access tokens (15 min, HS256) come only from `JwtService`; `sub` is the user id and the plan is never in the token. Refresh tokens are opaque, hashed, rotated, and sent in an `HttpOnly; SameSite=Strict` cookie; refresh and logout are the only CSRF-protected routes.
+- **Account linking (Settings → Sign-in methods) is a separate mode of the OAuth handshake, not a login.** `LinkAuthorizationFilter` (before Spring's redirect filter) turns a valid `link_intent` **plus the matching `link_binding` cookie** into a link context in the handshake session; **never relax the cookie check** (without it a crafted URL attaches a victim's provider identity to an attacker's account). In link mode the user-info services return a `LinkPrincipal` and **must not call `SocialAccountResolver`** (it would create, email-match or take over accounts); `OAuth2LinkHandler` takes the user from the session, issues no tokens or cookies and ends the session. Link/unlink logic and its emails (sent after commit, never failing the operation) are in `user/IdentityLinkService`, which locks the user row. `hasPassword` is `passwordHash != null`. Details: `Architecture.md` → Linked sign-in methods, `specs/security/design.md` §6.
+- **Register never reveals whether an address is registered**: same `202` and body for a new and an existing address, no `409`. An existing address is handled afterwards by `auth/ExistingAccountFlows` on the mail executor (verified: an "account already exists" notice via `EmailService.sendAccountExistsNotice`, at most one per address per hour through `RegisterNoticeThrottle`, links without a token; unverified: a fresh verification link and the stored name and password are *not* replaced; disabled: nothing), with a `REGISTER_EXISTING_ACCOUNT` audit line. Do not add a `409`; the reasoning is in `specs/security/design.md` §4.
 - **Ownership is enforced in `AnalysisService` only**; a new endpoint must go through `requireCompleted`. Foreign and unknown ids both give 404.
 - **Premium is read from the database** by `EntitlementService` (never the token). `graph/GraphPremiumGate` lets FREE use no parameters, `nodeType`, `relationshipType` and `level=BEGINNER`; everything else is `403 PREMIUM_FEATURE`. New V2/V3 endpoints call `requirePremium(Feature)` themselves.
 - Rate limits, the audit log (`security.audit`, never a secret), token purge and admin bootstrap are described in the design document.

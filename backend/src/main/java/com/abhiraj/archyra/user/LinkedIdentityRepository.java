@@ -12,4 +12,8 @@ interface LinkedIdentityRepository extends JpaRepository<LinkedIdentity, UUID> {
 	Optional<LinkedIdentity> findByProviderAndProviderUserId(Provider provider, String providerUserId);
 
 	List<LinkedIdentity> findByUserId(UUID userId);
+
+	Optional<LinkedIdentity> findByUserIdAndProvider(UUID userId, Provider provider);
+
+	long countByUserId(UUID userId);
 }

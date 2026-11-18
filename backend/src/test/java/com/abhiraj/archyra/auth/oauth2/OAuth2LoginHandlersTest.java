@@ -80,7 +80,8 @@ class OAuth2LoginHandlersTest {
 		var issued = new RefreshTokenService.Issued("raw-refresh-token", Instant.parse("2026-07-08T10:00:00Z"));
 		given(refreshTokens.startFamily(any(UUID.class), any(ClientInfo.class))).willReturn(issued);
 		var handler = new OAuth2LoginSuccessHandler(refreshTokens, new RefreshCookies(properties), userService, properties,
-				mock(SecurityAuditLogger.class), failureHandler(), new ClientIpResolver(), Clock.systemUTC());
+				mock(SecurityAuditLogger.class), failureHandler(), new ClientIpResolver(), Clock.systemUTC(),
+				mock(OAuth2LinkHandler.class));
 		SocialPrincipal principal = new SocialPrincipal() {
 			public UUID archyraUserId() {
 				return userId;
@@ -115,7 +116,8 @@ class OAuth2LoginHandlersTest {
 	@Test
 	void aPrincipalThatIsNotOursEndsAsAFailure() throws Exception {
 		var handler = new OAuth2LoginSuccessHandler(mock(RefreshTokenService.class), new RefreshCookies(properties),
-				mock(UserService.class), properties, mock(SecurityAuditLogger.class), failureHandler(), new ClientIpResolver(), Clock.systemUTC());
+				mock(UserService.class), properties, mock(SecurityAuditLogger.class), failureHandler(), new ClientIpResolver(), Clock.systemUTC(),
+				mock(OAuth2LinkHandler.class));
 		Authentication authentication = mock(Authentication.class);
 		given(authentication.getPrincipal()).willReturn("someone");
 		MockHttpServletResponse response = new MockHttpServletResponse();

@@ -107,6 +107,28 @@ environment variables see `../../README.md`.
   `oauth_account_disabled` or `oauth_cancelled` (a closed set).
 - Services with two constructors (a test-only one that lets the delegate be replaced) must mark the injection constructor `@Autowired`.
 
+### Linking from Settings (link mode)
+
+Adding a provider to a signed-in account is a **different handshake on the same chain**, switched on by a context in the handshake session, never by
+the provider's email. The resolver above is unchanged and is **not called** in link mode.
+
+- **Intent.** `POST /api/v1/users/me/linked-identities/{provider}/link-intent` (bearer, rate limited per user) stores `oauth_link_intents`: a random
+  256-bit token (in the URL) and a second random 256-bit secret (in the `link_binding` cookie: `HttpOnly`, `SameSite=Strict`,
+  `Path=/oauth2/authorization`, 5 minutes), both stored only as SHA-256 hashes, bound to the user and provider, single use.
+- **Why the cookie.** The authorization-start URL is a plain `GET`. Without a second secret that only the asking browser holds, an attacker could mint
+  an intent for their own account and send the URL to a victim; the victim, already signed in at Google, would complete the handshake and attach the
+  **victim's** identity to the **attacker's** account (an account takeover through "Sign in with Google"). `LinkAuthorizationFilter` therefore requires
+  a valid token **and** the matching cookie, and consumes the intent only then (replaying the URL without the cookie neither works nor burns it).
+- **Callback.** The context `{userId, provider, expiresAt}` lives only in the handshake session; a plain login request clears it, and every outcome
+  destroys the session. `OAuth2LinkHandler` takes the account from the session (never from the provider's email), links, issues **no** tokens or
+  cookies, and redirects to `/settings?link=ok&provider=` or `/settings?link_error=` (closed set: `oauth_cancelled`, `oauth_failed`,
+  `oauth_account_disabled`, `identity_already_linked`, `provider_already_linked`, `link_expired`). An identity already linked to another account is
+  refused without naming it; one identity per provider per user (unique `(user_id, provider)`).
+- **Unlink** never removes the last way to sign in (`LAST_LOGIN_METHOD`); link and unlink lock the user row so concurrent requests are serialized.
+  Both send a notice after commit (no token); a mail failure never fails them. Neither touches refresh tokens.
+- Provider emails are not required to be verified for a link: the person proved control of the provider account by completing the login while
+  signed in, and the email is stored for display only.
+
 ## 7. Ownership
 
 - An analysis belongs to the user who started it (`analyses.user_id`) and to nobody else, administrators included.
