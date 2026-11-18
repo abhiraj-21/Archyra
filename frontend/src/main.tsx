@@ -4,6 +4,7 @@ import { QueryClientProvider } from '@tanstack/react-query';
 import { RouterProvider } from 'react-router';
 import { createQueryClient } from '@/hooks/queryClient';
 import { SessionProvider } from '@/hooks/session';
+import { ToastProvider } from '@/components/ui/ToastProvider';
 import { UpgradeProvider } from '@/features/upgrade/UpgradeProvider';
 import { router } from '@/routes/router';
 import '@/styles/index.css';
@@ -17,9 +18,11 @@ createRoot(root).render(
   <StrictMode>
     <QueryClientProvider client={queryClient}>
       <SessionProvider>
-        <UpgradeProvider>
-          <RouterProvider router={router} />
-        </UpgradeProvider>
+        <ToastProvider>
+          <UpgradeProvider>
+            <RouterProvider router={router} />
+          </UpgradeProvider>
+        </ToastProvider>
       </SessionProvider>
     </QueryClientProvider>
   </StrictMode>,

@@ -26,6 +26,9 @@ export const SERVER_ERROR_CODES = [
   'ANALYSIS_IN_PROGRESS',
   'CANNOT_DISABLE_SELF',
   'LAST_ADMIN',
+  'PROVIDER_ALREADY_LINKED',
+  'LAST_LOGIN_METHOD',
+  'IDENTITY_NOT_FOUND',
 ] as const;
 
 /** Codes the client assigns when no backend answer could be read. */

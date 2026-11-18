@@ -21,6 +21,7 @@ export function graphKeyParams(query: GraphQuery) {
 export const queryKeys = {
   me: ['me'] as const,
   usage: ['usage'] as const,
+  linkedIdentities: ['linkedIdentities'] as const,
   analyses: ['analyses'] as const,
   analysesPage: (page: number, size: number) => ['analyses', { page, size }] as const,
   analysis: (analysisId: string) => ['analysis', analysisId] as const,

@@ -12,8 +12,7 @@ import { useUpgrade } from '@/hooks/upgradeContext';
 import { describeError } from '@/lib/errorCopy';
 import { UsageMeter } from '@/features/usage/UsageMeter';
 import { nameError } from '@/features/auth/validation';
-
-const PROVIDER_LABEL = { GOOGLE: 'Google', GITHUB: 'GitHub' } as const;
+import { SignInMethods } from './SignInMethods';
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
@@ -103,18 +102,7 @@ export default function SettingsPage() {
       </Section>
 
       <Section title="Sign-in methods">
-        {me.linkedProviders.length ? (
-          <ul className="grid gap-xs">
-            {me.linkedProviders.map((p) => (
-              <li key={p} className="flex items-center gap-sm text-sm text-ink">
-                {PROVIDER_LABEL[p]}
-                <span className="chip" data-tone="success">Linked</span>
-              </li>
-            ))}
-          </ul>
-        ) : (
-          <p className="text-sm text-muted">No Google or GitHub account is linked. Signing in with one that uses this email links it.</p>
-        )}
+        <SignInMethods />
       </Section>
 
       <Section title="Session">

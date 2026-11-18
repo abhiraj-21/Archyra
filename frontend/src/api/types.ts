@@ -52,6 +52,27 @@ export interface UserProfile {
   linkedProviders: Provider[];
 }
 
+/** The two providers as the linked-identities API names them (registration ids), unlike `Provider` elsewhere. */
+export type LinkProvider = 'google' | 'github';
+
+/** GET /users/me/linked-identities. `email`/`login`/`linkedAt` are null when the provider gave none or it predates the field. */
+export interface LinkedIdentity {
+  provider: LinkProvider;
+  email: string | null;
+  login: string | null;
+  linkedAt: string | null;
+}
+
+export interface LinkedIdentitiesResponse {
+  hasPassword: boolean;
+  identities: LinkedIdentity[];
+}
+
+/** POST /users/me/linked-identities/{provider}/link-intent: a same-origin path to navigate to (never fetch). */
+export interface LinkIntentResponse {
+  authorizationUrl: string;
+}
+
 // ---- analyses ----
 export interface CreateAnalysisResponse {
   analysisId: string;

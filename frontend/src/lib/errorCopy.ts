@@ -46,6 +46,13 @@ const COPY: Record<string, Entry> = {
   },
   CANNOT_DISABLE_SELF: { title: 'You cannot disable yourself', message: 'Ask another administrator to do it.', retryable: false },
   LAST_ADMIN: { title: 'Last administrator', message: 'At least one enabled administrator must remain.', retryable: false },
+  PROVIDER_ALREADY_LINKED: { title: 'Already linked', message: 'A sign-in of that provider is already linked to your account.', retryable: false },
+  LAST_LOGIN_METHOD: {
+    title: 'This is your only way to sign in',
+    message: 'Set a password or link another provider first, then you can remove this one.',
+    retryable: false,
+  },
+  IDENTITY_NOT_FOUND: { title: 'Not linked', message: 'That provider is not linked to your account any more.', retryable: false },
   NETWORK_ERROR: { title: 'Cannot reach Archyra', message: 'Check your connection, then try again.', retryable: true },
   TIMEOUT: { title: 'That took too long', message: 'The server did not answer in time. Try again.', retryable: true },
   UNEXPECTED_RESPONSE: { title: 'Unreadable answer', message: 'The server sent an answer that could not be read.', retryable: true },
@@ -72,4 +79,22 @@ export const OAUTH_FALLBACK = 'Signing in with that provider did not work. Try a
 export function describeOAuthError(code: string | null): string | null {
   if (code === null) return null;
   return Object.hasOwn(OAUTH_COPY, code) ? (OAUTH_COPY[code] as string) : OAUTH_FALLBACK;
+}
+
+/**
+ * A link started in Settings returns to /settings?link_error=<code>. A fixed allow-list: the raw value is never
+ * rendered, and an unknown code gets the generic copy.
+ */
+const LINK_ERROR_COPY: Record<string, string> = {
+  oauth_cancelled: 'Linking was cancelled. Nothing changed.',
+  oauth_failed: 'The provider did not complete the link. Nothing changed. Try again.',
+  oauth_account_disabled: 'This account has been disabled. Contact the administrator.',
+  identity_already_linked: 'That account is already linked to a different Archyra account, so it cannot be linked here. Nothing changed.',
+  provider_already_linked: 'This account already has a sign-in of that provider linked. Remove it first to link a different one.',
+  link_expired: 'That link request expired or was not started from this browser. Start it again from here.',
+};
+export const LINK_ERROR_FALLBACK = 'The link did not complete. Nothing changed. Try again.';
+
+export function describeLinkError(code: string): string {
+  return Object.hasOwn(LINK_ERROR_COPY, code) ? (LINK_ERROR_COPY[code] as string) : LINK_ERROR_FALLBACK;
 }
