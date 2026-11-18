@@ -17,6 +17,7 @@ import com.fasterxml.jackson.annotation.JsonInclude;
  * @param language      language of a file node (display name, e.g. {@code Java}); absent for other nodes
  * @param parentId      the node that contains this one (file for a class, class for a method); absent for
  *                      the repository
+ * @param test          always present: true for code declared in a test file, or a module whose files are all tests
  */
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public record NodeResponse(
@@ -29,6 +30,7 @@ public record NodeResponse(
 		String kind,
 		String language,
 		String parentId,
+		boolean test,
 		Relationships relationships) {
 
 	/**

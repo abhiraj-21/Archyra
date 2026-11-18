@@ -18,7 +18,10 @@ const PREVIEW_LIMIT = 24;
 function Preview({ analysisId, graph }: { analysisId: string; graph: GraphResponse }) {
   const view = useMemo(() => {
     const d = defaultFilter(graph);
-    const full = visibleGraph(graph, { nodeTypes: new Set(d.nodeTypes), edgeTypes: new Set(d.edgeTypes) });
+    // The preview matches the Architecture tab's default (working code); a repository that is only tests shows them.
+    const filter = { nodeTypes: new Set(d.nodeTypes), edgeTypes: new Set(d.edgeTypes) };
+    const working = visibleGraph(graph, { ...filter, scope: 'working' });
+    const full = working.nodes.length > 0 ? working : visibleGraph(graph, { ...filter, scope: 'all' });
     // A preview, not the graph: the most connected nodes only.
     const top = new Set([...full.nodes].filter((n) => (full.degree.get(n.id) ?? 0) > 0).sort((a, b) => (full.degree.get(b.id) ?? 0) - (full.degree.get(a.id) ?? 0)).slice(0, PREVIEW_LIMIT).map((n) => n.id));
     const edges = full.edges.filter((e) => top.has(e.source) && top.has(e.target));

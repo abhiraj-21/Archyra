@@ -8,6 +8,7 @@ import java.util.Optional;
 import org.springframework.data.neo4j.core.Neo4jClient;
 import org.springframework.stereotype.Service;
 
+import com.abhiraj.archyra.common.TestPathClassifier;
 import com.abhiraj.archyra.ir.Language;
 import com.abhiraj.archyra.ir.NodeType;
 
@@ -85,7 +86,7 @@ public class CodeQueryService {
 
 		Header found = header.get();
 		return Optional.of(new FileResponse(fileId, found.name(), found.path(), found.language().displayName(),
-				found.module(),
+				TestPathClassifier.isTestPath(found.path()), found.module(),
 				ofType(declarations, NodeType.CLASS), ofType(declarations, NodeType.INTERFACE),
 				ofType(declarations, NodeType.METHOD), ofType(declarations, NodeType.FUNCTION),
 				imports, references));

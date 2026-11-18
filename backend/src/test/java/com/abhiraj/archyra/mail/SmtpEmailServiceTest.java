@@ -3,6 +3,8 @@ package com.abhiraj.archyra.mail;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 
+import java.util.List;
+
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.RegisterExtension;
@@ -50,6 +52,27 @@ class SmtpEmailServiceTest {
 		MimeMessage message = GREEN_MAIL.getReceivedMessages()[0];
 		assertThat(message.getSubject()).isEqualTo("Reset your Archyra password");
 		assertThat(GreenMailUtil.getBody(message)).contains("http://localhost:5173/reset-password?token=xyz", "30 minutes");
+	}
+
+	@Test
+	void theAccountExistsNoticeOffersLoginAndResetAndNeverBlames() throws Exception {
+		service.sendAccountExistsNotice("ada@example.com", "Ada", List.of(), "http://localhost:5173/login", "http://localhost:5173/forgot-password");
+
+		MimeMessage message = GREEN_MAIL.getReceivedMessages()[0];
+		assertThat(message.getSubject()).isEqualTo("You already have an Archyra account");
+		String body = GreenMailUtil.getBody(message);
+		assertThat(body).contains("Hi Ada,", "http://localhost:5173/login", "http://localhost:5173/forgot-password",
+				"If this wasn't you, you can ignore this message; your account is unchanged.");
+		assertThat(body).doesNotContain("token").doesNotContain("signed up with");
+	}
+
+	@Test
+	void theNoticeToASocialOnlyAccountNamesTheProviders() throws Exception {
+		service.sendAccountExistsNotice("ada@example.com", "Ada", List.of("Google", "GitHub"), "http://localhost:5173/login", "http://localhost:5173/forgot-password");
+
+		String body = GreenMailUtil.getBody(GREEN_MAIL.getReceivedMessages()[0]);
+		assertThat(body).contains("You signed up with Google and GitHub", "http://localhost:5173/login", "choose a password");
+		assertThat(body).doesNotContain("token");
 	}
 
 	@Test

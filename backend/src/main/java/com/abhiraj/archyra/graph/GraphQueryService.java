@@ -12,6 +12,7 @@ import java.util.stream.Stream;
 import org.springframework.data.neo4j.core.Neo4jClient;
 import org.springframework.stereotype.Service;
 
+import com.abhiraj.archyra.common.TestPathClassifier;
 import com.abhiraj.archyra.ir.Language;
 import com.abhiraj.archyra.ir.NodeType;
 import com.abhiraj.archyra.ir.RelationshipType;
@@ -69,14 +70,14 @@ public class GraphQueryService {
 			nodes.addAll(neo4jClient.query("""
 							MATCH (n:%s {analysisId: $analysisId})
 							WHERE NOT coalesce(n.external, false)
-							RETURN n.nodeId AS id, n.name AS name, n.file AS file
+							RETURN n.nodeId AS id, n.name AS name, n.file AS file, %s AS files
 							ORDER BY id
-							""".formatted(type.label()))
+							""".formatted(type.label(), moduleFiles(type)))
 					.bind(analysisId).to("analysisId")
 					.fetchAs(GraphNode.class)
 					.mappedBy((typeSystem, record) -> new GraphNode(
 							record.get("id").asString(), type, record.get("name").asString(null),
-							record.get("file").asString(null)))
+							record.get("file").asString(null), isTest(type, record)))
 					.all());
 
 			edges.addAll(neo4jClient.query("""
@@ -114,9 +115,9 @@ public class GraphQueryService {
 						MATCH (n:%s {analysisId: $analysisId, nodeId: $nodeId})
 						WHERE NOT coalesce(n.external, false)
 						RETURN n.name AS name, n.qualifiedName AS qualifiedName, n.file AS file, n.line AS line,
-						       n.kind AS kind,
+						       n.kind AS kind, %s AS files,
 						       head([(p)-[:CONTAINS]->(n) WHERE p.analysisId = $analysisId | p.nodeId]) AS parentId
-						""".formatted(label))
+						""".formatted(label, moduleFiles(type.get())))
 				.bind(analysisId).to("analysisId")
 				.bind(nodeId).to("nodeId")
 				.fetchAs(NodeResponse.class)
@@ -127,7 +128,7 @@ public class GraphQueryService {
 							record.get("qualifiedName").asString(null), record.get("file").asString(null),
 							record.get("line").isNull() ? null : record.get("line").asInt(),
 							isFile ? null : kind, isFile && kind != null ? Language.valueOf(kind).displayName() : null,
-							record.get("parentId").asString(null), null);
+							record.get("parentId").asString(null), isTest(type.get(), record), null);
 				})
 				.one();
 		return node.map(found -> withRelationships(found, label, analysisId));
@@ -138,7 +139,29 @@ public class GraphQueryService {
 				countRelationships(label, analysisId, node.id(), "(n)-[r]->(m {analysisId: $analysisId})"),
 				countRelationships(label, analysisId, node.id(), "(m {analysisId: $analysisId})-[r]->(n)"));
 		return new NodeResponse(node.id(), node.type(), node.name(), node.qualifiedName(), node.file(), node.line(),
-				node.kind(), node.language(), node.parentId(), relationships);
+				node.kind(), node.language(), node.parentId(), node.test(), relationships);
+	}
+
+	/**
+	 * Cypher expression for the paths of the files a module contains (a fixed string: the only node type that needs
+	 * it is a module, whose flag depends on all its files); an empty list for everything else.
+	 */
+	private static String moduleFiles(NodeType type) {
+		return type == NodeType.MODULE
+				? "[(n)-[:CONTAINS]->(f:File {analysisId: $analysisId}) | f.file]"
+				: "[]";
+	}
+
+	/**
+	 * The {@code test} flag of a node row: a repository is never a test, a module is one only if it has files and all
+	 * are tests, everything else follows the path of its declaring file.
+	 */
+	private static boolean isTest(NodeType type, org.neo4j.driver.Record record) {
+		return switch (type) {
+			case REPOSITORY -> false;
+			case MODULE -> TestPathClassifier.isTestModule(record.get("files").asList(value -> value.asString(null)));
+			default -> TestPathClassifier.isTestPath(record.get("file").asString(null));
+		};
 	}
 
 	/** {@code pattern} is a fixed string from this class, never input. */
@@ -175,12 +198,16 @@ public class GraphQueryService {
 	// ---- files ---------------------------------------------------------------------------------
 
 	/**
-	 * A page of {@code File} nodes sorted by path. Both filters are optional and combine with AND.
+	 * A page of {@code File} nodes sorted by path. All filters are optional and combine with AND.
 	 *
 	 * @param path a repository path without leading or trailing slash: matches the file with exactly that
 	 *             path and every file below it, so {@code src/main} does not match {@code src/mainframe}
+	 * @param test {@code true} for only test files, {@code false} for only the others, null for both. The flag comes
+	 *             from {@link TestPathClassifier}, not from the database, so with a value the matching rows (id, name,
+	 *             path and language only, bounded by the ingestion file limits) are classified in Java and then paged
+	 *             here: the total counts the files that match every filter, not those of one page.
 	 */
-	public FilePage getFiles(String analysisId, Language language, String path, int page, int size) {
+	public FilePage getFiles(String analysisId, Language language, String path, Boolean test, int page, int size) {
 		List<String> conditions = new ArrayList<>();
 		Map<String, Object> parameters = new HashMap<>();
 		parameters.put("analysisId", analysisId);
@@ -194,6 +221,21 @@ public class GraphQueryService {
 			parameters.put("pathPrefix", path + "/");
 		}
 		String where = conditions.isEmpty() ? "" : "WHERE " + String.join(" AND ", conditions);
+
+		if (test != null) {
+			List<FileInfo> matching = neo4jClient.query("""
+							MATCH (f:File {analysisId: $analysisId}) %s
+							RETURN f.nodeId AS id, f.name AS name, f.file AS path, f.kind AS language
+							ORDER BY path
+							""".formatted(where))
+					.bindAll(parameters)
+					.fetchAs(FileInfo.class)
+					.mappedBy((typeSystem, record) -> fileInfo(record))
+					.all().stream().filter(file -> file.test() == test).toList();
+			int from = (int) Math.min((long) page * size, matching.size());
+			int to = (int) Math.min((long) from + size, matching.size());
+			return new FilePage(List.copyOf(matching.subList(from, to)), matching.size());
+		}
 
 		long total = neo4jClient.query("MATCH (f:File {analysisId: $analysisId}) %s RETURN count(f) AS total".formatted(where))
 				.bindAll(parameters)
@@ -210,9 +252,14 @@ public class GraphQueryService {
 						""".formatted(where))
 				.bindAll(pageParameters)
 				.fetchAs(FileInfo.class)
-				.mappedBy((typeSystem, record) -> new FileInfo(record.get("id").asString(), record.get("name").asString(),
-						record.get("path").asString(), Language.valueOf(record.get("language").asString())))
+				.mappedBy((typeSystem, record) -> fileInfo(record))
 				.all().stream().toList();
 		return new FilePage(files, total);
+	}
+
+	private static FileInfo fileInfo(org.neo4j.driver.Record record) {
+		String filePath = record.get("path").asString();
+		return new FileInfo(record.get("id").asString(), record.get("name").asString(), filePath,
+				Language.valueOf(record.get("language").asString()), TestPathClassifier.isTestPath(filePath));
 	}
 }

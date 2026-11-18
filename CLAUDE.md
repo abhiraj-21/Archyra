@@ -15,7 +15,7 @@ Archyra ("the architecture behind your code") analyzes a GitHub repository, buil
 
 1. PostgreSQL and Neo4j running (Docker), `backend/.env` filled in (`backend/README.md`), then `./mvnw spring-boot:run` from `backend/` (port 8080).
 2. `npm run dev` from `frontend/` (port 5173). The Vite proxy forwards `/api`, `/oauth2` and `/login/oauth2` to the backend, so the browser sees one origin.
-3. Google/GitHub sign-in through the frontend builds redirect URIs on the frontend origin (`http://localhost:5173/login/oauth2/code/{google,github}`); register those with the providers as well as the `:8080` ones from `backend/README.md`.
+3. Google/GitHub sign-in through the frontend builds redirect URIs on the frontend origin (`http://localhost:5173/login/oauth2/code/{google,github}`), so those must be registered with the providers and you must browse via `http://localhost:5173` (not `127.0.0.1`). Google can hold several redirect URIs (keep the `:8080` one next to it if you want); a GitHub OAuth App holds **one** callback URL, so it serves either the proxy flow or direct `:8080` use (a second OAuth App with its own `GITHUB_CLIENT_ID`/`GITHUB_CLIENT_SECRET` covers both). A `redirect_uri_mismatch` is a provider-console setting; see `backend/README.md`.
 
 ## System architecture
 

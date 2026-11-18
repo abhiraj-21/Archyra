@@ -6,6 +6,8 @@ import type { EdgeType, EntitySummary, GraphNode, GraphResponse, NodeRef } from 
 import { isExternalId } from '@/components/graph/adapter';
 import { Glyph } from '@/components/graph/Glyph';
 import { NODE_STYLES } from '@/components/graph/graphStyles';
+import { ScopeControl } from '@/components/graph/ScopeControl';
+import { inScope, parseScope, SCOPE_DEFAULTS, scopeCounts, scopeParam, type Scope } from '@/components/graph/scope';
 import { ComingSoon } from '@/components/ui/Locked';
 import { Skeleton, SkeletonRows } from '@/components/ui/Skeleton';
 import { EmptyState, ErrorState } from '@/components/ui/States';
@@ -14,7 +16,7 @@ import { useClassDetail, useGraph, useNode } from '@/hooks/useWorkspace';
 import { humanize } from '@/lib/format';
 import { useWorkspace } from '../workspaceContext';
 
-type Item = { id: string; name: string; type: GraphNode['type']; external?: boolean; qualifiedName?: string; file?: string };
+type Item = { id: string; name: string; type: GraphNode['type']; external?: boolean; qualifiedName?: string; file?: string; test?: boolean };
 
 function ItemList({ title, items, known, onSelect, empty = 'None' }: { title: string; items: Item[]; known: Set<string>; onSelect: (id: string) => void; empty?: string }) {
   return (
@@ -38,6 +40,7 @@ function ItemList({ title, items, known, onSelect, empty = 'None' }: { title: st
                   <span className={it.external ? 'num break-all text-xs text-ink-2' : 'text-ink'}>{it.external ? (it.qualifiedName ?? it.name) : it.name}</span>
                 )}
                 {it.external ? <span className="chip ml-auto" data-tone="quiet">External</span> : null}
+                {it.test ? <span className="chip ml-auto">Test</span> : null}
               </li>
             );
           })}
@@ -47,7 +50,7 @@ function ItemList({ title, items, known, onSelect, empty = 'None' }: { title: st
   );
 }
 
-const asItems = (refs: NodeRef[]): Item[] => refs.map((r) => ({ id: r.id, name: r.name, type: r.type, external: r.external, qualifiedName: r.qualifiedName }));
+const asItems = (refs: NodeRef[], byId: Map<string, GraphNode>): Item[] => refs.map((r) => ({ id: r.id, name: r.name, type: r.type, external: r.external, qualifiedName: r.qualifiedName, test: !r.external && !!byId.get(r.id)?.test }));
 
 function fromGraph(graph: GraphResponse, byId: Map<string, GraphNode>, id: string, type: EdgeType, direction: 'in' | 'out'): Item[] {
   const out: Item[] = [];
@@ -55,12 +58,12 @@ function fromGraph(graph: GraphResponse, byId: Map<string, GraphNode>, id: strin
     if (e.type !== type) continue;
     const other = direction === 'in' ? (e.target === id ? e.source : null) : e.source === id ? e.target : null;
     const node = other ? byId.get(other) : undefined;
-    if (node && !out.some((o) => o.id === node.id)) out.push({ id: node.id, name: node.name, type: node.type });
+    if (node && !out.some((o) => o.id === node.id)) out.push({ id: node.id, name: node.name, type: node.type, test: node.test });
   }
   return out.sort((a, b) => a.name.localeCompare(b.name));
 }
 
-function Header({ name, type, kind, qualifiedName, file, line }: { name: string; type: GraphNode['type']; kind?: string; qualifiedName?: string; file?: string; line?: number }) {
+function Header({ name, type, kind, qualifiedName, file, line, test }: { name: string; type: GraphNode['type']; kind?: string; qualifiedName?: string; file?: string; line?: number; test?: boolean }) {
   const s = NODE_STYLES[type];
   return (
     <div className="grid gap-xs">
@@ -68,6 +71,7 @@ function Header({ name, type, kind, qualifiedName, file, line }: { name: string;
         <span className="arch-node-glyph" style={{ '--node-ink': s.color, '--node-soft': s.soft } as React.CSSProperties}><Glyph glyph={s.glyph} /></span>
         <h2 className="min-w-0 break-words text-xl">{name}</h2>
         <span className="chip">{kind && kind !== type ? humanize(kind) : s.label}</span>
+        {test ? <span className="chip" data-tone="ink">Test</span> : null}
       </div>
       {qualifiedName ? <p className="num break-all text-xs text-muted">{qualifiedName}</p> : null}
       {file ? <p className="num break-all text-xs text-muted">{file}{line ? `, line ${line}` : ''}</p> : null}
@@ -81,14 +85,15 @@ function ClassDetail({ analysisId, id, graph, byId, onSelect }: { analysisId: st
   if (detail.isPending) return <SkeletonRows rows={6} label="Loading the class" />;
   if (detail.isError) return hasCode(detail.error, 'NODE_NOT_FOUND') ? <p className="text-muted">This class is not part of the analysed repository.</p> : <ErrorState error={detail.error} onRetry={() => void detail.refetch()} />;
   const c = detail.data;
-  const methods: Item[] = c.methods.map((m: EntitySummary) => ({ id: m.id, name: `${m.name}()`, type: m.type }));
+  const isTest = !!byId.get(id)?.test; // a class's methods are declared in its own file
+  const methods: Item[] = c.methods.map((m: EntitySummary) => ({ id: m.id, name: `${m.name}()`, type: m.type, test: isTest }));
   return (
     <div className="grid gap-lg">
-      <Header name={c.name} type="CLASS" kind={c.kind} qualifiedName={c.qualifiedName} file={c.file} line={c.line} />
+      <Header name={c.name} type="CLASS" kind={c.kind} qualifiedName={c.qualifiedName} file={c.file} line={c.line} test={isTest} />
       <div className="grid gap-lg md:grid-cols-2">
-        <ItemList title="Extends" items={asItems(c.superclasses)} known={known} onSelect={onSelect} />
-        <ItemList title="Implements" items={asItems(c.interfaces)} known={known} onSelect={onSelect} />
-        <ItemList title="Depends on" items={asItems(c.dependencies)} known={known} onSelect={onSelect} />
+        <ItemList title="Extends" items={asItems(c.superclasses, byId)} known={known} onSelect={onSelect} />
+        <ItemList title="Implements" items={asItems(c.interfaces, byId)} known={known} onSelect={onSelect} />
+        <ItemList title="Depends on" items={asItems(c.dependencies, byId)} known={known} onSelect={onSelect} />
         <ItemList title="Depended on by" items={fromGraph(graph, byId, id, 'DEPENDS_ON', 'in')} known={known} onSelect={onSelect} />
         <ItemList title="Methods" items={methods} known={new Set()} onSelect={onSelect} />
       </div>
@@ -104,7 +109,7 @@ function InterfaceDetail({ analysisId, id, graph, byId, onSelect }: { analysisId
   const n = node.data;
   return (
     <div className="grid gap-lg">
-      <Header name={n.name} type="INTERFACE" kind={n.kind} qualifiedName={n.qualifiedName} file={n.file} line={n.line} />
+      <Header name={n.name} type="INTERFACE" kind={n.kind} qualifiedName={n.qualifiedName} file={n.file} line={n.line} test={n.test} />
       <div className="grid gap-lg md:grid-cols-2">
         <ItemList title="Extends" items={fromGraph(graph, byId, id, 'EXTENDS', 'out')} known={known} onSelect={onSelect} />
         <ItemList title="Implemented by" items={fromGraph(graph, byId, id, 'IMPLEMENTS', 'in')} known={known} onSelect={onSelect} />
@@ -122,19 +127,32 @@ export default function RelationshipsPage() {
   const [params, setParams] = useSearchParams();
   const [query, setQuery] = useState('');
   const selected = params.get('item');
+  const scope = parseScope(params.get('scope'), SCOPE_DEFAULTS.relationships);
 
   const byId = useMemo(() => new Map((graph.data?.nodes ?? []).filter((n) => !isExternalId(n.id)).map((n) => [n.id, n])), [graph.data]);
-  const types = useMemo(() => [...byId.values()].filter((n) => n.type === 'CLASS' || n.type === 'INTERFACE').sort((a, b) => a.name.localeCompare(b.name)), [byId]);
+  // Every class and interface, whatever the scope: "no classes at all" is decided on this list.
+  const allTypes = useMemo(() => [...byId.values()].filter((n) => n.type === 'CLASS' || n.type === 'INTERFACE').sort((a, b) => a.name.localeCompare(b.name)), [byId]);
+  // The browse list follows the scope. The detail panel does not: it describes real relationships, and hiding
+  // "depended on by FooTest" would hide test coverage.
+  const types = useMemo(() => allTypes.filter((n) => inScope(n, scope)), [allTypes, scope]);
+  const optionCounts = useMemo(() => scopeCounts(allTypes, null), [allTypes]);
   const shown = useMemo(() => {
     const q = query.trim().toLowerCase();
     return q ? types.filter((t) => t.name.toLowerCase().includes(q) || (t.file ?? '').toLowerCase().includes(q)) : types;
   }, [types, query]);
 
   const select = (id: string) => setParams((prev) => { const next = new URLSearchParams(prev); next.set('item', id); return next; });
+  const setScope = (value: Scope) => setParams((prev) => {
+    const next = new URLSearchParams(prev);
+    const param = scopeParam(value, SCOPE_DEFAULTS.relationships);
+    if (param === null) next.delete('scope');
+    else next.set('scope', param);
+    return next;
+  }, { replace: true });
 
   if (graph.isPending) return <div className="px-md py-lg sm:px-lg"><Skeleton className="h-64 w-full" /></div>;
   if (graph.isError) return <div className="px-md sm:px-lg"><ErrorState error={graph.error} onRetry={() => void graph.refetch()} /></div>;
-  if (types.length === 0) {
+  if (allTypes.length === 0) {
     return (
       <div className="mx-auto w-full max-w-[72rem] px-md sm:px-lg">
         <EmptyState title="No classes or interfaces here" icon={<GitBranch size={28} aria-hidden="true" />}>
@@ -145,6 +163,7 @@ export default function RelationshipsPage() {
   }
 
   const selectedNode = selected ? byId.get(selected) : undefined;
+  const hiddenByScope = !!selectedNode && !inScope(selectedNode, scope);
 
   return (
     <div className="mx-auto grid w-full max-w-[80rem] flex-1 gap-lg px-md py-lg sm:px-lg lg:grid-cols-[20rem_minmax(0,1fr)]">
@@ -154,7 +173,14 @@ export default function RelationshipsPage() {
           <Search size={16} aria-hidden="true" className="pointer-events-none absolute left-sm top-1/2 -translate-y-1/2 text-muted" />
           <input id="type-search" type="search" className="input pl-xl" placeholder="Filter by name or file" value={query} onChange={(e) => setQuery(e.target.value)} />
         </div>
+        <ScopeControl value={scope} onChange={setScope} counts={optionCounts} className="flex-wrap" />
         <p className="text-xs text-muted" aria-live="polite">{shown.length} of {types.length}</p>
+        {types.length === 0 ? (
+          <p className="text-sm text-muted">
+            {scope === 'tests' ? 'No test classes or interfaces in this repository.' : 'Every class and interface here is test code.'}{' '}
+            <button type="button" className="link" onClick={() => setScope('all')}>Show all</button>
+          </p>
+        ) : null}
         <ul className="grid max-h-[60dvh] gap-3xs overflow-auto pr-2xs lg:max-h-[calc(100dvh-16rem)]">
           {shown.map((t) => {
             const s = NODE_STYLES[t.type];
@@ -173,6 +199,12 @@ export default function RelationshipsPage() {
         </ul>
       </section>
       <section aria-label="Relationship details" className="panel grid content-start gap-lg p-lg">
+        {hiddenByScope ? (
+          <p className="flex flex-wrap items-center gap-x-xs gap-y-2xs text-sm text-muted" role="status">
+            This {selectedNode?.test ? 'test class' : 'class'} is hidden from the list by the {scope === 'tests' ? 'Tests' : 'Working'} scope.
+            <button type="button" className="link" onClick={() => setScope('all')}>Show all</button>
+          </p>
+        ) : null}
         {!selectedNode ? (
           <EmptyState title="Pick a class or interface" icon={<GitBranch size={28} aria-hidden="true" />}>
             See what it extends and implements, what it depends on and what depends on it.

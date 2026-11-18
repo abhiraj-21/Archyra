@@ -10,6 +10,7 @@ import com.fasterxml.jackson.annotation.JsonInclude;
  *
  * @param path       repository-relative path
  * @param language   language display name, e.g. {@code Java}
+ * @param test       whether the file is test code (path and file-name conventions)
  * @param module     the module (Java package, Python module, ...) the file belongs to
  * @param classes    classes, enums and records declared in the file, nested ones included
  * @param interfaces interfaces and annotation types declared in the file
@@ -25,6 +26,7 @@ public record FileResponse(
 		String name,
 		String path,
 		String language,
+		boolean test,
 		NodeRef module,
 		List<EntitySummary> classes,
 		List<EntitySummary> interfaces,

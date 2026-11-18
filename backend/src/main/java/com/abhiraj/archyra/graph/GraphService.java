@@ -50,12 +50,13 @@ public class GraphService {
 	 *
 	 * @param language keep only files of this language; null for all
 	 * @param path     keep only files at or below this repository path (already normalised); null for all
+	 * @param test     true for only test files, false for only the others, null for both
 	 * @param page     zero-based page number
 	 * @param size     page size
 	 */
-	public FilePage getFiles(String analysisId, Language language, String path, int page, int size) {
+	public FilePage getFiles(String analysisId, Language language, String path, Boolean test, int page, int size) {
 		var id = analysisService.requireCompleted(analysisId);
-		return graphQueryService.getFiles(id.toString(), language, path, page, size);
+		return graphQueryService.getFiles(id.toString(), language, path, test, page, size);
 	}
 
 	/**

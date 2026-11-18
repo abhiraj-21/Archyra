@@ -24,6 +24,11 @@ public class SecurityAuditLogger {
 		AUDIT.info("event={} userId={} actor={} ip={}", event, userId, actorId, ip);
 	}
 
+	/** An event with one more fact, a fixed word such as the case of a registration (never free text from a request). */
+	public void eventWithCase(String event, UUID userId, String ip, String caseName) {
+		AUDIT.info("event={} userId={} case={} ip={}", event, userId, caseName, ip);
+	}
+
 	public void warn(String event, UUID userId, String ip) {
 		AUDIT.warn("event={} userId={} ip={}", event, userId, ip);
 	}

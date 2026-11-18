@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { MiniMap, Panel, ReactFlow, ReactFlowProvider, useReactFlow, type Edge, type NodeMouseHandler } from '@xyflow/react';
-import { Expand, Map as MapIcon, Maximize, Minimize, Minus, Plus, Shapes } from 'lucide-react';
+import { applyNodeChanges, MiniMap, Panel, ReactFlow, ReactFlowProvider, useReactFlow, type Edge, type NodeChange, type NodeMouseHandler } from '@xyflow/react';
+import { CircleHelp, Expand, Map as MapIcon, Maximize, Minimize, Minus, Plus, RotateCcw, Shapes } from 'lucide-react';
 import type { GraphEdge, GraphNode } from '@/api/types';
 import { ArchNode, type ArchFlowNode } from './ArchNode';
 import { EdgeMarkers } from './EdgeMarkers';
@@ -21,11 +21,21 @@ export interface GraphCanvasProps {
   /** Ids to keep at full strength; everything else dims. */
   highlight?: Set<string> | null;
   onSelect?: (id: string | null) => void;
+  /** Final positions of nodes the user moved (drag end or keyboard step). Dragging itself never reaches the parent. */
+  onMove?: (moves: Positions) => void;
+  /** Drop every manual position and show the automatic layout again. */
+  onResetLayout?: () => void;
+  /** Whether any visible node has been moved by hand (enables Reset layout). */
+  moved?: boolean;
   interactive?: boolean;
   label: string;
 }
 
-function Toolbar({ fullscreen, onFullscreen, legend, onLegend, minimap, onMinimap }: { fullscreen: boolean; onFullscreen: () => void; legend: boolean; onLegend: () => void; minimap: boolean; onMinimap: () => void }) {
+const GESTURES =
+  'Drag a node to move it. Shift-drag on empty canvas draws a selection box; Ctrl or Cmd-click adds a node to the selection, and dragging any selected node moves the whole selection. ' +
+  'With nodes selected, the arrow keys nudge them (hold Shift for bigger steps). Escape clears the selection. Enter inspects the focused node. Moves last until you reload; Reset layout undoes them.';
+
+function Toolbar({ fullscreen, onFullscreen, legend, onLegend, minimap, onMinimap, moved, onReset }: { fullscreen: boolean; onFullscreen: () => void; legend: boolean; onLegend: () => void; minimap: boolean; onMinimap: () => void; moved: boolean; onReset: () => void }) {
   const { zoomIn, zoomOut, fitView } = useReactFlow();
   return (
     <Panel position="top-left" className="graph-toolbar" aria-label="Graph view controls">
@@ -38,6 +48,9 @@ function Toolbar({ fullscreen, onFullscreen, legend, onLegend, minimap, onMinima
       <button type="button" className="btn btn-secondary btn-icon" onClick={() => void fitView({ duration: 300, padding: 0.15 })} aria-label="Fit to screen" title="Fit to screen">
         <Expand size={16} aria-hidden="true" />
       </button>
+      <button type="button" className="btn btn-secondary btn-icon" onClick={onReset} disabled={!moved} aria-label="Reset layout" title={moved ? 'Reset layout: put every node back where the automatic layout placed it' : 'Reset layout (no node has been moved)'}>
+        <RotateCcw size={16} aria-hidden="true" />
+      </button>
       <button type="button" className="btn btn-secondary btn-icon" onClick={onFullscreen} aria-label={fullscreen ? 'Exit full screen' : 'Full screen'} aria-pressed={fullscreen} title={fullscreen ? 'Exit full screen' : 'Full screen'}>
         {fullscreen ? <Minimize size={16} aria-hidden="true" /> : <Maximize size={16} aria-hidden="true" />}
       </button>
@@ -47,6 +60,9 @@ function Toolbar({ fullscreen, onFullscreen, legend, onLegend, minimap, onMinima
       <button type="button" className="btn btn-secondary btn-icon" onClick={onLegend} aria-label="Legend" aria-pressed={legend} title="Legend">
         <Shapes size={16} aria-hidden="true" />
       </button>
+      <span className="btn btn-quiet btn-icon" role="img" tabIndex={0} aria-label={`Gestures. ${GESTURES}`} title={GESTURES}>
+        <CircleHelp size={16} aria-hidden="true" />
+      </span>
     </Panel>
   );
 }
@@ -57,7 +73,7 @@ function Toolbar({ fullscreen, onFullscreen, legend, onLegend, minimap, onMinima
  * selected node that is off screen (a shared ?node= link, a pick from the list) is panned into view at the current
  * zoom. A node already on screen never moves the view.
  */
-function FitAndReveal({ layoutKey, focusIds, minZoom, selectedId, positions, nodes, highlight }: { layoutKey: string; focusIds: string[]; minZoom: number; selectedId: string | null; positions: Positions; nodes: GraphNode[]; highlight: Set<string> | null }) {
+function FitAndReveal({ layoutKey, fitToken, focusIds, minZoom, selectedId, positions, nodes, highlight }: { layoutKey: string; fitToken: number; focusIds: string[]; minZoom: number; selectedId: string | null; positions: Positions; nodes: GraphNode[]; highlight: Set<string> | null }) {
   const { fitView, getViewport, setCenter } = useReactFlow();
   const fittedKey = useRef<string | null>(null);
 
@@ -97,11 +113,12 @@ function FitAndReveal({ layoutKey, focusIds, minZoom, selectedId, positions, nod
       void setCenter(inX ? centreX : tx, inY ? centreY : ty, { zoom, duration: 300 });
     };
     const run = async () => {
-      if (fittedKey.current !== layoutKey) {
+      const fitKey = `${layoutKey}|${fitToken}`; // a new token (Reset layout) fits again without changing the visible set
+      if (fittedKey.current !== fitKey) {
         await new Promise((r) => window.requestAnimationFrame(r));
         if (cancelled) return;
         await fitView({ padding: 0.12, duration: 0, maxZoom: 1.1, minZoom, nodes: focusIds.length ? focusIds.map((nid) => ({ id: nid })) : undefined });
-        fittedKey.current = layoutKey;
+        fittedKey.current = fitKey;
         await new Promise((r) => window.requestAnimationFrame(r));
       }
       reveal();
@@ -110,17 +127,22 @@ function FitAndReveal({ layoutKey, focusIds, minZoom, selectedId, positions, nod
     return () => {
       cancelled = true;
     };
-    // Runs when the visible set or the selection changes.
+    // Runs when the visible set, a layout reset or the selection changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [layoutKey, selectedId]);
+  }, [layoutKey, fitToken, selectedId]);
   return null;
 }
 
-function Canvas({ nodes, edges, positions, layoutKey, selectedId = null, highlight = null, onSelect, interactive = true, label }: GraphCanvasProps) {
+function Canvas({ nodes, edges, positions, layoutKey, selectedId = null, highlight = null, onSelect, onMove, onResetLayout, moved = false, interactive = true, label }: GraphCanvasProps) {
   const wrapper = useRef<HTMLDivElement>(null);
   const [fullscreen, setFullscreen] = useState(false);
   const [legend, setLegend] = useState(false);
   const [minimap, setMinimap] = useState(true);
+  const [fitToken, setFitToken] = useState(0);
+  const [announcement, setAnnouncement] = useState('');
+  const announceTimer = useRef<number | undefined>(undefined);
+  const lastArrow = useRef(0);
+  const dragged = useRef(false);
 
   useEffect(() => {
     const onChange = () => setFullscreen(document.fullscreenElement === wrapper.current);
@@ -133,7 +155,7 @@ function Canvas({ nodes, edges, positions, layoutKey, selectedId = null, highlig
     else void wrapper.current?.requestFullscreen?.();
   }, []);
 
-  const flowNodes = useMemo<ArchFlowNode[]>(
+  const baseNodes = useMemo<ArchFlowNode[]>(
     () =>
       nodes.map((n) => ({
         id: n.id,
@@ -142,12 +164,58 @@ function Canvas({ nodes, edges, positions, layoutKey, selectedId = null, highlig
         position: positions[n.id] ?? { x: 0, y: 0 },
         data: { node: n, dim: !!highlight && !highlight.has(n.id), selected: n.id === selectedId },
         ariaLabel: `${n.name}, ${n.type.toLowerCase()}${n.id === selectedId ? ', selected' : ''}`,
-        draggable: false,
-        selectable: false,
+        draggable: interactive,
+        selectable: interactive,
         connectable: false,
       })),
-    [nodes, positions, highlight, selectedId],
+    [nodes, positions, highlight, selectedId, interactive],
   );
+
+  // React Flow works on its own copy of the nodes, so a drag updates only the moved nodes' state: the layout worker
+  // never runs and the parent is told once, when the move is over. The copy follows `baseNodes` whenever the visible
+  // set, a position or a highlight changes, keeping what only React Flow knows (selection, measured size).
+  const [flowNodes, setFlowNodes] = useState<ArchFlowNode[]>(baseNodes);
+  const [syncedFrom, setSyncedFrom] = useState(baseNodes);
+  if (syncedFrom !== baseNodes) {
+    const previous = new Map(flowNodes.map((n) => [n.id, n]));
+    setSyncedFrom(baseNodes);
+    setFlowNodes(baseNodes.map((b) => {
+      const p = previous.get(b.id);
+      return p ? { ...b, selected: p.selected, measured: p.measured } : b;
+    }));
+  }
+
+  const names = useRef(new Map<string, string>());
+  names.current = useMemo(() => new Map(nodes.map((n) => [n.id, n.name])), [nodes]);
+
+  /** One polite message once a burst of arrow presses ends, so a held key does not read out every step. */
+  const announce = useCallback((ids: string[]) => {
+    window.clearTimeout(announceTimer.current);
+    announceTimer.current = window.setTimeout(() => {
+      const text = ids.length === 1 ? `Moved ${names.current.get(ids[0] as string) ?? 'node'}` : `Moved ${ids.length} nodes`;
+      setAnnouncement((prev) => (prev === text ? `${text}\u200b` : text));
+    }, 500);
+  }, []);
+  useEffect(() => () => window.clearTimeout(announceTimer.current), []);
+
+  const onNodesChange = useCallback(
+    (changes: NodeChange<ArchFlowNode>[]) => {
+      const kept = changes.filter((c) => c.type !== 'remove'); // Backspace must never delete a node
+      if (kept.length === 0) return;
+      setFlowNodes((prev) => applyNodeChanges(kept, prev));
+      // A move that is over (the drop, or one arrow-key step) becomes the node's manual position.
+      const done: Positions = {};
+      for (const c of kept) if (c.type === 'position' && c.dragging !== true && c.position) done[c.id] = c.position;
+      const ids = Object.keys(done);
+      if (ids.length > 0) {
+        onMove?.(done);
+        if (performance.now() - lastArrow.current < 400) announce(ids);
+      }
+    },
+    [onMove, announce],
+  );
+
+  const clearSelection = useCallback(() => setFlowNodes((prev) => (prev.some((n) => n.selected) ? prev.map((n) => (n.selected ? { ...n, selected: false } : n)) : prev)), []);
 
   const flowEdges = useMemo<Edge[]>(
     () =>
@@ -180,7 +248,19 @@ function Canvas({ nodes, edges, positions, layoutKey, selectedId = null, highlig
     return [...ids];
   }, [edges]);
 
-  const onNodeClick: NodeMouseHandler = useCallback((_, node) => onSelect?.(node.id), [onSelect]);
+  // A click inspects; a drag, or a Ctrl/Cmd/Shift-click that edits the selection, never does.
+  const onNodeClick: NodeMouseHandler = useCallback(
+    (event, node) => {
+      if (dragged.current || event.metaKey || event.ctrlKey || event.shiftKey) return;
+      onSelect?.(node.id);
+    },
+    [onSelect],
+  );
+  const endDrag = useCallback(() => {
+    window.setTimeout(() => {
+      dragged.current = false; // after the click that may follow the drop
+    }, 0);
+  }, []);
 
   return (
     <div
@@ -189,7 +269,11 @@ function Canvas({ nodes, edges, positions, layoutKey, selectedId = null, highlig
       data-interactive={interactive || undefined}
       onKeyDown={(e) => {
         if (!interactive) return;
-        if (e.key === 'Escape') onSelect?.(null);
+        if (e.key === 'Escape') {
+          clearSelection();
+          onSelect?.(null);
+        }
+        if (e.key.startsWith('Arrow')) lastArrow.current = performance.now();
         if (e.key === 'Enter' || e.key === ' ') {
           const id = (document.activeElement as HTMLElement | null)?.closest('.react-flow__node')?.getAttribute('data-id');
           if (id) {
@@ -204,11 +288,21 @@ function Canvas({ nodes, edges, positions, layoutKey, selectedId = null, highlig
         nodes={flowNodes}
         edges={flowEdges}
         nodeTypes={nodeTypes}
+        onNodesChange={interactive ? onNodesChange : undefined}
         onNodeClick={interactive ? onNodeClick : undefined}
+        onNodeDragStart={() => {
+          dragged.current = true;
+        }}
+        onNodeDragStop={endDrag}
         onPaneClick={interactive ? () => onSelect?.(null) : undefined}
-        nodesDraggable={false}
+        nodesDraggable={interactive}
         nodesConnectable={false}
-        elementsSelectable={false}
+        elementsSelectable={interactive}
+        nodeDragThreshold={4}
+        nodeClickDistance={4}
+        multiSelectionKeyCode={['Meta', 'Control']}
+        deleteKeyCode={null}
+        ariaLabelConfig={{ 'node.a11yDescription.ariaLiveMessage': () => '' }}
         nodesFocusable={interactive}
         edgesFocusable={false}
         panOnDrag={interactive}
@@ -225,10 +319,23 @@ function Canvas({ nodes, edges, positions, layoutKey, selectedId = null, highlig
         proOptions={{ hideAttribution: true }}
         aria-label={label}
       >
-        <FitAndReveal layoutKey={layoutKey} focusIds={focusIds} minZoom={interactive ? 0.55 : 0.05} selectedId={interactive ? selectedId : null} positions={positions} nodes={nodes} highlight={highlight} />
+        <FitAndReveal layoutKey={layoutKey} fitToken={fitToken} focusIds={focusIds} minZoom={interactive ? 0.55 : 0.05} selectedId={interactive ? selectedId : null} positions={positions} nodes={nodes} highlight={highlight} />
         {interactive ? (
           <>
-            <Toolbar fullscreen={fullscreen} onFullscreen={toggleFullscreen} legend={legend} onLegend={() => setLegend((v) => !v)} minimap={minimap} onMinimap={() => setMinimap((v) => !v)} />
+            <Toolbar
+              fullscreen={fullscreen}
+              onFullscreen={toggleFullscreen}
+              legend={legend}
+              onLegend={() => setLegend((v) => !v)}
+              minimap={minimap}
+              onMinimap={() => setMinimap((v) => !v)}
+              moved={moved}
+              onReset={() => {
+                clearSelection();
+                onResetLayout?.();
+                setFitToken((t) => t + 1);
+              }}
+            />
             {legend ? (
               <Panel position="top-right" className="graph-legend-panel">
                 <Legend />
@@ -247,6 +354,7 @@ function Canvas({ nodes, edges, positions, layoutKey, selectedId = null, highlig
           </>
         ) : null}
       </ReactFlow>
+      <div className="sr-only" role="status" aria-live="polite" aria-atomic="true">{announcement}</div>
     </div>
   );
 }

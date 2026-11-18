@@ -30,7 +30,7 @@ export const queryKeys = {
   graph: (analysisId: string, query: GraphQuery) => ['analysis', analysisId, 'graph', graphKeyParams(query)] as const,
   node: (analysisId: string, nodeId: string) => ['analysis', analysisId, 'node', nodeId] as const,
   files: (analysisId: string, query: FilesQuery) =>
-    ['analysis', analysisId, 'files', { language: query.language ?? null, path: query.path ?? null, page: query.page, size: query.size }] as const,
+    ['analysis', analysisId, 'files', { language: query.language ?? null, path: query.path ?? null, test: query.test ?? null, page: query.page, size: query.size }] as const,
   file: (analysisId: string, fileId: string) => ['analysis', analysisId, 'file', fileId] as const,
   classDetail: (analysisId: string, classId: string) => ['analysis', analysisId, 'class', classId] as const,
   admin: ['admin'] as const,

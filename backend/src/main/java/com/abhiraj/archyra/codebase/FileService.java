@@ -30,12 +30,15 @@ public class FileService {
 	 *                 null or blank for all
 	 * @param path     repository path such as {@code src/main}; matches that file or everything below it;
 	 *                 null or blank for all
-	 * @throws InvalidRequestException                                  for an unknown language, a path that is
-	 *                                                                  too long, or a page or size out of range
+	 * @param test     {@code true} for only test files, {@code false} for only the others (any case); null or blank
+	 *                 for both. Applied before pagination, so the totals count the matching files only
+	 * @throws InvalidRequestException                                  for an unknown language, a {@code test} that is not
+	 *                                                                  true or false, a path that is too long, or a page
+	 *                                                                  or size out of range
 	 * @throws com.abhiraj.archyra.common.AnalysisNotFoundException     if the analysis id is malformed or unknown
 	 * @throws com.abhiraj.archyra.common.AnalysisNotCompletedException if the analysis is not {@code COMPLETED}
 	 */
-	public FilePageResponse getFiles(String analysisId, String language, String path, int page, int size) {
+	public FilePageResponse getFiles(String analysisId, String language, String path, String test, int page, int size) {
 		if (page < 0) {
 			throw new InvalidRequestException("page must not be negative");
 		}
@@ -44,13 +47,25 @@ public class FileService {
 		}
 		Language languageFilter = parseLanguage(language);
 		String pathFilter = normalisePath(path);
+		Boolean testFilter = parseTest(test);
 
-		FilePage result = graphService.getFiles(analysisId, languageFilter, pathFilter, page, size);
+		FilePage result = graphService.getFiles(analysisId, languageFilter, pathFilter, testFilter, page, size);
 		return new FilePageResponse(
 				result.files().stream()
-						.map(file -> new FileSummary(file.id(), file.name(), file.path(), file.language().displayName()))
+						.map(file -> new FileSummary(file.id(), file.name(), file.path(), file.language().displayName(), file.test()))
 						.toList(),
 				page, size, result.total(), (result.total() + size - 1) / size);
+	}
+
+	private static Boolean parseTest(String test) {
+		if (test == null || test.isBlank()) {
+			return null;
+		}
+		return switch (test.strip().toLowerCase(java.util.Locale.ROOT)) {
+			case "true" -> Boolean.TRUE;
+			case "false" -> Boolean.FALSE;
+			default -> throw new InvalidRequestException("Invalid value for test. Allowed values: true, false");
+		};
 	}
 
 	private static Language parseLanguage(String language) {

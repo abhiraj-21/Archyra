@@ -49,8 +49,8 @@ class GraphControllerTest {
 	@Test
 	void returnsNodesAndEdgesInTheReactFlowShape() throws Exception {
 		given(graphService.getGraph(ANALYSIS_ID, null, null)).willReturn(new GraphResponse(
-				List.of(new GraphNode("class:UserService", NodeType.CLASS, "UserService", "src/UserService.java"),
-						new GraphNode("module:app", NodeType.MODULE, "app", null)),
+				List.of(new GraphNode("class:UserService", NodeType.CLASS, "UserService", "src/UserService.java", false),
+						new GraphNode("module:app", NodeType.MODULE, "app", null, true)),
 				List.of(new GraphEdge("class:UserService", "class:UserRepository", RelationshipType.DEPENDS_ON))));
 
 		mockMvc.perform(get(URL))
@@ -60,8 +60,10 @@ class GraphControllerTest {
 				.andExpect(jsonPath("$.nodes[0].type").value("CLASS"))
 				.andExpect(jsonPath("$.nodes[0].name").value("UserService"))
 				.andExpect(jsonPath("$.nodes[0].file").value("src/UserService.java"))
-				.andExpect(jsonPath("$.nodes[0].length()").value(4))
+				.andExpect(jsonPath("$.nodes[0].test").value(false))     // always present, never omitted
+				.andExpect(jsonPath("$.nodes[0].length()").value(5))
 				.andExpect(jsonPath("$.nodes[1].file").doesNotExist())   // no file, no field
+				.andExpect(jsonPath("$.nodes[1].test").value(true))
 				.andExpect(jsonPath("$.edges[0].source").value("class:UserService"))
 				.andExpect(jsonPath("$.edges[0].target").value("class:UserRepository"))
 				.andExpect(jsonPath("$.edges[0].type").value("DEPENDS_ON"))

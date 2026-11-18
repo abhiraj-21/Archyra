@@ -3,9 +3,11 @@ import { useSearchParams } from 'react-router';
 import { List, Network } from 'lucide-react';
 import { hasCode } from '@/api/errors';
 import type { EdgeType, GraphResponse, NodeType } from '@/api/types';
-import { countByType, defaultFilter, neighbourhood, nodeSize, visibleGraph } from '@/components/graph/adapter';
+import { countByType, defaultFilter, isExternalId, neighbourhood, nodeSize, visibleGraph } from '@/components/graph/adapter';
 import { GraphCanvas } from '@/components/graph/GraphCanvas';
 import { Inspector } from '@/components/graph/Inspector';
+import { parseScope, SCOPE_DEFAULTS, scopeCounts, scopeParam, type Scope } from '@/components/graph/scope';
+import { movedCount, overlayPositions, useManualPositions } from '@/components/graph/manualPositions';
 import { useLayout } from '@/components/graph/useLayout';
 import { Button } from '@/components/ui/Button';
 import { Spinner } from '@/components/ui/Spinner';
@@ -58,9 +60,11 @@ function ArchitectureView({ analysisId, graph }: { analysisId: string; graph: Gr
   const defaults = useMemo(() => defaultFilter(graph), [graph]);
   const nodeTypes = parseNodeTypes(params.get('nodes')) ?? defaults.nodeTypes;
   const edgeTypes = parseEdgeTypes(params.get('edges')) ?? defaults.edgeTypes;
+  const scope = parseScope(params.get('scope'), SCOPE_DEFAULTS.architecture);
   const selectedId = params.get('node');
   const listView = params.get('view') === 'list';
   const counts = useMemo(() => countByType(graph), [graph]);
+  const hasTests = useMemo(() => graph.nodes.some((n) => n.test && !isExternalId(n.id)), [graph]);
 
   const update = useCallback(
     (changes: Record<string, string | null>) => {
@@ -82,22 +86,36 @@ function ArchitectureView({ analysisId, graph }: { analysisId: string; graph: Gr
   const nodeKey = nodeTypes.slice().sort().join(',');
   const edgeKey = edgeTypes.slice().sort().join(',');
   const visible = useMemo(
-    () => visibleGraph(graph, { nodeTypes: new Set(nodeKey ? (nodeKey.split(',') as NodeType[]) : []), edgeTypes: new Set(edgeKey ? (edgeKey.split(',') as EdgeType[]) : []) }),
-    [graph, nodeKey, edgeKey],
+    () => visibleGraph(graph, { scope, nodeTypes: new Set(nodeKey ? (nodeKey.split(',') as NodeType[]) : []), edgeTypes: new Set(edgeKey ? (edgeKey.split(',') as EdgeType[]) : []) }),
+    [graph, nodeKey, edgeKey, scope],
   );
+  // What each scope option would reveal under the current node-type filter, so an empty view explains itself.
+  const scopeOptionCounts = useMemo(() => scopeCounts(graph.nodes, new Set(nodeKey ? (nodeKey.split(',') as NodeType[]) : [])), [graph, nodeKey]);
   const nodesById = useMemo(() => new Map(graph.nodes.map((n) => [n.id, n])), [graph]);
   const selected = selectedId && visible.nodes.some((n) => n.id === selectedId) ? selectedId : selectedId && nodesById.has(selectedId) ? selectedId : null;
   const highlight = useMemo(() => (selected ? neighbourhood(visible.edges, selected) : null), [selected, visible.edges]);
 
-  const layoutKey = `${analysisId}|${nodeKey}|${edgeKey}|${visible.nodes.length}|${visible.edges.length}`;
+  // The visible set is a function of the graph, the two type filters and the scope, so those key the layout cache:
+  // a scope change lays out again, and going back to a set seen before reuses its layout.
+  const layoutKey = `${analysisId}|${nodeKey}|${edgeKey}|${scope}|${visible.nodes.length}|${visible.edges.length}`;
   const layoutInput = useMemo(
     () => ({ nodes: visible.nodes.map((n) => ({ id: n.id, ...nodeSize(n) })), edges: visible.edges.map((e) => ({ id: e.id, source: e.source, target: e.target })) }),
     [visible],
   );
   const layout = useLayout(layoutKey, layoutInput);
 
+  // Dragged positions are laid over the automatic layout after it (and its cache), so a filter or scope change
+  // re-lays out the other nodes while the ones the user placed stay where they are.
+  const { manual, move, reset: resetLayout } = useManualPositions(analysisId);
+  const positions = useMemo(
+    () => (layout.positions ? overlayPositions(layout.positions, manual, visible.nodes.map((n) => n.id)) : null),
+    [layout.positions, manual, visible.nodes],
+  );
+  const moved = useMemo(() => movedCount(manual, visible.nodes.map((n) => n.id)) > 0, [manual, visible.nodes]);
+
   const select = useCallback((id: string | null) => update({ node: id }), [update]);
-  const reset = () => update({ nodes: null, edges: null, node: null });
+  const reset = () => update({ nodes: null, edges: null, node: null, scope: null });
+  const setScope = (next: Scope) => update({ scope: scopeParam(next, SCOPE_DEFAULTS.architecture), node: null });
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -106,6 +124,9 @@ function ArchitectureView({ analysisId, graph }: { analysisId: string; graph: Gr
           nodeTypes={nodeTypes}
           edgeTypes={edgeTypes}
           counts={counts}
+          scope={scope}
+          scopeCounts={scopeOptionCounts}
+          onScope={setScope}
           onNodeTypes={(t) => update({ nodes: t.join(','), node: null })}
           onEdgeTypes={(t) => update({ edges: t.join(',') })}
         />
@@ -129,9 +150,19 @@ function ArchitectureView({ analysisId, graph }: { analysisId: string; graph: Gr
         <div className="relative min-w-0 flex-1">
           {visible.nodes.length === 0 ? (
             <div className="grid h-full place-items-center bg-canvas px-md">
-              <EmptyState title="Nothing matches these filters" action={<Button onClick={reset}>Reset filters</Button>}>
-                Turn on a node type above, or go back to the default view of {defaults.nodeTypes.map((t) => t.toLowerCase()).join(' and ')} nodes.
-              </EmptyState>
+              {scope === 'tests' && !hasTests ? (
+                <EmptyState title="No test code found in this repository" action={<Button onClick={() => setScope('all')}>Show all</Button>}>
+                  Test code is recognised by folder and file names such as src/test, tests, *Test.java, test_*.py and *.spec.ts. Nothing in this analysis matches.
+                </EmptyState>
+              ) : scope === 'working' && scopeOptionCounts.all > 0 && scopeOptionCounts.working === 0 ? (
+                <EmptyState title="Everything shown here is test code" action={<Button onClick={() => setScope('all')}>Show all</Button>}>
+                  Working hides test code, and with the node types selected every node is a test. Show all to see them.
+                </EmptyState>
+              ) : (
+                <EmptyState title="Nothing matches these filters" action={<Button onClick={reset}>Reset filters</Button>}>
+                  Turn on a node type above, or go back to the default view of {defaults.nodeTypes.map((t) => t.toLowerCase()).join(' and ')} nodes.
+                </EmptyState>
+              )}
             </div>
           ) : listView ? (
             <NodeList nodes={visible.nodes} degree={visible.degree} selectedId={selected} onSelect={select} />
@@ -139,15 +170,18 @@ function ArchitectureView({ analysisId, graph }: { analysisId: string; graph: Gr
             <div className="grid h-full place-items-center px-md">
               <ErrorState error={null} />
             </div>
-          ) : layout.positions ? (
+          ) : positions ? (
             <GraphCanvas
               nodes={visible.nodes}
               edges={visible.edges}
-              positions={layout.positions}
+              positions={positions}
               layoutKey={layoutKey}
               selectedId={selected}
               highlight={highlight}
               onSelect={select}
+              onMove={move}
+              onResetLayout={resetLayout}
+              moved={moved}
               label={`Architecture graph: ${plural(visible.nodes.length, 'node')}. Use Tab to move between nodes and Enter to inspect one.`}
             />
           ) : (

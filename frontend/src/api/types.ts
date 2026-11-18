@@ -117,6 +117,8 @@ export interface GraphNode {
   name: string;
   /** Absent for repository and module nodes. */
   file?: string;
+  /** Code declared in a test file (path and file-name conventions), or a module whose files are all tests. Always present. */
+  test: boolean;
 }
 export interface GraphEdge {
   source: string;
@@ -138,6 +140,7 @@ export interface NodeResponse {
   kind?: string;
   language?: string;
   parentId?: string;
+  test: boolean;
   relationships: { outgoing: RelationshipCounts; incoming: RelationshipCounts };
 }
 export interface EntitySummary {
@@ -161,12 +164,14 @@ export interface FileSummary {
   name: string;
   path: string;
   language: string;
+  test: boolean;
 }
 export interface FileResponse {
   id: string;
   name: string;
   path: string;
   language: string;
+  test: boolean;
   module?: NodeRef;
   classes: EntitySummary[];
   interfaces: EntitySummary[];
@@ -208,6 +213,8 @@ export interface GraphQuery {
 export interface FilesQuery {
   language?: string;
   path?: string;
+  /** true: only test files; false: only the others; absent: both. Applied by the server before paging. */
+  test?: boolean;
   page: number;
   size: number;
 }

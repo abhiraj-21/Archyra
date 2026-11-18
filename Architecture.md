@@ -526,7 +526,8 @@ GET /api/v1/analyses/a8f31c/graph?nodeType=CLASS
       "id": "class-123",
       "type": "CLASS",
       "name": "UserService",
-      "file": "src/UserService.java"
+      "file": "src/UserService.java",
+      "test": false
     }
   ],
   "edges": [
@@ -545,6 +546,19 @@ Semantics (V0.1):
 - The filters are independent. `nodeType` keeps only nodes of that type. `relationshipType` keeps only edges of that type and does not narrow the nodes. An edge is returned only if both of its ends are returned, so `?nodeType=CLASS` gives the classes and the relationships among them, and no edge points at a missing node. With neither filter the response is the whole graph.
 - External nodes (types outside the repository) are never returned, and neither are edges that touch them.
 - `file` is left out for nodes that have none (repository, module). Nodes and edges are sorted for a stable response.
+- `test` is **always present** (never null or omitted): `true` for code declared in a test file and for a module whose files are all tests. It is computed **at read time from the stored `file` path** by `common/TestPathClassifier`, so it is right on every existing analysis without re-analysis, needs no `/graph` query parameter (the `GraphPremiumGate` is unaffected and every plan has it) and the frontend filters on it client-side. It applies to `Class`, `Interface`, `Method`, `Function` and `File` nodes (by their `file`); a `Module` is a test module only if it has at least one file and every file in it is a test file; the `Repository` is never a test. The same field is on `GET /nodes/{nodeId}`, on every item of `GET /files` and on `GET /files/{fileId}`.
+- **What counts as a test** (path and file-name conventions only, first match wins; no annotation or framework detection):
+
+  | # | Rule | Examples |
+  | --- | --- | --- |
+  | 1 | A `src/main/` directory pair is **never** a test (protects a package called `test` inside real code) | `src/main/java/com/x/test/Util.java` → false |
+  | 2 | Test source sets: `src/test/`, `src/<name>Test/`, `src/<name>Tests/`, `src/testFixtures/` | `src/integrationTest/java/Flow.java` → true, `src/contest/App.java` → false |
+  | 3 | A directory named `test`, `tests`, `__tests__`, `__test__` or `spec` at any depth (exact, lower case) | `app/__tests__/a.js` → true, `testing/a.py`, `docs/specs/a.md` → false |
+  | 4 | A C# test project directory ending in `.Tests`, `.Test`, `.UnitTests` or `.IntegrationTests` | `Shop.Tests/OrderTests.cs` → true |
+  | 5 | File names (case-sensitive): Java/Kotlin `*Test`, `*Tests`, `*IT`, `Test*`; Python `test_*.py`, `*_test.py`, `conftest.py`; Go `*_test.go`; JS/TS/Vue/Svelte `*.test.*` and `*.spec.*`; Ruby `*_spec.rb`, `*_test.rb`; C# `*Test.cs`, `*Tests.cs`; PHP `*Test.php`; Solidity `*.t.sol`, `*.test.sol`; Rust `*_test.rs` | `pkg/test_foo.py` → true |
+  | 6 | Anything else | not a test |
+
+  Limitation: Rust unit tests written inline with `#[cfg(test)]` are not detected. A null or blank path is not a test.
 - Premium gate (V0.5): FREE may send no parameter, `nodeType`, `relationshipType` and `level=BEGINNER`; any other parameter or level is `403 PREMIUM_FEATURE`. The gate exists before the features do: `level` and the V2 parameters are accepted for PREMIUM but not implemented, so they return the same graph. Clients treat them as "coming soon" for every plan until they are built.
 
 
@@ -562,6 +576,7 @@ Returns information about a class/file/function/etc.
   "line": 12,
   "kind": "CLASS",
   "parentId": "file:src/UserService.java",
+  "test": false,
   "relationships": {
     "outgoing": { "CONTAINS": 4, "DEPENDS_ON": 2 },
     "incoming": { "DEPENDS_ON": 1 }
@@ -573,6 +588,7 @@ Semantics (V0.1):
 
 - `nodeId` is the id the graph exposes. Ids contain `/`, `#`, `(`, `)` and spaces, so a client percent-encodes the whole id (`file%3Asrc%2Fmain%2FApp.java`); the server accepts an encoded slash (`TomcatConfig`).
 - Any node type works. Fields that do not apply are left out: `kind` is the declaration kind of a type (`CLASS`, `ENUM`, `RECORD`, `INTERFACE`, ...) and is absent for methods and functions here (the method lists of `GET /files/{fileId}` do carry it, e.g. `CONSTRUCTOR`), `language` replaces it for a file (display name, e.g. `Java`), `file` is absent for repository and module nodes, `parentId` is the containing node (absent for the repository). `qualifiedName` is present for every node type, including files, modules and the repository.
+- `test` is always present (see the rules under `GET /graph`); for a module it needs the paths of the module's files, read with the node.
 - `relationships` counts relationships by type to and from other nodes of the repository. External nodes are not counted, and types with no relationship are absent. `/nodes/{nodeId}/relationships` (V2) will list them.
 - An external node (outside the repository), an unknown id and an id that is not a node id all return `404 NODE_NOT_FOUND`. Unknown or malformed analysis ids return `404 ANALYSIS_NOT_FOUND`, an analysis that is not `COMPLETED` returns `409 ANALYSIS_NOT_COMPLETED`.
 
@@ -587,6 +603,7 @@ Query parameters:
 ```
 ?language=Java
 &path=src/main
+&test=false
 &page=0
 &size=50
 ```
@@ -596,7 +613,7 @@ All optional. Response:
 ```
 {
   "items": [
-    { "id": "file:src/main/App.java", "name": "App.java", "path": "src/main/App.java", "language": "Java" }
+    { "id": "file:src/main/App.java", "name": "App.java", "path": "src/main/App.java", "language": "Java", "test": false }
   ],
   "page": 0,
   "size": 50,
@@ -610,7 +627,8 @@ Semantics (V0.1):
 - The filters are independent and combine with AND; with neither, every file is listed. Files are sorted by path.
 - `language` is a display name (`Java`, `C#`) or constant (`CSHARP`), in any case; an unknown value returns `400 VALIDATION_ERROR` listing the allowed ones.
 - `path` matches the file with exactly that path and everything below it, on whole segments (`src/main` does not match `src/mainframe`), case-sensitive. Leading `./` or `/` and trailing `/` are ignored. At most 500 characters.
-- Lists paginate (`page` is zero-based, default size 50, at most 200; anything else is `400`). `totalElements` counts the files that match the filters, over all pages.
+- `test` (`true` = only test files, `false` = only the others, absent = both; any case) combines with `language` and `path` with AND. Any other value returns `400 VALIDATION_ERROR` listing the allowed values. Every item carries a boolean `test` (rules under `GET /graph`).
+- Lists paginate (`page` is zero-based, default size 50, at most 200; anything else is `400`). `totalElements` counts the files that match **all** the filters, over all pages. The `test` filter is applied **before** pagination: because the flag is computed from the path rather than stored, a request with `test` fetches the matching rows (id, name, path and language only, bounded by the ingestion file limits), classifies them in Java and pages the result, so `totalElements` and `totalPages` count the files that pass the filter. Without `test` the paging stays in the database query. `/files` has no premium gate.
 - Only files that are part of the graph are listed, i.e. files of analysed languages. Languages that are only counted (SQL, shell, ...) have no files here, although they are in `languages` and `files` of `/repository`.
 - Unknown or malformed analysis ids return `404 ANALYSIS_NOT_FOUND`, an analysis that is not `COMPLETED` returns `409 ANALYSIS_NOT_COMPLETED`.
 
@@ -630,6 +648,7 @@ Returns metadata and extracted entities.
   "name": "App.java",
   "path": "src/main/App.java",
   "language": "Java",
+  "test": false,
   "module": { "id": "module:com.example", "type": "MODULE", "name": "com.example", "external": false },
   "classes":    [ { "id": "class:com.example.App", "type": "CLASS", "name": "App", "kind": "CLASS", "line": 5, "parentId": "file:src/main/App.java" } ],
   "interfaces": [],
@@ -642,6 +661,7 @@ Returns metadata and extracted entities.
 
 Semantics (V0.1):
 
+- `test` says whether the file is test code (rules under `GET /graph`); the nested lists do not carry it.
 - Everything comes from the graph: `classes`, `interfaces`, `methods` and `functions` are the declarations contained in the file (nested types and their methods included, sorted by line); `parentId` says what contains each.
 - `imports` are the `IMPORTS` targets: other files of the repository (`type` `FILE`, with `file`) and external types or modules (`external: true`, `qualifiedName` such as `java.util.List`).
 - `references` are the `REFERENCES` targets of the file's declarations (field types, signatures, `new`), excluding types declared in the same file. Targets may be external.
@@ -789,6 +809,7 @@ Full spec: `backend/specs/security/spec.md`. How it works, as built:
 - **Login methods:** email + password, Google and GitHub (Spring's own `/oauth2/authorization/{google|github}`).
 - **Tokens:** a 15-minute access JWT (HS256, `sub` = user id, `roles` claim, never the plan) sent as `Authorization: Bearer ...`, plus an opaque refresh token in an `HttpOnly; SameSite=Strict; Path=/api/v1/auth` cookie, rotated on every use. Presenting an old refresh token revokes the whole login family. Only SHA-256 hashes of refresh, verification and reset tokens are stored.
 - **Endpoints under `/api/v1/auth`:** `POST /register`, `/login`, `/refresh`, `/logout`, `/verify-email`, `/resend-verification`, `/forgot-password`, `/reset-password`; `GET /csrf`, `/me`. `/refresh` and `/logout` need the CSRF header (`X-XSRF-TOKEN`, from `GET /csrf`). Register, resend and forgot always answer 202 with the same body, so an email's registration status is never revealed.
+- **Registering an address that already has an account** keeps the same `202` and body (a `409 EMAIL_ALREADY_REGISTERED` or an "already registered" message would let anyone test which emails have accounts, so it is deliberately not used). What the owner gets instead happens **asynchronously on the mail executor**, after the response: a *verified* account (password or social) receives an "account already exists" notice with links to `/login` and `/forgot-password` (no token; it names Google/GitHub when the account has no password), at most **one per address per hour** (`RegisterNoticeThrottle`, in memory, keyed by a hash of the address, on top of the per-IP limits); an *unverified* account is a retry of the signup: older verification links are voided and a fresh one is sent, while the stored name and password are **not** replaced (replacing them would let whoever re-registers the address put their own password on the account the real owner then verifies); a *disabled* account gets nothing. Each case writes a `REGISTER_EXISTING_ACCOUNT` audit line with the case and no address or token. The frontend's check-your-inbox screen is worded so it is true for new and existing addresses alike.
 - **Social login** ends with a redirect to `{frontend-base-url}/auth/callback` (or `/login?error=<code>`); the SPA then calls `/auth/refresh` like after any login. No token ever appears in a URL.
 - **Ownership:** an analysis belongs to the user who started it, and to nobody else (admins included). Anything not yours is a 404, so ids cannot be probed.
 - **Premium:** enforced on the server from the database plan (never the token). On `GET .../graph`, FREE gets no parameters, `nodeType`, `relationshipType` and `level=BEGINNER`; everything else is `403 PREMIUM_FEATURE`.
@@ -1128,7 +1149,7 @@ Dashboard
           └── Ask AI
 ```
 
-> **Built in V0.5 (ahead of V1):** this structure exists in `frontend/` against the real API: dashboard (submit, history, usage), the polling progress view, the five repository tabs (Ask AI as a "coming soon" page that calls nothing), settings, and the admin area (`/admin/stats`, `/admin/users`, `/admin/users/{userId}`, shown only when `/users/me` says `ADMIN`). The Vite dev server proxies `/api`, `/oauth2` and `/login/oauth2`, so in development Google and GitHub redirect to `http://localhost:5173/login/oauth2/code/{google,github}`, which must be registered with the providers. Details: `frontend/CLAUDE.md`.
+> **Built in V0.5 (ahead of V1):** this structure exists in `frontend/` against the real API: dashboard (submit, history, usage), the polling progress view, the five repository tabs (Ask AI as a "coming soon" page that calls nothing), settings, and the admin area (`/admin/stats`, `/admin/users`, `/admin/users/{userId}`, shown only when `/users/me` says `ADMIN`). The Vite dev server proxies `/api`, `/oauth2` and `/login/oauth2` (keeping the browser's `Host`, adding `X-Forwarded-*`), so in development Google and GitHub redirect to `http://localhost:5173/login/oauth2/code/{google,github}` (verified from the real authorization redirect; `OAuth2RedirectUriHttpTest` and an e2e test guard it). Those URIs must be what the providers have registered: a **Google** web client can list several authorized redirect URIs (add the `:5173` one next to any `:8080` one), but a **GitHub OAuth App holds exactly one** callback URL, so it can serve the proxy flow *or* direct `:8080` use, not both (use a second OAuth App and separate `GITHUB_CLIENT_ID`/`GITHUB_CLIENT_SECRET` in `backend/.env` if both origins are ever needed). Always browse via `http://localhost:5173`, never `127.0.0.1`. A `redirect_uri_mismatch` is a provider-console setting, not a code defect. Details: `frontend/CLAUDE.md`.
 
 ## V2
 

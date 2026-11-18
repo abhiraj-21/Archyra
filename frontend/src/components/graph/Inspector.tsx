@@ -74,6 +74,7 @@ export function Inspector({ analysisId, nodeId, nodesById, onClose, onSelect }: 
                 {NODE_STYLES[node.data.type].label}
                 {node.data.kind && node.data.kind !== node.data.type ? <span className="text-muted"> ({humanize(node.data.kind)})</span> : null}
                 {node.data.language ? <span className="text-muted"> in {node.data.language}</span> : null}
+                {node.data.test ? <span className="chip ml-xs align-middle">Test</span> : null}
               </dd>
             </div>
             {node.data.qualifiedName ? (

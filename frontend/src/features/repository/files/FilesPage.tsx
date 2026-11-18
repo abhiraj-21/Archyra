@@ -1,6 +1,8 @@
 import { useEffect, useId, useState } from 'react';
 import { useSearchParams } from 'react-router';
 import { ChevronDown, FileSearch } from 'lucide-react';
+import { ScopeControl } from '@/components/graph/ScopeControl';
+import { parseScope, SCOPE_DEFAULTS, scopeParam, type Scope } from '@/components/graph/scope';
 import { Pagination } from '@/components/ui/Pagination';
 import { SkeletonRows } from '@/components/ui/Skeleton';
 import { EmptyState, ErrorState } from '@/components/ui/States';
@@ -17,6 +19,7 @@ export default function FilesPage() {
   const [params, setParams] = useSearchParams();
   const language = params.get('language') ?? '';
   const path = params.get('path') ?? '';
+  const scope = parseScope(params.get('scope'), SCOPE_DEFAULTS.files);
   const page = Math.max(0, Number(params.get('page')) || 0);
   const sizeParam = Number(params.get('size'));
   const size = SIZES.includes(sizeParam) ? sizeParam : 50;
@@ -25,7 +28,9 @@ export default function FilesPage() {
   const ids = { language: useId(), path: useId(), size: useId() };
 
   const repository = useRepository(analysisId, ready);
-  const files = useFiles(analysisId, ready, { language: language || undefined, path: path || undefined, page, size });
+  // working sends test=false, tests sends test=true, all sends nothing; the server filters before it pages.
+  const test = scope === 'working' ? false : scope === 'tests' ? true : undefined;
+  const files = useFiles(analysisId, ready, { language: language || undefined, path: path || undefined, test, page, size });
 
   const update = (changes: Record<string, string | null>, resetPage = true) =>
     setParams((prev) => {
@@ -37,6 +42,8 @@ export default function FilesPage() {
       if (resetPage && !('page' in changes)) next.delete('page');
       return next;
     });
+
+  const setScope = (next: Scope) => update({ scope: scopeParam(next, SCOPE_DEFAULTS.files), file: null });
 
   // Path filter: applied 300 ms after typing stops.
   useEffect(() => {
@@ -74,6 +81,7 @@ export default function FilesPage() {
             </div>
           </div>
         </div>
+        <ScopeControl value={scope} onChange={setScope} />
         <p className="text-xs text-muted">Paths match whole folders: src/main does not match src/mainframe. Languages that are only counted (SQL, shell and others) have no files here.</p>
 
         {files.isPending ? (
@@ -81,8 +89,12 @@ export default function FilesPage() {
         ) : files.isError ? (
           <ErrorState error={files.error} onRetry={() => void files.refetch()} />
         ) : files.data.totalElements === 0 ? (
-          <EmptyState title="No files match" icon={<FileSearch size={28} aria-hidden="true" />} action={language || path ? <button type="button" className="link" onClick={() => { setPathDraft(''); update({ language: null, path: null }); }}>Clear the filters</button> : null}>
-            {language || path ? 'Nothing in this analysis matches the language and path above.' : 'This analysis has no files of an analysed language.'}
+          <EmptyState title="No files match" icon={<FileSearch size={28} aria-hidden="true" />} action={language || path || scope !== SCOPE_DEFAULTS.files ? <button type="button" className="link" onClick={() => { setPathDraft(''); update({ language: null, path: null, scope: null }); }}>Clear the filters</button> : null}>
+            {scope === 'tests' && !language && !path
+              ? 'No test files found in this analysis.'
+              : language || path || scope !== SCOPE_DEFAULTS.files
+                ? 'Nothing in this analysis matches the language, path and scope above.'
+                : 'This analysis has no files of an analysed language.'}
           </EmptyState>
         ) : (
           <>
@@ -102,6 +114,7 @@ export default function FilesPage() {
                       <button type="button" className="link-plain text-left font-medium text-ink" onClick={(e) => { e.stopPropagation(); update({ file: f.id }, false); }}>
                         {f.name}
                       </button>
+                      {f.test ? <span className="chip ml-xs align-middle">Test</span> : null}
                       <span className="num block break-all text-xs text-muted md:hidden">{f.path}</span>
                     </td>
                     <td className="num max-w-0 truncate text-xs text-muted max-md:hidden" title={f.path}>{f.path}</td>

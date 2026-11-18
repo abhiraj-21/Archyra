@@ -2,6 +2,8 @@ import { SlidersHorizontal } from 'lucide-react';
 import type { EdgeType, NodeType } from '@/api/types';
 import { Glyph } from '@/components/graph/Glyph';
 import { EDGE_STYLES, FILTER_EDGE_TYPES, FILTER_NODE_TYPES, NODE_STYLES } from '@/components/graph/graphStyles';
+import { ScopeControl } from '@/components/graph/ScopeControl';
+import type { Scope } from '@/components/graph/scope';
 import { ComingSoon } from '@/components/ui/Locked';
 import { formatNumber } from '@/lib/format';
 
@@ -9,6 +11,9 @@ interface Props {
   nodeTypes: NodeType[];
   edgeTypes: EdgeType[];
   counts: Map<NodeType, number>;
+  scope: Scope;
+  scopeCounts: Record<Scope, number>;
+  onScope: (scope: Scope) => void;
   onNodeTypes: (types: NodeType[]) => void;
   onEdgeTypes: (types: EdgeType[]) => void;
 }
@@ -18,13 +23,14 @@ function toggle<T>(list: T[], value: T): T[] {
 }
 
 /** Live filters (applied client-side to the one fetched graph) plus the not-yet-built controls, marked as such. */
-export function GraphFilters({ nodeTypes, edgeTypes, counts, onNodeTypes, onEdgeTypes }: Props) {
+export function GraphFilters({ nodeTypes, edgeTypes, counts, scope, scopeCounts, onScope, onNodeTypes, onEdgeTypes }: Props) {
   return (
     <details className="graph-filters group" open>
       <summary className="flex cursor-pointer list-none items-center gap-xs py-xs text-sm font-medium text-ink-2 lg:hidden">
         <SlidersHorizontal size={16} aria-hidden="true" /> Filters and view
       </summary>
       <div className="grid gap-sm pb-sm lg:flex lg:flex-wrap lg:items-center lg:gap-x-lg">
+        <ScopeControl value={scope} onChange={onScope} counts={scopeCounts} />
         <fieldset className="flex flex-wrap items-center gap-x-sm gap-y-2xs">
           <legend className="sr-only">Node types</legend>
           <span aria-hidden="true" className="text-sm text-muted">Show</span>

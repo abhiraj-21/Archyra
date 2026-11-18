@@ -18,7 +18,7 @@ import lombok.extern.slf4j.Slf4j;
 @Configuration(proxyBeanMethods = false)
 class MailConfig {
 
-	static final String MAIL_EXECUTOR = "mailExecutor";
+	static final String MAIL_EXECUTOR = EmailService.MAIL_EXECUTOR;
 
 	@Bean(MAIL_EXECUTOR)
 	Executor mailExecutor(

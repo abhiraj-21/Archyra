@@ -45,11 +45,13 @@ public class AuthService {
 	private final SecurityProperties properties;
 	private final SecurityAuditLogger audit;
 	private final AccountEmailFlows emailFlows;
+	private final ExistingAccountFlows existingAccounts;
 	private final Clock clock;
 
 	/**
-	 * Creates the account if the email is free, and does nothing visible if it is not: the caller always answers
-	 * 202. The password is hashed either way, so the response time does not tell the two cases apart.
+	 * Creates the account if the email is free. If it is not, {@link ExistingAccountFlows} handles it afterwards, off
+	 * the request thread: the caller always answers the same 202 and nothing visible differs. The password is hashed
+	 * either way, so the response time does not tell the two cases apart.
 	 *
 	 * @throws com.abhiraj.archyra.common.InvalidRequestException if the password is not acceptable (a rule that
 	 *                                                           applies to everyone, so it reveals nothing)
@@ -59,11 +61,13 @@ public class AuthService {
 		PasswordPolicy.check(request.password(), email);
 		String hash = passwordEncoder.encode(request.password());
 		Optional<User> created = userService.registerIfAbsent(email, request.name().trim(), hash, clock.instant());
-		created.ifPresent(user -> {
-			audit.event("USER_REGISTERED", user.getId(), client.ip());
-			emailFlows.sendVerificationEmail(user);
-		});
-		// An address that is already registered gets no email at all, so nothing is sent to a stranger's inbox.
+		if (created.isPresent()) {
+			audit.event("USER_REGISTERED", created.get().getId(), client.ip());
+			emailFlows.sendVerificationEmail(created.get());
+		}
+		else {
+			existingAccounts.handle(email, client.ip());
+		}
 	}
 
 	/**

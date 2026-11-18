@@ -1,4 +1,5 @@
 import type { EdgeType, GraphEdge, GraphNode, GraphResponse, NodeType } from '@/api/types';
+import { inScope, type Scope } from './scope';
 
 /**
  * The one place API graph data becomes canvas data. Components never reshape API data themselves.
@@ -8,6 +9,8 @@ import type { EdgeType, GraphEdge, GraphNode, GraphResponse, NodeType } from '@/
 export interface GraphFilter {
   nodeTypes: ReadonlySet<NodeType>;
   edgeTypes: ReadonlySet<EdgeType>;
+  /** Applied before the edge check: `tests` is strict, so an edge survives only when both ends are test nodes. */
+  scope: Scope;
 }
 
 export interface VisibleGraph {
@@ -24,7 +27,7 @@ export function edgeId(edge: GraphEdge): string {
 }
 
 export function visibleGraph(graph: GraphResponse, filter: GraphFilter): VisibleGraph {
-  const nodes = graph.nodes.filter((n) => !isExternalId(n.id) && filter.nodeTypes.has(n.type));
+  const nodes = graph.nodes.filter((n) => !isExternalId(n.id) && filter.nodeTypes.has(n.type) && inScope(n, filter.scope));
   const ids = new Set(nodes.map((n) => n.id));
   const degree = new Map<string, number>(nodes.map((n) => [n.id, 0]));
   const seen = new Set<string>();

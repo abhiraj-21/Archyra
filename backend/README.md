@@ -40,12 +40,19 @@ Fixed behaviour you can tune in `application.properties`: access token 15 min, r
 
 ### Provider set-up
 
-Register an OAuth application with each provider and add this redirect URI (use your real API address):
+Register an OAuth application with each provider and add the redirect URI for the origin the **browser** uses (`{ORIGIN}/login/oauth2/code/{google|github}`). Spring builds it from the request's host, so behind the Vite dev proxy it is the frontend's origin:
 
-- Google (Google Cloud console, OAuth client of type "Web application"): `{API_BASE_URL}/login/oauth2/code/google`
-- GitHub (Settings, Developer settings, OAuth Apps): `{API_BASE_URL}/login/oauth2/code/github`
+| Provider | Where | Redirect URI in local development (through `http://localhost:5173`) |
+| --- | --- | --- |
+| Google | Google Cloud console → APIs & Services → Credentials → OAuth client of type "Web application" → **Authorized redirect URIs** (any number; "Authorized JavaScript origins" is not needed for this server-side flow) | `http://localhost:5173/login/oauth2/code/google` (keep `http://localhost:8080/login/oauth2/code/google` next to it if you also call the API directly) |
+| GitHub | Settings → Developer settings → OAuth Apps → your app → **Authorization callback URL** (a **single** field) | `http://localhost:5173/login/oauth2/code/github` |
 
-For local development `API_BASE_URL` is `http://localhost:8080`. Google needs the `openid profile email` scopes and
+- **A GitHub OAuth App holds one callback URL.** It cannot hold both the `:5173` and the `:8080` one. Pointing it at `:5173` stops direct `:8080` sign-in with that app; if both origins are ever needed, register a second OAuth App and keep its own `GITHUB_CLIENT_ID`/`GITHUB_CLIENT_SECRET` in `backend/.env`.
+- Always browse via `http://localhost:5173`, not `127.0.0.1` (a different origin gives a different redirect URI and a mismatch).
+- `redirect_uri_mismatch` means the provider's list does not contain the exact value the app sent. Check it with `curl -s -o /dev/null -D - http://localhost:5173/oauth2/authorization/github | grep -i ^location` (the `redirect_uri` query parameter is the value to register). Google changes can take a few minutes to apply, and a consent screen in *Testing* mode only admits the listed test users.
+- In production use the public API origin, e.g. `https://app.example.com/login/oauth2/code/google`.
+
+Google needs the `openid profile email` scopes and
 GitHub `read:user user:email`; they are already configured. Only a **verified** provider email is trusted.
 
 ### Deployment notes
@@ -64,6 +71,7 @@ GitHub `read:user user:email`; they are already configured. Only a **verified** 
 
 ## For the frontend
 
+- **Registering an existing address** answers the same `202` as a new one (never an "already registered" error). Show the generic "check your inbox" screen, with links to sign in and to reset the password; the owner is emailed separately.
 - **Google or GitHub sign-in** is a full-page navigation to `{API}/oauth2/authorization/google` (or `github`).
   Afterwards the browser lands on `{FRONTEND_BASE_URL}/auth/callback`, or on `/login?error=<code>` with one of
   `oauth_failed`, `oauth_email_unverified`, `oauth_account_disabled`, `oauth_cancelled` (show friendly messages).

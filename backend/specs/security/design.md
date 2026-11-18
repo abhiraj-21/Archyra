@@ -77,7 +77,17 @@ environment variables see `../../README.md`.
   `EMAIL_NOT_VERIFIED` (both 403) are returned only after the password was right. `AppUserDetailsService` always reports
   `enabled=true` for exactly that reason, and gives passwordless accounts an unusable hash so the timing is the same.
 - 5 failures lock the account for 15 minutes (`User.recordFailedLogin`), never mentioned to the client.
-- Register hashes the password even when the email already exists and answers 202 with an identical body.
+- Register hashes the password even when the email already exists and answers 202 with an identical body. What follows for an existing address is in the next section.
+- **Registering an existing address (decision, do not "fix" it back).** `POST /auth/register` keeps the generic `202` and the same body for a new and an existing email. A `409 EMAIL_ALREADY_REGISTERED`, or an "Email already registered" message on the page, would let anyone test which addresses have accounts, which the rest of this design (login, resend, forgot) works to prevent; the user chose to keep the generic response and improve the experience instead. After the response is sent, `ExistingAccountFlows` runs on the bounded mail executor (so neither the response nor its timing differs; the new-address path still does its insert synchronously) and matches the address case-insensitively:
+
+  | Existing account | What happens |
+  | --- | --- |
+  | Verified, enabled, password | An "account already exists" notice to the owner: log in (`{frontend-base-url}/login`) or reset the password (`/forgot-password`). No token in the links, no blame ("if this wasn't you, ignore this message; your account is unchanged") |
+  | Verified, enabled, social only | The same notice naming the provider(s) ("you signed up with Google and GitHub, use that button") plus the forgot-password link, which lets them add a password (section 5) |
+  | Unverified, enabled | A retry of the signup: earlier unused verification tokens are voided and a fresh link is sent through the normal verification path. **The stored name and password are not replaced.** Replacing them ("last registration wins") would let anyone who knows an address overwrite the password of a signup the real owner has started and is about to verify, so the owner would end up verified on an account whose password the attacker chose. Whoever forgot the password they typed uses forgot-password after verifying |
+  | Disabled | Nothing is sent and nothing changes |
+
+  The notice is throttled to **one per address per hour** (`RegisterNoticeThrottle`: bounded Caffeine cache keyed by a SHA-256 of the lower-cased address, per instance like the rate limiter), on top of the per-IP limit that already applies to register/forgot/resend (one shared 5/hour bucket). The verification mail of an unverified retry is covered by that same per-IP bucket, the existing throttle for verification mail. Every case writes `event=REGISTER_EXISTING_ACCOUNT case=<DISABLED|UNVERIFIED_RETRY|NOTICE_PASSWORD|NOTICE_SOCIAL_ONLY|NOTICE_THROTTLED>` to `security.audit`, never an address or token.
 
 ## 5. Email verification and password reset
 
@@ -193,6 +203,7 @@ the provider's email. The resolver above is unchanged and is **not called** in l
 | Flyway if used | `ddl-auto=update` | the project has no migrations; **not for production** |
 | `/actuator/**` rules | none | actuator is not a dependency; the final rule denies everything unlisted |
 | Link a social login by verified email | refused if the account already has another identity of that provider | prevents takeover by a re-issued address |
+| Re-registering an unverified address replaces its name and password (a later requirement) | the stored name and password are kept; only a fresh verification link is sent | replacing them lets an attacker overwrite the password of the owner's pending signup (decision recorded with the user) |
 
 ## 13. Not built
 

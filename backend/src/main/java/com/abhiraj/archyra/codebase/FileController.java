@@ -22,9 +22,10 @@ public class FileController {
 			@PathVariable String analysisId,
 			@RequestParam(required = false) String language,
 			@RequestParam(required = false) String path,
+			@RequestParam(required = false) String test,
 			@RequestParam(defaultValue = "0") int page,
 			@RequestParam(defaultValue = "" + FileService.DEFAULT_PAGE_SIZE) int size) {
-		return fileService.getFiles(analysisId, language, path, page, size);
+		return fileService.getFiles(analysisId, language, path, test, page, size);
 	}
 
 	/** {@code fileId} is the file's node id from the listing; its slashes arrive as {@code %2F}. */

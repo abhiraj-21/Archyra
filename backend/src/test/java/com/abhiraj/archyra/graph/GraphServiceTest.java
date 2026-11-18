@@ -54,7 +54,7 @@ class GraphServiceTest {
 
 	@Test
 	void nodeDetailsComeFromTheValidatedAnalysis() {
-		NodeResponse node = new NodeResponse("class:A", NodeType.CLASS, "A", null, null, null, null, null, null, null);
+		NodeResponse node = new NodeResponse("class:A", NodeType.CLASS, "A", null, null, null, null, null, null, false, null);
 		when(analysisService.requireCompleted(ID.toString())).thenReturn(ID);
 		when(graphQueryService.getNode(ID.toString(), "class:A")).thenReturn(java.util.Optional.of(node));
 
@@ -82,14 +82,14 @@ class GraphServiceTest {
 	void filesAreQueriedForTheValidatedAnalysis() {
 		FilePage page = new FilePage(List.of(), 0);
 		when(analysisService.requireCompleted(ID.toString())).thenReturn(ID);
-		when(graphQueryService.getFiles(ID.toString(), Language.JAVA, "src", 1, 10)).thenReturn(page);
+		when(graphQueryService.getFiles(ID.toString(), Language.JAVA, "src", true, 1, 10)).thenReturn(page);
 
-		assertThat(service.getFiles(ID.toString(), Language.JAVA, "src", 1, 10)).isSameAs(page);
+		assertThat(service.getFiles(ID.toString(), Language.JAVA, "src", true, 1, 10)).isSameAs(page);
 	}
 
 	@Test
 	void fileDetailsComeFromTheValidatedAnalysis() {
-		FileResponse file = new FileResponse("file:a.py", "a.py", "a.py", "Python", null, List.of(), List.of(), List.of(),
+		FileResponse file = new FileResponse("file:a.py", "a.py", "a.py", "Python", false, null, List.of(), List.of(), List.of(),
 				List.of(), List.of(), List.of());
 		when(analysisService.requireCompleted(ID.toString())).thenReturn(ID);
 		when(codeQueryService.getFileDetails(ID.toString(), "file:a.py")).thenReturn(java.util.Optional.of(file));

@@ -71,7 +71,7 @@ export function FileDrawer({ analysisId, fileId, onClose, onOpenFile }: { analys
         <>
           <dl className="grid gap-sm text-sm">
             <div className="grid gap-3xs"><dt className="text-muted">Path</dt><dd className="num break-all text-xs text-ink">{file.data.path}</dd></div>
-            <div className="grid gap-3xs"><dt className="text-muted">Language</dt><dd className="text-ink">{file.data.language}</dd></div>
+            <div className="grid gap-3xs"><dt className="text-muted">Language</dt><dd className="text-ink">{file.data.language}{file.data.test ? <span className="chip ml-xs align-middle">Test</span> : null}</dd></div>
             {file.data.module ? <div className="grid gap-3xs"><dt className="text-muted">Module</dt><dd className="num break-all text-xs text-ink">{file.data.module.name}</dd></div> : null}
           </dl>
           <Section title="Classes" count={file.data.classes.length}>{file.data.classes.map((e) => <Entity key={e.id} e={e} />)}</Section>

@@ -1,11 +1,13 @@
 package com.abhiraj.archyra.auth;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.awaitility.Awaitility.await;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.util.UUID;
 
@@ -138,15 +140,15 @@ class AccountEmailFlowsIntegrationTest {
 	}
 
 	@Test
-	void registeringAnExistingAddressSendsNothing() throws Exception {
+	void registeringAnExistingAddressNeverSendsAVerificationOrResetLink() throws Exception {
+		// What the owner does get (a link-free notice) is covered by RegisterExistingAccountIntegrationTest.
 		String email = uniqueEmail();
 		verifiedUser(email);
-		int before = mails.total();
 
 		assertThat(register(email).getResponse().getStatus()).isEqualTo(202);
 
-		assertThat(mails.total()).isEqualTo(before);
-		assertThat(mails.sentTo(email)).isEmpty();
+		await().atMost(Duration.ofSeconds(10)).until(() -> !mails.sentTo(email).isEmpty());
+		assertThat(mails.sentTo(email)).allSatisfy(mail -> assertThat(mail.kind()).isEqualTo("ACCOUNT_EXISTS"));
 	}
 
 	// ---- verify-email ---------------------------------------------------------------------------------

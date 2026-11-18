@@ -56,6 +56,13 @@ async function call(path, { token, method = 'GET', body, headers = {} } = {}) {
   return { status: res.status, json, headers: res.headers };
 }
 
+/** The `test` field is part of the contract: always present, always a boolean. Prints PASS/FAIL, never values. */
+let failures = 0;
+function check(label, ok) {
+  if (!ok) failures += 1;
+  console.log(`CHECK ${ok ? 'PASS' : 'FAIL'}: ${label}`);
+}
+
 function report(label, { status, json }) {
   console.log(`\n## ${label} -> ${status}`);
   console.log(JSON.stringify(shape(json), null, 2));
@@ -117,6 +124,8 @@ async function main() {
     report('GET /repository', await call(`${a}/repository`, { token }));
     const graph = await call(`${a}/graph`, { token });
     report('GET /graph', graph);
+    check('every /graph node has a boolean "test"', (graph.json?.nodes ?? []).length > 0 && graph.json.nodes.every((n) => typeof n.test === 'boolean'));
+    check('the repository node is not a test', (graph.json?.nodes ?? []).filter((n) => n.type === 'REPOSITORY').every((n) => n.test === false));
     report('GET /graph?nodeType=CLASS&relationshipType=DEPENDS_ON', await call(`${a}/graph?nodeType=CLASS&relationshipType=DEPENDS_ON`, { token }));
     report('GET /graph?nodeType=BAD', await call(`${a}/graph?nodeType=BAD`, { token }));
     report('GET /graph?level=BEGINNER', await call(`${a}/graph?level=BEGINNER`, { token }));
@@ -126,15 +135,34 @@ async function main() {
     const byType = (t) => nodes.find((n) => n.type === t);
     for (const t of ['CLASS', 'INTERFACE', 'METHOD', 'FILE', 'MODULE', 'REPOSITORY', 'FUNCTION']) {
       const n = byType(t);
-      if (n) report(`GET /nodes/{${t}}`, await call(`${a}/nodes/${enc(n.id)}`, { token }));
+      if (n) {
+        const detail = await call(`${a}/nodes/${enc(n.id)}`, { token });
+        report(`GET /nodes/{${t}}`, detail);
+        check(`/nodes/{${t}} has a boolean "test" equal to the graph's`, typeof detail.json?.test === 'boolean' && detail.json.test === n.test);
+      }
     }
     report('GET /nodes/{unknown}', await call(`${a}/nodes/${enc('class:does.not.Exist')}`, { token }));
     const files = await call(`${a}/files?page=0&size=5`, { token });
     report('GET /files', files);
+    check('every /files item has a boolean "test"', (files.json?.items ?? []).length > 0 && files.json.items.every((i) => typeof i.test === 'boolean'));
+    const onlyTests = await call(`${a}/files?test=true&size=200`, { token });
+    const noTests = await call(`${a}/files?test=false&size=200`, { token });
+    const everything = await call(`${a}/files?size=200`, { token });
+    report('GET /files?test=true', onlyTests);
+    check('/files?test=true returns only test files', onlyTests.status === 200 && onlyTests.json.items.every((i) => i.test === true));
+    check('/files?test=false returns only non-test files', noTests.status === 200 && noTests.json.items.every((i) => i.test === false));
+    check('test=true plus test=false counts add up to all files (filtered before paging)', onlyTests.json.totalElements + noTests.json.totalElements === everything.json.totalElements);
+    const badTest = await call(`${a}/files?test=maybe`, { token });
+    report('GET /files?test=maybe', badTest);
+    check('/files?test=maybe is 400 VALIDATION_ERROR', badTest.status === 400 && badTest.json?.code === 'VALIDATION_ERROR');
     report('GET /files?language=Nope', await call(`${a}/files?language=Nope`, { token }));
     report('GET /files?size=500', await call(`${a}/files?size=500`, { token }));
     const f = files.json?.items?.[0];
-    if (f) report('GET /files/{id}', await call(`${a}/files/${enc(f.id)}`, { token }));
+    if (f) {
+      const fileDetail = await call(`${a}/files/${enc(f.id)}`, { token });
+      report('GET /files/{id}', fileDetail);
+      check('/files/{id} has a boolean "test" equal to the listing\'s', typeof fileDetail.json?.test === 'boolean' && fileDetail.json.test === f.test);
+    }
     const c = byType('CLASS');
     if (c) report('GET /classes/{id}', await call(`${a}/classes/${enc(c.id)}`, { token }));
     const i = byType('INTERFACE');
@@ -156,7 +184,12 @@ async function main() {
   }
 }
 
-main().catch((error) => {
+main().then(() => {
+  if (failures > 0) {
+    console.error(`\n${failures} contract check(s) failed.`);
+    process.exit(1);
+  }
+}).catch((error) => {
   console.error(error instanceof Error ? error.message : 'probe failed');
   process.exit(1);
 });

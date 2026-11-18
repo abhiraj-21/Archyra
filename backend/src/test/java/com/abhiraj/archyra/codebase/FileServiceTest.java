@@ -38,14 +38,14 @@ class FileServiceTest {
 
 	@Test
 	void mapsTheFilesAndComputesThePaging() {
-		when(graphService.getFiles(ID, null, null, 1, 2)).thenReturn(new FilePage(
-				List.of(new FileInfo("file:a.cs", "a.cs", "a.cs", Language.CSHARP),
-						new FileInfo("file:b.go", "b.go", "b.go", Language.GO)), 5));
+		when(graphService.getFiles(ID, null, null, null, 1, 2)).thenReturn(new FilePage(
+				List.of(new FileInfo("file:a.cs", "a.cs", "a.cs", Language.CSHARP, false),
+						new FileInfo("file:b.go", "b.go", "b.go", Language.GO, true)), 5));
 
-		FilePageResponse response = service.getFiles(ID, null, null, 1, 2);
+		FilePageResponse response = service.getFiles(ID, null, null, null, 1, 2);
 
 		assertThat(response.items()).containsExactly(
-				new FileSummary("file:a.cs", "a.cs", "a.cs", "C#"), new FileSummary("file:b.go", "b.go", "b.go", "Go"));
+				new FileSummary("file:a.cs", "a.cs", "a.cs", "C#", false), new FileSummary("file:b.go", "b.go", "b.go", "Go", true));
 		assertThat(response.page()).isEqualTo(1);
 		assertThat(response.size()).isEqualTo(2);
 		assertThat(response.totalElements()).isEqualTo(5);
@@ -54,9 +54,9 @@ class FileServiceTest {
 
 	@Test
 	void noMatchesIsAnEmptyPageWithZeroPages() {
-		when(graphService.getFiles(ID, Language.JAVA, null, 0, 50)).thenReturn(new FilePage(List.of(), 0));
+		when(graphService.getFiles(ID, Language.JAVA, null, null, 0, 50)).thenReturn(new FilePage(List.of(), 0));
 
-		FilePageResponse response = service.getFiles(ID, "Java", null, 0, 50);
+		FilePageResponse response = service.getFiles(ID, "Java", null, null, 0, 50);
 
 		assertThat(response.items()).isEmpty();
 		assertThat(response.totalPages()).isZero();
@@ -76,17 +76,52 @@ class FileServiceTest {
 			HCL (Terraform)|HCL
 			""")
 	void languageMatchesTheDisplayNameOrTheConstantInAnyCase(String input, Language expected) {
-		when(graphService.getFiles(any(), any(), any(), anyInt(), anyInt())).thenReturn(new FilePage(List.of(), 0));
+		when(graphService.getFiles(any(), any(), any(), any(), anyInt(), anyInt())).thenReturn(new FilePage(List.of(), 0));
 
-		service.getFiles(ID, input, null, 0, 50);
+		service.getFiles(ID, input, null, null, 0, 50);
 
-		verify(graphService).getFiles(ID, expected, null, 0, 50);
+		verify(graphService).getFiles(ID, expected, null, null, 0, 50);
+	}
+
+	@ParameterizedTest
+	@CsvSource(delimiter = '|', textBlock = """
+			true|true
+			TRUE|true
+			  True  |true
+			false|false
+			False|false
+			""")
+	void theTestFilterIsParsedInAnyCase(String input, boolean expected) {
+		when(graphService.getFiles(ID, null, null, expected, 0, 50)).thenReturn(new FilePage(List.of(), 0));
+
+		service.getFiles(ID, null, null, input, 0, 50);
+
+		verify(graphService).getFiles(ID, null, null, expected, 0, 50);
+	}
+
+	@ParameterizedTest
+	@ValueSource(strings = {"maybe", "1", "yes", "tru", "true;", "null"})
+	void anInvalidTestFilterIsRejectedWithTheAllowedValuesAndWithoutEchoingIt(String test) {
+		assertThatThrownBy(() -> service.getFiles(ID, null, null, test, 0, 50))
+				.isInstanceOf(InvalidRequestException.class)
+				.hasMessage("Invalid value for test. Allowed values: true, false");
+		verifyNoInteractions(graphService);
+	}
+
+	@ParameterizedTest
+	@ValueSource(strings = {"", "  "})
+	void aBlankTestFilterMeansBoth(String test) {
+		when(graphService.getFiles(ID, null, null, null, 0, 50)).thenReturn(new FilePage(List.of(), 0));
+
+		service.getFiles(ID, null, null, test, 0, 50);
+
+		verify(graphService).getFiles(ID, null, null, null, 0, 50);
 	}
 
 	@ParameterizedTest
 	@ValueSource(strings = {"Klingon", "Jav", "Java;", "' OR 1=1", "J ava"})
 	void unknownLanguageIsRejectedWithTheAllowedValues(String language) {
-		assertThatThrownBy(() -> service.getFiles(ID, language, null, 0, 50))
+		assertThatThrownBy(() -> service.getFiles(ID, language, null, null, 0, 50))
 				.isInstanceOf(InvalidRequestException.class)
 				.hasMessageStartingWith("Unknown language. Allowed values: Java, Kotlin");
 		verifyNoInteractions(graphService);
@@ -94,16 +129,16 @@ class FileServiceTest {
 
 	@Test
 	void theRejectedLanguageIsNotEchoed() {
-		assertThatThrownBy(() -> service.getFiles(ID, "Klingon", null, 0, 50)).hasMessageNotContaining("Klingon");
+		assertThatThrownBy(() -> service.getFiles(ID, "Klingon", null, null, 0, 50)).hasMessageNotContaining("Klingon");
 	}
 
 	@Test
 	void blankLanguageAndPathMeanNoFilter() {
-		when(graphService.getFiles(ID, null, null, 0, 50)).thenReturn(new FilePage(List.of(), 0));
+		when(graphService.getFiles(ID, null, null, null, 0, 50)).thenReturn(new FilePage(List.of(), 0));
 
-		service.getFiles(ID, "  ", "   ", 0, 50);
+		service.getFiles(ID, "  ", "   ", null, 0, 50);
 
-		verify(graphService).getFiles(ID, null, null, 0, 50);
+		verify(graphService).getFiles(ID, null, null, null, 0, 50);
 	}
 
 	@ParameterizedTest
@@ -117,26 +152,26 @@ class FileServiceTest {
 			src/Main.java|src/Main.java
 			""")
 	void pathIsNormalised(String input, String expected) {
-		when(graphService.getFiles(any(), any(), anyString(), anyInt(), anyInt())).thenReturn(new FilePage(List.of(), 0));
+		when(graphService.getFiles(any(), any(), anyString(), any(), anyInt(), anyInt())).thenReturn(new FilePage(List.of(), 0));
 
-		service.getFiles(ID, null, input, 0, 50);
+		service.getFiles(ID, null, input, null, 0, 50);
 
-		verify(graphService).getFiles(ID, null, expected, 0, 50);
+		verify(graphService).getFiles(ID, null, expected, null, 0, 50);
 	}
 
 	@ParameterizedTest
 	@ValueSource(strings = {"/", "./", "//"})
 	void aPathThatIsOnlySlashesMeansNoFilter(String path) {
-		when(graphService.getFiles(ID, null, null, 0, 50)).thenReturn(new FilePage(List.of(), 0));
+		when(graphService.getFiles(ID, null, null, null, 0, 50)).thenReturn(new FilePage(List.of(), 0));
 
-		service.getFiles(ID, null, path, 0, 50);
+		service.getFiles(ID, null, path, null, 0, 50);
 
-		verify(graphService).getFiles(ID, null, null, 0, 50);
+		verify(graphService).getFiles(ID, null, null, null, 0, 50);
 	}
 
 	@Test
 	void aTooLongPathIsRejected() {
-		assertThatThrownBy(() -> service.getFiles(ID, null, "a".repeat(FileService.MAX_PATH_LENGTH + 1), 0, 50))
+		assertThatThrownBy(() -> service.getFiles(ID, null, "a".repeat(FileService.MAX_PATH_LENGTH + 1), null, 0, 50))
 				.isInstanceOf(InvalidRequestException.class);
 		verifyNoInteractions(graphService);
 	}
@@ -144,14 +179,14 @@ class FileServiceTest {
 	@ParameterizedTest
 	@CsvSource({"-1,50", "0,0", "0,-5", "0,201", "0,100000"})
 	void pageAndSizeAreBounded(int page, int size) {
-		assertThatThrownBy(() -> service.getFiles(ID, null, null, page, size)).isInstanceOf(InvalidRequestException.class);
+		assertThatThrownBy(() -> service.getFiles(ID, null, null, null, page, size)).isInstanceOf(InvalidRequestException.class);
 		verifyNoInteractions(graphService);
 	}
 
 	@Test
 	void theLargestAllowedSizeIsAccepted() {
-		when(graphService.getFiles(ID, null, null, 0, FileService.MAX_PAGE_SIZE)).thenReturn(new FilePage(List.of(), 0));
+		when(graphService.getFiles(ID, null, null, null, 0, FileService.MAX_PAGE_SIZE)).thenReturn(new FilePage(List.of(), 0));
 
-		assertThat(service.getFiles(ID, null, null, 0, FileService.MAX_PAGE_SIZE).size()).isEqualTo(200);
+		assertThat(service.getFiles(ID, null, null, null, 0, FileService.MAX_PAGE_SIZE).size()).isEqualTo(200);
 	}
 }
