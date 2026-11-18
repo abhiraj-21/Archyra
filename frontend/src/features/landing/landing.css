@@ -1,0 +1,116 @@
+/* Hallmark · shape: Map / Diagram · genre: modern-minimal · theme: Coral (deal 1/3, seed precise-trustworthy-developer-tool-cf7d·90d8fbd1·2026-11-18·r1, chosen by the user) · job: sign up · draw: b2c12f
+ * hero: Stage · nav: masthead · footer: colophon (swapped from letter close: a product page has no sign-off) · imagery: screenshots 7 (scripts/capture, real app and backend) · signature: spring-petclinic's real package graph, read top to bottom
+ * axes: light/grotesk-sans/warm · posture: restrained · contrast: pass · fold: pass · v2.0.0 */
+/* Hallmark · pre-emit critique: P4 H5 E4 S5 R4 V4 · weakest: P, a calm tool argues by showing; the hero is the product's own graph of a real repository, nothing drawn */
+/* Hallmark · dismissed 11 · the lift is Coral's letterpress card press, one signal per button, never on cards or images */
+/* Hallmark · dismissed F4 · only .btn-primary is filled (the ink board); secondary and danger are cotton cards, one primary per screen */
+/* Hallmark · dismissed 28a · the lazy image at line 52 is a tour panel far below the fold; the hero capture is the LCP and carries fetchpriority high */
+
+.landing { background: var(--color-paper); color: var(--color-ink); }
+.landing .container { width: 100%; max-width: var(--container); margin-inline: auto; padding-inline: var(--gutter); }
+
+/* masthead: the wordmark centred over a rule, the one link at the edge */
+.lp-nav { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; min-height: 72px; border-bottom: 1px solid var(--color-rule-2); }
+.lp-nav__left { justify-self: start; }
+.lp-nav__right { justify-self: end; }
+.lp-mark { display: inline-flex; align-items: center; gap: var(--space-xs); font: var(--display-weight) var(--text-xl) / 1 var(--font-display); letter-spacing: var(--tracking-display); color: var(--color-ink); text-decoration: none; }
+
+/* hero: Stage on the felt desk */
+.lp-hero { display: grid; align-content: center; min-height: calc(100svh - 73px); padding-block: var(--space-2xl); }
+.lp-hero__grid { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); gap: var(--space-3xl); align-items: center; }
+/* Sized so the longest word, "architecture", fits the five-column text track at every width. */
+.lp-hero h1 { font-size: clamp(2.75rem, 5vw, 4.75rem); max-width: 12ch; text-wrap: balance; }
+.lp-hero .lead { margin-top: var(--space-lg); color: var(--color-ink-2); max-width: 30ch; }
+.lp-actions { display: flex; flex-wrap: wrap; gap: var(--space-sm); margin-top: var(--space-xl); }
+.lp-terms { margin-top: var(--space-md); font-size: var(--text-sm); color: var(--color-muted); }
+
+/* captures sit on cotton sheets with Coral's lit edge and cast */
+.lp-sheet { margin: 0; padding: var(--space-sm); border-radius: var(--radius-stock); background-color: var(--color-cotton); background-image: linear-gradient(100deg, var(--color-cotton), transparent 45%), var(--tex-cotton); box-shadow: var(--edge-stock), var(--cast-stock-lift); }
+.lp-shot { position: relative; overflow: hidden; border-radius: calc(var(--radius-stock) - 4px); background: var(--color-canvas); outline: 1px solid var(--color-rule); outline-offset: -1px; }
+.lp-shot img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.lp-shot--hero { aspect-ratio: 4 / 3; }
+.lp-shot--wide { aspect-ratio: 16 / 10; }
+.lp-shot--progress { aspect-ratio: 16 / 7; }
+.lp-shot--progress img { object-position: 50% 0; }
+.lp-shot--tall img { object-fit: contain; }
+.lp-caption { margin-top: var(--space-sm); font-size: var(--text-sm); color: var(--color-ink-2); }
+
+.lp-section { padding-block: var(--section-gap-s); }
+.lp-section--loose { padding-block: var(--section-gap); }
+.lp-head { display: grid; gap: var(--space-md); max-width: 46rem; margin-bottom: var(--space-2xl); }
+.lp-head h2, .lp-close h2, .lp-panel h3, .lp-steps h3 { text-wrap: balance; }
+.lp-head h2 { max-width: 18ch; }
+.lp-head p { font-size: var(--text-lead); color: var(--color-ink-2); }
+
+/* steps: a real ordered list */
+.lp-steps { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--gap-columns); margin: 0 0 var(--space-2xl); padding: 0; list-style: none; counter-reset: step; }
+.lp-steps li { counter-increment: step; display: grid; align-content: start; gap: var(--space-xs); padding-top: var(--space-md); border-top: 2px solid var(--color-ink); }
+.lp-steps li::before { content: counter(step); font: 500 var(--text-sm) / 1 var(--font-outlier); color: var(--color-muted); }
+.lp-steps h3 { font-size: var(--text-title); }
+.lp-steps p { color: var(--color-ink-2); }
+
+/* pinned run: the frame holds while the panels scroll; static and inline under 60rem */
+.lp-pinned { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); gap: var(--space-3xl); }
+.lp-pinned__panels { display: grid; }
+.lp-panel { display: grid; align-content: center; gap: var(--space-sm); min-height: 72svh; padding-block: var(--space-xl); }
+.lp-panel h3 { font-size: var(--text-section); max-width: 14ch; }
+.lp-panel p { font-size: var(--text-lead); color: var(--color-ink-2); max-width: 34ch; }
+.lp-panel .lp-sheet { display: none; }
+.lp-pinned__frame { position: sticky; top: 22svh; align-self: start; }
+.lp-pinned__frame .lp-shot { aspect-ratio: 16 / 10; }
+.lp-pinned__frame img { position: absolute; inset: 0; opacity: 0; transition: opacity var(--dur-long) var(--ease-in-out); }
+.lp-pinned__frame img[data-active] { opacity: 1; }
+
+/* rows: today and next */
+.lp-rows { display: grid; grid-template-columns: minmax(0, 4fr) minmax(0, 8fr); gap: var(--gap-columns); }
+.lp-rows ul { margin: 0; padding: 0; list-style: none; }
+.lp-rows dl { margin: 0; }
+.lp-rows dl > div { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); gap: var(--gap-columns); align-items: baseline; padding-block: var(--space-lg); border-bottom: 1px solid var(--color-rule-2); }
+.lp-rows dt { font: var(--display-weight) var(--text-title) / 1.2 var(--font-display); letter-spacing: var(--tracking-display); }
+.lp-rows dd { margin: 0; color: var(--color-ink-2); }
+.lp-rows__group > h3 { font-size: var(--text-lg); color: var(--color-muted); margin-bottom: var(--space-sm); font-weight: 500; letter-spacing: 0; }
+.lp-rows__group + .lp-rows__group > h3 { margin-top: var(--space-2xl); }
+
+/* band: languages */
+.lp-band { background: var(--color-paper-2); border-block: 1px solid var(--color-rule); }
+.lp-langs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-2xl) var(--gap-columns); }
+.lp-langs h3 { font-size: var(--text-title); margin-bottom: var(--space-xs); }
+.lp-langs p { color: var(--color-ink-2); margin-bottom: var(--space-md); }
+.lp-langs ul { display: flex; flex-wrap: wrap; gap: var(--space-xs); margin: 0; padding: 0; list-style: none; }
+
+.lp-plans { max-width: 60rem; }
+
+/* close: the hero's action again, on the ink board */
+.lp-close { background: var(--color-board); color: var(--color-board-type); }
+.lp-close__inner { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-lg); padding-block: var(--space-3xl); }
+.lp-close h2 { color: var(--color-board-type); max-width: 18ch; }
+
+/* footer: a colophon */
+.lp-footer { padding-block: var(--space-2xl) var(--space-xl); }
+.lp-footer__grid { display: grid; grid-template-columns: minmax(0, 7fr) minmax(0, 5fr); gap: var(--gap-columns); align-items: start; }
+.lp-footer p { color: var(--color-ink-2); max-width: 52ch; }
+.lp-footer nav ul { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--space-lg); margin: 0; padding: 0; list-style: none; }
+
+@media (max-width: 60rem) {
+  .lp-hero__grid, .lp-pinned, .lp-rows, .lp-footer__grid { grid-template-columns: minmax(0, 1fr); gap: var(--space-xl); }
+  .lp-steps { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .lp-pinned__frame { display: none; }
+  .lp-panel { min-height: 0; padding-block: var(--space-lg); }
+  .lp-panel .lp-sheet { display: block; margin-top: var(--space-md); }
+  .lp-footer nav ul { justify-content: flex-start; }
+}
+@media (max-width: 40rem) {
+  .lp-steps, .lp-langs, .lp-rows dl > div { grid-template-columns: minmax(0, 1fr); }
+  .lp-nav { grid-template-columns: auto minmax(0, 1fr); }
+  .lp-nav__left { display: none; }
+  .lp-mark { font-size: var(--text-lg); }
+}
+/* interactive states for the page's own links (buttons carry theirs from components.css) */
+.lp-nav a, .lp-footer a, .lp-mark { transition: color var(--dur-short) var(--ease-out); }
+.lp-nav a:focus-visible, .lp-footer a:focus-visible, .lp-mark:focus-visible { outline: 2px solid var(--color-focus); outline-offset: 3px; border-radius: 2px; }
+.lp-nav a:active, .lp-footer a:active, .lp-mark:active { color: var(--color-ink); opacity: 0.8; }
+@media (hover: hover) { .lp-nav__left:hover, .lp-footer a:hover { color: var(--color-ink); } }
+
+@media (prefers-reduced-motion: reduce) {
+  .lp-pinned__frame img, .lp-nav a, .lp-footer a, .lp-mark { transition: none; }
+}

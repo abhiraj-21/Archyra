@@ -9,7 +9,13 @@ Archyra ("the architecture behind your code") analyzes a GitHub repository, buil
 ## Repository layout
 
 - `backend/`: Spring Boot API and analysis engine. Build commands, package conventions and backend rules are in `backend/CLAUDE.md`.
-- `frontend/`: deferred until the backend V0.1 APIs are ready. The planned stack and UI rules are in `frontend/CLAUDE.md`.
+- `frontend/`: the React app, built and talking to the real `/api/v1` backend through the Vite proxy (no mock data). Commands, structure and UI rules are in `frontend/CLAUDE.md`.
+
+## Running the whole stack
+
+1. PostgreSQL and Neo4j running (Docker), `backend/.env` filled in (`backend/README.md`), then `./mvnw spring-boot:run` from `backend/` (port 8080).
+2. `npm run dev` from `frontend/` (port 5173). The Vite proxy forwards `/api`, `/oauth2` and `/login/oauth2` to the backend, so the browser sees one origin.
+3. Google/GitHub sign-in through the frontend builds redirect URIs on the frontend origin (`http://localhost:5173/login/oauth2/code/{google,github}`); register those with the providers as well as the `:8080` ones from `backend/README.md`.
 
 ## System architecture
 
@@ -40,7 +46,6 @@ The Neo4j model is meant to be stable ("the foundation you do not want to rebuil
 - Nodes: `Repository`, `Module`, `File`, `Class`, `Interface`, `Method`, `Function`
 - Relationships: `IMPORTS`, `CONTAINS`, `CALLS`, `DEPENDS_ON`, `EXTENDS`, `IMPLEMENTS`, `REFERENCES`
 
-(Neo4j is used throughout the architecture sections of `Architecture.md` but is missing from its "Technologies" list.)
 
 ## API standards
 

@@ -1,0 +1,30 @@
+[
+ {
+  "shape": "Map / Diagram",
+  "theme": "coral",
+  "axes": "light/grotesk-sans/warm",
+  "hero": "Stage",
+  "nav": "masthead",
+  "footer": "colophon",
+  "imagery": "screenshots 7 (scripts/capture)",
+  "photos": [],
+  "entry": "none",
+  "fingerprint": "map-diagram/stage/masthead/colophon/steps-showcase-pinned-rows-band-table-band",
+  "sections": [
+   "hero",
+   "steps",
+   "showcase",
+   "pinned",
+   "rows",
+   "band",
+   "table",
+   "band"
+  ],
+  "signature": "spring-petclinic real package graph",
+  "waived": [],
+  "prompt": "Archyra frontend: developer tool, graph canvas hero",
+  "scope": "page",
+  "date": "2026-11-18",
+  "mode": "build"
+ }
+]

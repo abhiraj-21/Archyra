@@ -1,0 +1,14 @@
+node_modules
+dist
+*.local
+.env
+.env.*
+!.env.example
+.vite
+.idea
+.DS_Store
+test-results
+playwright-report
+scripts/capture/.auth
+.hallmark/shots
+.hallmark/preflight.json

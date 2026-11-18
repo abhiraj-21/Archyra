@@ -10,13 +10,13 @@
 
 ---
 
-- [ ]  Accept a GitHub repository
-- [ ]  Analyze the repository
-- [ ]  Detect files, classes, methods, imports and references
-- [ ]  Identify relationships between classes/files
-- [ ]  Build the internal code graph
-- [ ]  Portray the relationships visually
-- [ ]  Show basic technology/framework information
+- [x]  Accept a GitHub repository
+- [x]  Analyze the repository
+- [x]  Detect files, classes, methods, imports and references
+- [x]  Identify relationships between classes/files
+- [x]  Build the internal code graph
+- [x]  Portray the relationships visually
+- [ ]  Show basic technology/framework information (detected and stored in `analysis_metadata`, not exposed by an endpoint yet)
 
 ---
 
@@ -43,17 +43,17 @@
 
 ---
 
-- [ ]  Google authentication
-- [ ]  User accounts
-- [ ]  Repository history
+- [x]  Google authentication (plus GitHub and email/password)
+- [x]  User accounts
+- [x]  Repository history
 - [x]  Usage tracking
 - [x]  Free usage limits
-- [ ]  Admin dashboard
-- [ ]  Total users
-- [ ]  Active users
-- [ ]  Premium users
-- [ ]  Analysis statistics
-- [ ]  Basic account/settings page
+- [x]  Admin dashboard
+- [x]  Total users
+- [x]  Active users
+- [x]  Premium users
+- [x]  Analysis statistics
+- [x]  Basic account/settings page
 
 ---
 
@@ -226,6 +226,8 @@
     - PostgreSQL
     - Spring Data JPA
     - Hibernate
+- Graph database
+    - Neo4j (the code graph; Cypher through Spring Data Neo4j's `Neo4jClient`)
 - Frontend
     - React
     - Typescript
@@ -233,8 +235,10 @@
     - Tailwind
     - React Router
     - TanStack Query
+    - Playwright (end-to-end tests and the screenshot capture script)
 - Graph Visualization
-    - React Flow (Backend would give JSON response like: {edges: [], nodes: []})
+    - React Flow (`@xyflow/react`; the backend gives JSON like `{edges: [], nodes: []}`)
+    - dagre (`@dagrejs/dagre`) for the layered, top-to-bottom layout, run in a Web Worker
     - Custom Graph UI from V2
 - Code Analysis Engine
     - Tree-sitter, via the official Java binding `io.github.tree-sitter:jtreesitter` (0.27.0)
@@ -488,6 +492,7 @@ Semantics (V0.1):
 - Only a `COMPLETED` analysis has a repository: unknown or malformed ids return `404 ANALYSIS_NOT_FOUND`; an analysis that is still running or `FAILED` returns `409 ANALYSIS_NOT_COMPLETED`.
 - `languages`: every language found, whether or not it has an extractor (SQL above has no code nodes), most files first. `files` is the number of files in those languages, from PostgreSQL (`analysis_metadata`).
 - `name`, `classes` and `methods` come from the graph and count the repository's own code only (external nodes excluded). `classes` counts `Class` nodes (enums and records included, interfaces not). `methods` counts `Method` and `Function` nodes, because languages without classes have functions only.
+- `languages` is names only. The per-language file counts, the `analysed` flag and the detected technologies are stored in `analysis_metadata` but not returned yet, so clients cannot show a per-language breakdown or a technologies list. Exposing them here (extending this response) is the planned fix.
 
 ---
 
@@ -540,6 +545,7 @@ Semantics (V0.1):
 - The filters are independent. `nodeType` keeps only nodes of that type. `relationshipType` keeps only edges of that type and does not narrow the nodes. An edge is returned only if both of its ends are returned, so `?nodeType=CLASS` gives the classes and the relationships among them, and no edge points at a missing node. With neither filter the response is the whole graph.
 - External nodes (types outside the repository) are never returned, and neither are edges that touch them.
 - `file` is left out for nodes that have none (repository, module). Nodes and edges are sorted for a stable response.
+- Premium gate (V0.5): FREE may send no parameter, `nodeType`, `relationshipType` and `level=BEGINNER`; any other parameter or level is `403 PREMIUM_FEATURE`. The gate exists before the features do: `level` and the V2 parameters are accepted for PREMIUM but not implemented, so they return the same graph. Clients treat them as "coming soon" for every plan until they are built.
 
 
 ### `GET /api/v1/analyses/{analysisId}/nodes/{nodeId}`
@@ -566,7 +572,7 @@ Returns information about a class/file/function/etc.
 Semantics (V0.1):
 
 - `nodeId` is the id the graph exposes. Ids contain `/`, `#`, `(`, `)` and spaces, so a client percent-encodes the whole id (`file%3Asrc%2Fmain%2FApp.java`); the server accepts an encoded slash (`TomcatConfig`).
-- Any node type works. Fields that do not apply are left out: `kind` is the declaration kind of a type (`CLASS`, `ENUM`, `RECORD`, ...), `language` replaces it for a file (display name, e.g. `Java`), `file` is absent for repository and module nodes, `parentId` is the containing node (absent for the repository).
+- Any node type works. Fields that do not apply are left out: `kind` is the declaration kind of a type (`CLASS`, `ENUM`, `RECORD`, `INTERFACE`, ...) and is absent for methods and functions here (the method lists of `GET /files/{fileId}` do carry it, e.g. `CONSTRUCTOR`), `language` replaces it for a file (display name, e.g. `Java`), `file` is absent for repository and module nodes, `parentId` is the containing node (absent for the repository). `qualifiedName` is present for every node type, including files, modules and the repository.
 - `relationships` counts relationships by type to and from other nodes of the repository. External nodes are not counted, and types with no relationship are absent. `/nodes/{nodeId}/relationships` (V2) will list them.
 - An external node (outside the repository), an unknown id and an id that is not a node id all return `404 NODE_NOT_FOUND`. Unknown or malformed analysis ids return `404 ANALYSIS_NOT_FOUND`, an analysis that is not `COMPLETED` returns `409 ANALYSIS_NOT_COMPLETED`.
 
@@ -786,8 +792,15 @@ Full spec: `backend/specs/security/spec.md`. How it works, as built:
 - **Social login** ends with a redirect to `{frontend-base-url}/auth/callback` (or `/login?error=<code>`); the SPA then calls `/auth/refresh` like after any login. No token ever appears in a URL.
 - **Ownership:** an analysis belongs to the user who started it, and to nobody else (admins included). Anything not yours is a 404, so ids cannot be probed.
 - **Premium:** enforced on the server from the database plan (never the token). On `GET .../graph`, FREE gets no parameters, `nodeType`, `relationshipType` and `level=BEGINNER`; everything else is `403 PREMIUM_FEATURE`.
-- **Errors** keep the `{ code, message }` shape, e.g. `AUTHENTICATION_REQUIRED` (401), `ACCESS_DENIED`, `CSRF_TOKEN_INVALID`, `PREMIUM_FEATURE` (403), `INVALID_CREDENTIALS` (401), `EMAIL_NOT_VERIFIED`, `ACCOUNT_DISABLED` (403), `RATE_LIMITED` (429, with `Retry-After`).
-- **Passwords** are hashed with the delegating encoder (bcrypt), so they are limited to 72 bytes.
+- **Errors** keep the `{ code, message }` shape. The complete set the backend emits:
+    - 400: `VALIDATION_ERROR` (lists allowed values for an enum parameter), `INVALID_REQUEST_BODY` (missing or malformed JSON), `INVALID_OR_EXPIRED_TOKEN` (verification or reset link)
+    - 401: `AUTHENTICATION_REQUIRED` (with `WWW-Authenticate: Bearer`), `INVALID_CREDENTIALS`, `REFRESH_TOKEN_INVALID` (refresh failed; the cookie is cleared)
+    - 403: `ACCESS_DENIED`, `CSRF_TOKEN_INVALID`, `EMAIL_NOT_VERIFIED`, `ACCOUNT_DISABLED`, `PREMIUM_FEATURE`, `USAGE_LIMIT_EXCEEDED`
+    - 404: `ANALYSIS_NOT_FOUND`, `NODE_NOT_FOUND`, `USER_NOT_FOUND`
+    - 409: `ANALYSIS_NOT_COMPLETED`, `ANALYSIS_IN_PROGRESS`, `CANNOT_DISABLE_SELF`, `LAST_ADMIN`
+    - 429: `RATE_LIMITED` (with `Retry-After` in seconds); 503: `SERVICE_BUSY`
+- **Request and response bodies:** `POST /register` takes `{ name, email, password }`; `POST /login` takes `{ email, password }` and returns `{ accessToken, tokenType: "Bearer", expiresIn }` (seconds); `/refresh` returns the same. `POST /verify-email` takes `{ token }`; `/resend-verification` and `/forgot-password` take `{ email }`; `/reset-password` takes `{ token, newPassword }`. Register, verify, resend, forgot and reset answer `{ message }`. `GET /csrf` returns `{ headerName: "X-XSRF-TOKEN", token }`.
+- **Passwords** are hashed with the delegating encoder (bcrypt), so they are limited to 8 to 72 **bytes** (not the 8 to 128 characters of the security spec; the validation message still says 128 characters). A password equal to the email or on a short common list is refused.
 - **Deployment notes:** the SPA and the API must share a registrable domain (the refresh cookie is `SameSite=Strict`); behind a proxy use `server.forward-headers-strategy=native`.
 
 
@@ -808,6 +821,20 @@ Get current user.
   "name": "Abhi"
 }
 ```
+
+> **Built in V0.5:** `GET` and `PATCH` (name only: 1 to 100 characters, no control characters) return the same profile as `GET /auth/me`. `plan` is the effective plan (an expired PREMIUM reads as FREE); `role` is what the frontend's admin gate reads:
+>
+> ```
+> {
+>   "id": "6f1c…",
+>   "name": "Abhi",
+>   "email": "…",
+>   "role": "USER",
+>   "plan": "FREE",
+>   "emailVerified": true,
+>   "linkedProviders": ["GITHUB"]
+> }
+> ```
 
 ---
 
@@ -839,7 +866,18 @@ Returns `202 { "analysisId", "status" }`, the same shape as `POST /api/v1/analys
 
 This is enough. You don't need a massive "repository management" subsystem.
 
-> **Built in V0.5:** `GET /api/v1/analyses` (the caller's own, newest first, `page` and `size`; no `status` filter yet) and `DELETE /api/v1/analyses/{analysisId}` (409 `ANALYSIS_IN_PROGRESS` while it runs). 
+> **Built in V0.5:** `GET /api/v1/analyses` (the caller's own, newest first, `page` and `size` (default 50); no `status` filter yet) and `DELETE /api/v1/analyses/{analysisId}` (204; 409 `ANALYSIS_IN_PROGRESS` while it runs). The list returns:
+>
+> ```
+> {
+>   "items": [
+>     { "analysisId": "a8f31c…", "repositoryUrl": "https://github.com/user/project", "status": "COMPLETED", "progress": 100, "createdAt": "2026-11-18T07:36:26Z" }
+>   ],
+>   "page": 0, "size": 20, "totalElements": 1, "totalPages": 1
+> }
+> ```
+>
+> Items carry no repository name or languages; neither does `GET /analyses/{analysisId}`, which has no `repositoryUrl` either, so a client that opens an analysis directly finds its URL in the history list. 
 >
 > **Built in V0.5:** `POST /api/v1/analyses/{analysisId}/reanalyze`.
 >
@@ -899,6 +937,18 @@ Query parameters:
 ?page=0
 &size=50
 ```
+
+> **Built in V0.5:** pages of `{ items, page, size, totalElements, totalPages }` (newest accounts first, `size` 1 to 200). Each item, also returned by `GET /admin/users/{userId}` and the status `PATCH`:
+>
+> ```
+> {
+>   "id": "6f1c…", "name": "…", "email": "…", "role": "USER", "plan": "FREE", "planExpiresAt": null,
+>   "emailVerified": true, "enabled": true, "locked": false,
+>   "createdAt": "2026-11-17T10:00:00Z", "lastLoginAt": "2026-11-18T07:00:00Z", "linkedProviders": []
+> }
+> ```
+>
+> `planExpiresAt` and `lastLoginAt` are `null` when unset. An unknown user id is `404 USER_NOT_FOUND`.
 
 ### `GET /api/v1/admin/stats`
 
@@ -1055,6 +1105,8 @@ Dashboard
           ├── Relationships
           └── Ask AI
 ```
+
+> **Built in V0.5 (ahead of V1):** this structure exists in `frontend/` against the real API: dashboard (submit, history, usage), the polling progress view, the five repository tabs (Ask AI as a "coming soon" page that calls nothing), settings, and the admin area (`/admin/stats`, `/admin/users`, `/admin/users/{userId}`, shown only when `/users/me` says `ADMIN`). The Vite dev server proxies `/api`, `/oauth2` and `/login/oauth2`, so in development Google and GitHub redirect to `http://localhost:5173/login/oauth2/code/{google,github}`, which must be registered with the providers. Details: `frontend/CLAUDE.md`.
 
 ## V2
 
