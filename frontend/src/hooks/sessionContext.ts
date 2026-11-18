@@ -13,10 +13,10 @@ export interface SessionValue {
   meState: 'loading' | 'error' | 'ready' | 'none';
   isAdmin: boolean;
   signIn: (email: string, password: string) => Promise<void>;
-  /** After an OAuth redirect lands on /auth/callback: csrf → refresh → /users/me. */
-  completeExternalSignIn: () => Promise<boolean>;
   signOut: () => Promise<void>;
   retryBoot: () => void;
+  /** Gives up waiting for the boot (retry screen's "Back to sign in"): the visitor is treated as anonymous. */
+  abandonBoot: () => void;
   refetchMe: () => Promise<unknown>;
 }
 

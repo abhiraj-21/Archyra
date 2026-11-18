@@ -1,50 +1,26 @@
-import { useEffect, useState } from 'react';
+import { useEffect } from 'react';
 import { useNavigate } from 'react-router';
-import { Button } from '@/components/ui/Button';
 import { Spinner } from '@/components/ui/Spinner';
 import { useSession } from '@/hooks/sessionContext';
-import { describeError } from '@/lib/errorCopy';
-import { runOnce } from '@/lib/once';
 import { takeReturnTo } from '@/lib/returnTo';
 import { AuthLayout } from './AuthLayout';
 
 /**
- * Google/GitHub land here after the backend set the refresh cookie. No token is in the URL: the SPA runs
- * csrf → refresh → /users/me exactly as after a password login, then goes to the remembered destination.
+ * Google/GitHub land here after the backend set the refresh cookie (no token is in the URL). This page does not
+ * hydrate anything: the session boot (csrf → refresh → /users/me) runs once per page load and `BootGate` holds the
+ * route until it settles, so by the time this renders the session is either established or it is not. A timeout or
+ * network failure never reaches here either: the boot gate shows its retry screen.
  */
 export function OAuthCallbackPage() {
-  const { completeExternalSignIn } = useSession();
+  const { status } = useSession();
   const navigate = useNavigate();
-  const [error, setError] = useState<unknown>(null);
-  const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
-    let alive = true;
-    runOnce(`oauth-callback:${attempt}`, completeExternalSignIn).then(
-      (ok) => {
-        if (!alive) return;
-        if (ok) navigate(takeReturnTo(), { replace: true });
-        else navigate('/login?error=oauth_failed', { replace: true });
-      },
-      (e: unknown) => alive && setError(e),
-    );
-    return () => {
-      alive = false;
-    };
-  }, [attempt, completeExternalSignIn, navigate]);
+    if (status === 'authenticated') navigate(takeReturnTo(), { replace: true });
+    // The provider login did not produce a session.
+    else if (status === 'anonymous') navigate('/login?error=oauth_failed', { replace: true });
+  }, [status, navigate]);
 
-  if (error) {
-    const copy = describeError(error);
-    return (
-      <AuthLayout title={copy.title} intro={copy.message}>
-        <div>
-          <Button variant="primary" onClick={() => { setError(null); setAttempt((n) => n + 1); }}>
-            Try again
-          </Button>
-        </div>
-      </AuthLayout>
-    );
-  }
   return (
     <AuthLayout title="Signing you in">
       <p className="flex items-center gap-sm text-muted" role="status">

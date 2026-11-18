@@ -10,7 +10,8 @@ Built against the live backend (V0.1 and V0.5 APIs): landing, auth (email/passwo
 
 ```bash
 npm run dev             # Vite on :5173, proxying /api, /oauth2, /login/oauth2 to the backend
-npm run verify          # typecheck + lint + check:tokens + unit tests + build (keep it green)
+npm run verify          # typecheck + lint + check:tokens + unit tests + build + session-boot e2e (keep it green; the e2e part skips without the running stack)
+npm run e2e:session     # just the session-boot regression tests (scripts/e2e/session-boot.spec.ts)
 npm run e2e             # Playwright against the running app and backend (skips without .env.local creds)
 npm run assets:capture  # regenerate src/assets/*.png from the running app (see src/assets/README.md)
 node scripts/e2e/probe-api.mjs   # print live response SHAPES (no values) to check src/api/types.ts
@@ -48,7 +49,7 @@ scripts/       check-tokens.mjs, capture/, e2e/, lib/env.mjs (never imported by 
 
 ## How the pieces fit
 
-- **Session boot** (`hooks/session.tsx`): `GET /auth/csrf` → `POST /auth/refresh` (HttpOnly cookie) → `GET /users/me`, run once per page load; `routes/guards.tsx` shows the boot screen until it settles. `api/http.ts` turns a `401 AUTHENTICATION_REQUIRED` into one shared refresh and one retry; a failed refresh calls `expireSession`, and the guard redirects to `/login?next=…` (a deliberate sign-out goes to plain `/login`).
+- **Session boot** (`hooks/session.tsx`) is the **only** code that hydrates a session on page load: `GET /auth/csrf` → `POST /auth/refresh` (HttpOnly cookie) → `GET /users/me` (seeded into the query cache), as one module-level single-flight promise, so StrictMode's double effects and remounts share it: exactly one `POST /auth/refresh` per page load. It has a hard `BOOT_TIMEOUT_MS` (10 s) that aborts the in-flight auth requests (`abortAuthRequests`) and shows the retry screen (`BootScreen failed`: *Try again* re-runs the boot, *Back to sign in* calls `abandonBoot`); a network failure does the same. `routes/guards.tsx` shows the boot screen until it settles. `/auth/callback` (Google/GitHub return) **never calls refresh**: it waits behind `BootGate`, then goes to the stored return target (`lib/returnTo.ts`) when authenticated, or to `/login?error=oauth_failed` when the boot found no session. Never `queryClient.clear()` and then rely on a refetch while `useQuery` observers are mounted (the original "Opening Archyra" hang: `spec/oauth-login-hydration-and-account-linking/root-cause.md`); clear, then `setQueryData` the new `me`. `api/http.ts` turns a `401 AUTHENTICATION_REQUIRED` into one shared refresh and one retry; `refresh`/`logout` refetch the CSRF token and retry once on `403 CSRF_TOKEN_INVALID` (never on 401). A failed refresh calls `expireSession`, and the guard redirects to `/login?next=…` (a deliberate sign-out goes to plain `/login`).
 - **Analysis lifecycle:** `/analyses/:id` polls status (`useAnalysisStatus`, 2 s, stops at COMPLETED/FAILED) and hands over to `/analyses/:id/overview`; the workspace layout redirects back to the progress view while the analysis is not COMPLETED. Result queries take a `ready` flag and stay idle until then.
 - **Graph:** the whole graph is fetched once per analysis (`useGraph`, `staleTime: Infinity`) and filtered client-side (the V0.1 `nodeType`/`relationshipType` take one value each). `graph/adapter.ts` produces the visible set, `graph/useLayout.ts` runs dagre in `layout.worker.ts` (cached by visible ids), `GraphCanvas` renders it and fits the connected part. Filters, the selected node and the list view live in the URL (`?nodes=&edges=&node=&view=`).
 

@@ -11,18 +11,32 @@ import type { AuthResponse, CsrfResponse } from './types';
 
 let csrf: CsrfResponse | null = null;
 let csrfInflight: Promise<CsrfResponse> | null = null;
+// One controller for whatever auth request is running, so the boot timeout can cancel a hung one for real.
+let authAbort = new AbortController();
+
+/**
+ * Cancels the csrf and refresh requests that are in flight and forgets them, so the next call starts clean. Used
+ * when the boot gives up: a hung refresh left running could land later and rotate the cookie under the retry.
+ */
+export function abortAuthRequests(): void {
+  authAbort.abort();
+  authAbort = new AbortController();
+  csrfInflight = null;
+  refreshInflight = null;
+}
 
 async function fetchCsrf(): Promise<CsrfResponse> {
   if (!csrfInflight) {
-    csrfInflight = send('/auth/csrf', { withToken: false })
+    const run: Promise<CsrfResponse> = send('/auth/csrf', { withToken: false, signal: authAbort.signal })
       .then((res) => readResponse<CsrfResponse>(res))
       .then((value) => {
         csrf = value;
         return value;
       })
       .finally(() => {
-        csrfInflight = null;
+        if (csrfInflight === run) csrfInflight = null;
       });
+    csrfInflight = run;
   }
   return csrfInflight;
 }
@@ -33,13 +47,15 @@ export async function ensureCsrf(): Promise<CsrfResponse> {
 
 /** POST to a cookie-authenticated auth route with the CSRF header; on CSRF_TOKEN_INVALID, refetch the token and retry once. */
 async function postWithCsrf<T>(path: string): Promise<T> {
+  const { signal } = authAbort;
   let token = await ensureCsrf();
-  let response = await send(path, { method: 'POST', withToken: false, headers: { [token.headerName]: token.token } });
+  let response = await send(path, { method: 'POST', withToken: false, signal, headers: { [token.headerName]: token.token } });
   if (response.status === 403) {
     const error = await readResponse<T>(response).catch((e: unknown) => e);
     if (!hasCode(error, 'CSRF_TOKEN_INVALID')) throw error;
+    // Rejected before anything rotated, so one retry with a fresh token is safe. A 401 never gets here.
     token = await fetchCsrf();
-    response = await send(path, { method: 'POST', withToken: false, headers: { [token.headerName]: token.token } });
+    response = await send(path, { method: 'POST', withToken: false, signal, headers: { [token.headerName]: token.token } });
   }
   return readResponse<T>(response);
 }
@@ -56,7 +72,7 @@ let refreshInflight: Promise<boolean> | null = null;
  */
 export function refreshSession(): Promise<boolean> {
   if (!refreshInflight) {
-    refreshInflight = (async () => {
+    const run: Promise<boolean> = (async () => {
       try {
         const body = await postWithCsrf<AuthResponse>('/auth/refresh');
         setAccessToken(body.accessToken);
@@ -69,8 +85,9 @@ export function refreshSession(): Promise<boolean> {
         throw error;
       }
     })().finally(() => {
-      refreshInflight = null;
+      if (refreshInflight === run) refreshInflight = null;
     });
+    refreshInflight = run;
   }
   return refreshInflight;
 }
@@ -91,4 +108,5 @@ export function resetAuthStateForTests(): void {
   csrf = null;
   csrfInflight = null;
   refreshInflight = null;
+  authAbort = new AbortController();
 }

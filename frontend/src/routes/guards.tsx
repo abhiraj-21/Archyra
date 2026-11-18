@@ -1,4 +1,4 @@
-import { Navigate, Outlet, useLocation } from 'react-router';
+import { Navigate, Outlet, useLocation, useNavigate } from 'react-router';
 import { useSession } from '@/hooks/sessionContext';
 import { safeNext } from '@/lib/returnTo';
 import { BootScreen } from '@/features/system/BootScreen';
@@ -6,9 +6,21 @@ import { NotFoundPage } from '@/features/system/NotFoundPage';
 
 /** Waits for the boot sequence everywhere, so no route renders for the wrong user. */
 export function BootGate() {
-  const { status, retryBoot } = useSession();
+  const { status, retryBoot, abandonBoot } = useSession();
+  const navigate = useNavigate();
   if (status === 'booting') return <BootScreen />;
-  if (status === 'unreachable') return <BootScreen failed onRetry={retryBoot} />;
+  if (status === 'unreachable') {
+    return (
+      <BootScreen
+        failed
+        onRetry={retryBoot}
+        onBack={() => {
+          abandonBoot();
+          navigate('/login', { replace: true });
+        }}
+      />
+    );
+  }
   return <Outlet />;
 }
 

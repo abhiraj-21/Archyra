@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { resetAuthStateForTests, refreshSession } from './auth';
+import { abortAuthRequests, resetAuthStateForTests, refreshSession } from './auth';
 import { http } from './http';
 import { clearAccessToken, getAccessToken, onSessionExpired, setAccessToken } from './session';
 
@@ -98,6 +98,37 @@ describe('http 401 handling', () => {
 });
 
 describe('refreshSession', () => {
+  it('never retries a refresh that got 401', async () => {
+    stubFetch((url) =>
+      url.startsWith('/api/v1/auth/csrf')
+        ? json(200, { headerName: 'X-XSRF-TOKEN', token: 'csrf-1' })
+        : json(401, { code: 'REFRESH_TOKEN_INVALID', message: 'x' }),
+    );
+    await expect(refreshSession()).resolves.toBe(false);
+    expect(count('/auth/refresh')).toBe(1);
+    expect(count('/auth/csrf')).toBe(1);
+  });
+
+  it('abortAuthRequests cancels a hung refresh for real and lets the next one start fresh', async () => {
+    let refreshCalls = 0;
+    stubFetch((url, init) => {
+      if (url.startsWith('/api/v1/auth/csrf')) return json(200, { headerName: 'X-XSRF-TOKEN', token: 't' });
+      refreshCalls += 1;
+      if (refreshCalls > 1) return json(200, { accessToken: 'second', tokenType: 'Bearer', expiresIn: 900 });
+      return new Promise<Response>((_, reject) => {
+        init.signal?.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')));
+      });
+    });
+    const hung = refreshSession();
+    const hungResult = hung.then(() => 'resolved', () => 'rejected');
+    await new Promise((r) => setTimeout(r, 5));
+    abortAuthRequests();
+    await expect(hungResult).resolves.toBe('rejected');
+    await expect(refreshSession()).resolves.toBe(true);
+    expect(refreshCalls).toBe(2);
+    expect(getAccessToken()).toBe('second');
+  });
+
   it('refetches the CSRF token once on CSRF_TOKEN_INVALID', async () => {
     let csrfCalls = 0;
     stubFetch((url, init) => {

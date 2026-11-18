@@ -14,7 +14,8 @@
     "test:watch": "vitest",
     "e2e": "playwright test --config scripts/e2e/playwright.config.ts",
     "assets:capture": "node scripts/capture/capture.mjs",
-    "verify": "npm run typecheck && npm run lint && npm run check:tokens && npm run test && npm run build"
+    "verify": "npm run typecheck && npm run lint && npm run check:tokens && npm run test && npm run build && npm run e2e:session",
+    "e2e:session": "playwright test --config scripts/e2e/playwright.config.ts session-boot"
   },
   "dependencies": {
     "@dagrejs/dagre": "1.1.8",
