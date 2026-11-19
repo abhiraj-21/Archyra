@@ -35,7 +35,8 @@ import lombok.extern.slf4j.Slf4j;
  * {@value #MAX_HEADER_LINES} lines), so it holds the signature, annotations and field declarations. A type without
  * members (an enum, a record, an interface or a struct with only fields) gets its whole declaration. A text longer than
  * {@code archyra.ai.chunk.max-chars} keeps its head and ends with a marker. Beyond
- * {@code archyra.ai.chunk.max-per-analysis} the first chunks in file order are kept and the result says it was capped.
+ * {@code archyra.ai.chunk.max-per-analysis} the first chunks in file order are kept and the result says it was capped. After the code,
+ * the root README and the manifests' name and description become one chunk each of the repository node ({@link ProjectDocs}).
  */
 @Slf4j
 @Component
@@ -48,8 +49,11 @@ public class ChunkExtractor {
 	private static final Set<NodeType> CHUNKED = Set.of(NodeType.CLASS, NodeType.INTERFACE, NodeType.METHOD, NodeType.FUNCTION);
 
 	private final AiProperties properties;
+	private final ProjectDocs docs;
 
-	/** @param root the root of the clone the paths of {@code graph} are relative to */
+	/**
+	 * @param root the root of the clone the paths of {@code graph} are relative to
+	 */
 	public ChunkSet extract(CodeGraphIR graph, Path root) {
 		int max = properties.chunk().maxPerAnalysis();
 		int maxChars = properties.chunk().maxChars();
@@ -90,7 +94,31 @@ public class ChunkExtractor {
 				chunks.add(chunk);
 			}
 		}
+		// The README and the manifests say what the project is for. They come after the cap (two chunks cannot crowd out code), and
+		// only for a repository that has code to ask about: an analysis of only tests stays EMPTY, a README alone is not indexed.
+		if (!chunks.isEmpty()) {
+			chunks.addAll(projectDocs(graph, root, maxChars));
+		}
 		return new ChunkSet(chunks, capped);
+	}
+
+	/** The README and manifest chunks of the repository node; empty when there is no such node, no such file, or reading fails. */
+	private List<ChunkData> projectDocs(CodeGraphIR graph, Path root, int maxChars) {
+		try {
+			String repository = graph.nodes().stream().filter(node -> node.type() == NodeType.REPOSITORY && !node.external())
+					.map(NodeIR::id).findFirst().orElse(null);
+			if (repository == null) {
+				return List.of();
+			}
+			List<ChunkData> found = new ArrayList<>(2);
+			docs.readme(root, repository, maxChars).ifPresent(found::add);
+			docs.manifest(root, repository).ifPresent(found::add);
+			return found;
+		}
+		catch (RuntimeException ex) {
+			log.debug("Skipping the README and manifests ({})", ex.getClass().getSimpleName());
+			return List.of();
+		}
 	}
 
 	private static ChunkData chunkOf(NodeIR node, List<String> lines, List<NodeIR> members, int maxChars) {

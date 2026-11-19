@@ -58,6 +58,16 @@ public class AiRuleException extends RuntimeException {
 				"Ask AI is not available right now. Your question was not counted; please try again later.");
 	}
 
+	/**
+	 * 422: nothing in this repository relates to the question, so it was never sent to a provider, not counted and not stored.
+	 * The text is fixed (it never echoes the question).
+	 */
+	public static AiRuleException questionNotAnswerable() {
+		return new AiRuleException("QUESTION_NOT_ANSWERABLE", HttpStatus.UNPROCESSABLE_ENTITY,
+				"I couldn't find anything in this repository that relates to that question, so nothing was sent to the AI and it wasn't counted. "
+						+ "Try asking about a class, a file, or how something works.");
+	}
+
 	public String code() {
 		return code;
 	}

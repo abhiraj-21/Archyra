@@ -61,4 +61,13 @@ class ChatAnswerCacheTest {
 		assertThat(cache.get("other")).isEmpty();
 		org.awaitility.Awaitility.await().atMost(Duration.ofSeconds(5)).until(() -> cache.get("k").isEmpty());
 	}
+
+	@Test
+	void theQuestionsIntentIsPartOfTheKey() {
+		String specific = ChatAnswerCache.key(ANALYSIS, "What is this project about?", NO_HISTORY, "v1", com.abhiraj.archyra.ai.retrieval.QuestionIntent.SPECIFIC);
+		String overview = ChatAnswerCache.key(ANALYSIS, "What is this project about?", NO_HISTORY, "v1", com.abhiraj.archyra.ai.retrieval.QuestionIntent.OVERVIEW);
+
+		assertThat(overview).isNotEqualTo(specific);
+		assertThat(ChatAnswerCache.key(ANALYSIS, "What is this project about?", NO_HISTORY, "v1", com.abhiraj.archyra.ai.retrieval.QuestionIntent.OVERVIEW)).isEqualTo(overview);
+	}
 }

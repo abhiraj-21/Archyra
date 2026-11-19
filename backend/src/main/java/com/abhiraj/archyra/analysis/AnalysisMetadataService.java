@@ -25,4 +25,16 @@ public class AnalysisMetadataService {
 				.sorted(Comparator.comparingInt(LanguageStat::files).reversed().thenComparing(LanguageStat::name))
 				.toList();
 	}
+
+	/** A framework, library or tool the repository uses, with its category ({@code BACKEND_FRAMEWORK}, {@code BUILD_TOOL}, ...). */
+	public record TechnologyStat(String name, String category) {
+	}
+
+	/** The detected technologies, by category and then name, so the order is stable. */
+	public List<TechnologyStat> getTechnologies(UUID analysisId) {
+		return metadataRepository.findByAnalysisIdAndKind(analysisId, MetadataKind.TECHNOLOGY).stream()
+				.map(row -> new TechnologyStat(row.getName(), row.getCategory() == null ? "LIBRARY" : row.getCategory()))
+				.sorted(Comparator.comparing(TechnologyStat::category).thenComparing(TechnologyStat::name))
+				.toList();
+	}
 }

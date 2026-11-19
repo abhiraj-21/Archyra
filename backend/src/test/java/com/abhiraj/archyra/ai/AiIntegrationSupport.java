@@ -69,6 +69,8 @@ public abstract class AiIntegrationSupport {
 
 	protected static final Path FIXTURES = Path.of("src/test/resources/fixtures");
 	protected static final String SHOP = "https://github.com/example/sample-shop";
+	/** The shop with a real README (badges, HTML, an image) and a pom.xml next to it. */
+	protected static final String SHOP_DOCS = "https://github.com/example/sample-shop-docs";
 	protected static final String TESTS_AND_MAIN = "https://github.com/example/tests-and-main";
 	protected static final String ONLY_TESTS = "https://github.com/example/only-tests";
 
@@ -107,6 +109,10 @@ public abstract class AiIntegrationSupport {
 	private static void cloneFixtures(String url, Path target) throws IOException {
 		switch (url) {
 			case SHOP -> FileSystemUtils.copyRecursively(FIXTURES.resolve("sample-repo"), target);
+			case SHOP_DOCS -> {
+				FileSystemUtils.copyRecursively(FIXTURES.resolve("sample-repo"), target);
+				FileSystemUtils.copyRecursively(FIXTURES.resolve("shop-docs"), target);
+			}
 			case TESTS_AND_MAIN -> FileSystemUtils.copyRecursively(FIXTURES.resolve("tests-and-main"), target);
 			case ONLY_TESTS -> {
 				Files.createDirectories(target.resolve("tests"));

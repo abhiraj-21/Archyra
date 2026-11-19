@@ -139,15 +139,15 @@ class ChatFlowIntegrationTest extends ChatIntegrationSupport {
 	@Test
 	void bothProvidersFailingGives503NothingIsChargedAndNothingIsLeftBehind() throws Exception {
 		Ready shop = readyShop();
-		String conversationId = read(ask(shop.user(), shop.analysisId(), "A first question that works", null), "$.conversationId");
+		String conversationId = read(ask(shop.user(), shop.analysisId(), q("A first question that works"), null), "$.conversationId");
 		int usedBefore = used(shop.user(), "AI_QUERY");
 		int messagesBefore = storedMessages(shop.analysisId());
 		int conversationsBefore = conversationRows(shop.analysisId());
 		GEMINI.failWith(500);
 		GROQ.failWith(500);
 
-		MvcResult existing = chat(shop.user(), shop.analysisId(), "Will fail in a known conversation", conversationId);
-		MvcResult fresh = chat(shop.user(), shop.analysisId(), "Will fail in a new conversation", null);
+		MvcResult existing = chat(shop.user(), shop.analysisId(), q("Will fail in a known conversation"), conversationId);
+		MvcResult fresh = chat(shop.user(), shop.analysisId(), q("Will fail in a new conversation"), null);
 
 		for (MvcResult result : new MvcResult[] { existing, fresh }) {
 			assertThat(result.getResponse().getStatus()).isEqualTo(503);
@@ -179,12 +179,12 @@ class ChatFlowIntegrationTest extends ChatIntegrationSupport {
 		GEMINI.rateLimitedFor(1);
 		GROQ.rateLimitedFor(120); // longer than cooldown-max (3 s): capped
 
-		MvcResult first = chat(shop.user(), shop.analysisId(), "Both are throttled", null);
+		MvcResult first = chat(shop.user(), shop.analysisId(), q("Both are throttled"), null);
 		assertThat(first.getResponse().getStatus()).isEqualTo(503);
 		int geminiCalls = GEMINI.requestCount();
 		int groqCalls = GROQ.requestCount();
 
-		MvcResult second = chat(shop.user(), shop.analysisId(), "Refused up front", null);
+		MvcResult second = chat(shop.user(), shop.analysisId(), q("Refused up front"), null);
 
 		assertThat(second.getResponse().getStatus()).isEqualTo(503);
 		assertThat(code(second)).isEqualTo("AI_UNAVAILABLE");
@@ -195,7 +195,7 @@ class ChatFlowIntegrationTest extends ChatIntegrationSupport {
 		org.awaitility.Awaitility.await().atMost(java.time.Duration.ofSeconds(8)).until(() -> !cooldowns.isCoolingDown("groq"));
 		GEMINI.reset();
 		GROQ.reset();
-		assertThat(chat(shop.user(), shop.analysisId(), "Back again", null).getResponse().getStatus()).isEqualTo(200);
+		assertThat(chat(shop.user(), shop.analysisId(), q("Back again"), null).getResponse().getStatus()).isEqualTo(200);
 	}
 
 	@Test
@@ -260,7 +260,7 @@ class ChatFlowIntegrationTest extends ChatIntegrationSupport {
 		String first = ask(shop.user(), shop.analysisId(), "QUESTION-ONE about `place`", null);
 		GEMINI.answerWith("Second answer.");
 
-		ask(shop.user(), shop.analysisId(), "QUESTION-TWO and more", read(first, "$.conversationId"));
+		ask(shop.user(), shop.analysisId(), q("QUESTION-TWO and more"), read(first, "$.conversationId"));
 
 		String sent = FakeProviders.unescape(GEMINI.lastRequest().getBodyAsString());
 		assertThat(sent).contains("QUESTION-ONE about `place`").contains("ANSWER-ONE").contains("QUESTION-TWO and more");

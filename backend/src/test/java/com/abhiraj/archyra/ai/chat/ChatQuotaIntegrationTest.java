@@ -51,12 +51,12 @@ class ChatQuotaIntegrationTest extends ChatIntegrationSupport {
 	void aFreeUserGetsTheirLifetimeQuestionsAndIsThenRefusedWithNothingStored() throws Exception {
 		Ready shop = readyShop();
 		for (int i = 1; i <= LIMIT; i++) {
-			ask(shop.user(), shop.analysisId(), "Question number " + i, null);
+			ask(shop.user(), shop.analysisId(), q("Question number " + i), null);
 		}
 		int messages = storedMessages(shop.analysisId());
 		int calls = GEMINI.requestCount();
 
-		MvcResult refused = chat(shop.user(), shop.analysisId(), "One too many", null);
+		MvcResult refused = chat(shop.user(), shop.analysisId(), q("One too many"), null);
 
 		assertThat(refused.getResponse().getStatus()).isEqualTo(403);
 		assertThat(code(refused)).isEqualTo("USAGE_LIMIT_EXCEEDED");
@@ -74,7 +74,7 @@ class ChatQuotaIntegrationTest extends ChatIntegrationSupport {
 	void aPremiumUserIsCountedButNeverBlocked() throws Exception {
 		Ready shop = readyShop(newUser(Plan.PREMIUM));
 		for (int i = 1; i <= LIMIT + 2; i++) {
-			ask(shop.user(), shop.analysisId(), "Premium question " + i, null);
+			ask(shop.user(), shop.analysisId(), q("Premium question " + i), null);
 		}
 
 		assertThat(used(shop.user(), "AI_QUERY")).isEqualTo(LIMIT + 2);
@@ -86,30 +86,30 @@ class ChatQuotaIntegrationTest extends ChatIntegrationSupport {
 	@Test
 	void aCacheHitCostsNothingEvenAtTheLimit() throws Exception {
 		Ready shop = readyShop();
-		ask(shop.user(), shop.analysisId(), "The repeated question", null);
-		ask(shop.user(), shop.analysisId(), "Second question", null);
-		ask(shop.user(), shop.analysisId(), "Third question", null);
+		ask(shop.user(), shop.analysisId(), q("The repeated question"), null);
+		ask(shop.user(), shop.analysisId(), q("Second question"), null);
+		ask(shop.user(), shop.analysisId(), q("Third question"), null);
 		assertThat(used(shop.user(), "AI_QUERY")).isEqualTo(LIMIT);
 
-		String repeated = ask(shop.user(), shop.analysisId(), "The repeated question", null);
+		String repeated = ask(shop.user(), shop.analysisId(), q("The repeated question"), null);
 
 		assertThat((boolean) read(repeated, "$.cached")).isTrue();
 		assertThat(used(shop.user(), "AI_QUERY")).isEqualTo(LIMIT);
-		assertThat(chat(shop.user(), shop.analysisId(), "A new one", null).getResponse().getStatus()).isEqualTo(403);
+		assertThat(chat(shop.user(), shop.analysisId(), q("A new one"), null).getResponse().getStatus()).isEqualTo(403);
 	}
 
 	@Test
 	void twoParallelQuestionsOneUnitFromTheLimitGiveExactlyOneAnswer() throws Exception {
 		Ready shop = readyShop();
-		ask(shop.user(), shop.analysisId(), "First of the allowance", null);
-		ask(shop.user(), shop.analysisId(), "Second of the allowance", null);
+		ask(shop.user(), shop.analysisId(), q("First of the allowance"), null);
+		ask(shop.user(), shop.analysisId(), q("Second of the allowance"), null);
 		assertThat(used(shop.user(), "AI_QUERY")).isEqualTo(LIMIT - 1);
 		CyclicBarrier together = new CyclicBarrier(2);
 		ExecutorService threads = Executors.newFixedThreadPool(2);
 		try {
 			List<Future<Integer>> results = new ArrayList<>();
 			for (int i = 0; i < 2; i++) {
-				String question = "Racing question " + i;
+				String question = q("Racing question " + i);
 				results.add(threads.submit(() -> {
 					together.await(10, TimeUnit.SECONDS);
 					return chat(shop.user(), shop.analysisId(), question, null).getResponse().getStatus();
@@ -132,7 +132,7 @@ class ChatQuotaIntegrationTest extends ChatIntegrationSupport {
 	@Test
 	void theRefundHappensExactlyOnceHoweverOftenTheFailurePathRuns() throws Exception {
 		Ready shop = readyShop();
-		ask(shop.user(), shop.analysisId(), "An answered question", null);
+		ask(shop.user(), shop.analysisId(), q("An answered question"), null);
 		int before = used(shop.user(), "AI_QUERY");
 		ChatTransactions.Reservation reservation = transactions.reserve(shop.user().getId(), shop.analysisId(), null, "A question that will fail");
 		assertThat(used(shop.user(), "AI_QUERY")).isEqualTo(before + 1);
@@ -150,7 +150,7 @@ class ChatQuotaIntegrationTest extends ChatIntegrationSupport {
 	@Test
 	void anAnsweredQuestionIsNeverRefundedByALateFailure() throws Exception {
 		Ready shop = readyShop();
-		String body = ask(shop.user(), shop.analysisId(), "An answered question", null);
+		String body = ask(shop.user(), shop.analysisId(), q("An answered question"), null);
 		UUID conversationId = UUID.fromString(read(body, "$.conversationId"));
 		UUID questionId = jdbc.queryForObject("SELECT id FROM chat_messages WHERE conversation_id = ? AND role = 'USER'", UUID.class, conversationId);
 		int before = used(shop.user(), "AI_QUERY");
@@ -182,7 +182,7 @@ class ChatQuotaIntegrationTest extends ChatIntegrationSupport {
 	@Test
 	void startupKeepsTheEarlierMessagesOfAConversationAQuestionWasInterruptedIn() throws Exception {
 		Ready shop = readyShop();
-		String first = ask(shop.user(), shop.analysisId(), "A finished question", null);
+		String first = ask(shop.user(), shop.analysisId(), q("A finished question"), null);
 		UUID conversationId = UUID.fromString(read(first, "$.conversationId"));
 		int before = used(shop.user(), "AI_QUERY");
 		transactions.reserve(shop.user().getId(), shop.analysisId(), conversationId, "Interrupted follow-up");
@@ -200,13 +200,13 @@ class ChatQuotaIntegrationTest extends ChatIntegrationSupport {
 		GEMINI.failWith(500);
 		com.abhiraj.archyra.ai.FakeProviders.GROQ.failWith(500);
 		for (int i = 0; i < LIMIT + 2; i++) {
-			assertThat(chat(shop.user(), shop.analysisId(), "Failing question " + i, null).getResponse().getStatus()).isEqualTo(503);
+			assertThat(chat(shop.user(), shop.analysisId(), q("Failing question " + i), null).getResponse().getStatus()).isEqualTo(503);
 		}
 		assertThat(used(shop.user(), "AI_QUERY")).isZero(); // five failures, none counted: more than the allowance
 		GEMINI.reset();
 		com.abhiraj.archyra.ai.FakeProviders.GROQ.reset();
 
-		assertThat(chat(shop.user(), shop.analysisId(), "Now it works", null).getResponse().getStatus()).isEqualTo(200);
+		assertThat(chat(shop.user(), shop.analysisId(), q("Now it works"), null).getResponse().getStatus()).isEqualTo(200);
 		assertThat(used(shop.user(), "AI_QUERY")).isEqualTo(1);
 	}
 }

@@ -6,6 +6,7 @@ import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -50,12 +51,19 @@ public class RetrievalService {
 	/** A type that is named brings this many of its methods along with its header. */
 	static final int METHODS_PER_NAMED_TYPE = 4;
 
+	/** An overview answer shows the project pack and the README, then at most this many vector hits. */
+	static final int OVERVIEW_VECTOR_HITS = 4;
+
 	private final EmbeddingService embeddings;
 	private final ChunkSearch chunks;
 	private final RetrievalGraphService graph;
+	private final ProjectContext project;
 	private final AiProperties properties;
 
 	public RetrievedContext retrieve(RetrievalRequest request) {
+		if (QuestionIntents.classify(request.message()) == QuestionIntent.OVERVIEW) {
+			return overview(request);
+		}
 		UUID analysisId = request.analysisId();
 		String key = analysisId.toString();
 		AiProperties.Retrieval settings = properties.retrieval();
@@ -69,12 +77,14 @@ public class RetrievalService {
 		List<FoundChunk> vectorHits = chunks.nearest(analysisId, queryVector, settings.vectorTopK()).stream()
 				.filter(hit -> hit.similarity() >= settings.minSimilarity()).toList();
 
-		// 3. seeds: named, then close, then cited before; a seed's type is a seed too
+		// 3. seeds: named, then close, then cited before; a seed's type is a seed too. A README or manifest chunk belongs to the
+		// repository node as a whole: it is shown like any hit, but it is never a seed for graph expansion.
 		Set<String> lookedUp = new LinkedHashSet<>();
 		Set<String> expandable = new LinkedHashSet<>();
 		named.forEach(node -> expandable.add(node.id()));
-		vectorHits.forEach(hit -> lookedUp.add(hit.nodeId()));
-		vectorHits.stream().map(FoundChunk::nodeId).distinct().limit(settings.vectorSeedsExpanded()).forEach(expandable::add);
+		List<FoundChunk> codeHits = vectorHits.stream().filter(hit -> !hit.kind().isProjectDoc()).toList();
+		codeHits.forEach(hit -> lookedUp.add(hit.nodeId()));
+		codeHits.stream().map(FoundChunk::nodeId).distinct().limit(settings.vectorSeedsExpanded()).forEach(expandable::add);
 		expandable.addAll(request.stickyNodeIds());
 		lookedUp.addAll(expandable);
 		Map<String, NodeInfo> known = new LinkedHashMap<>(graph.nodesById(key, lookedUp));
@@ -135,7 +145,53 @@ public class RetrievalService {
 				}
 			}
 		}
-		return new RetrievedContext(items);
+		// Answerable only if the repository relates to the question: a node is named, or some chunk is close enough to be shown
+		// (min-similarity, calibrated so that off-topic questions find none). Facts, neighbours and the previous answer's nodes do not
+		// count on their own: "write me a poem" in the middle of a conversation about a class must not be answered because of them.
+		boolean usable = !named.isEmpty() || !vectorHits.isEmpty();
+		return new RetrievedContext(items, usable);
+	}
+
+	/**
+	 * A question about the project as a whole. Nothing is looked up by name: the project context pack (identity, technologies,
+	 * counts, the most depended-on classes and the biggest modules) and the README and manifest chunks rank first, then at most
+	 * {@value #OVERVIEW_VECTOR_HITS} vector hits. Usable whenever the analysis has a graph to describe. An index from before the
+	 * README was captured simply has no README chunk: the pack still answers.
+	 */
+	private RetrievedContext overview(RetrievalRequest request) {
+		UUID analysisId = request.analysisId();
+		AiProperties.Retrieval settings = properties.retrieval();
+		Optional<ProjectFacts> facts = project.facts(analysisId);
+		List<ContextItem> items = new ArrayList<>();
+		Set<String> seen = new LinkedHashSet<>();
+		if (facts.isPresent()) {
+			items.addAll(project.pack(facts.get()));
+			List<FoundChunk> docs = chunks.forNodes(analysisId, List.of(facts.get().repositoryNodeId())).getOrDefault(facts.get().repositoryNodeId(), List.of())
+					.stream().filter(chunk -> chunk.kind().isProjectDoc())
+					.sorted(Comparator.comparing(FoundChunk::kind).reversed()) // MANIFEST (short, declared) before README
+					.toList();
+			for (FoundChunk doc : docs) {
+				CodeItem item = code(Priority.PROJECT_DOCS, doc, null, 0);
+				if (seen.add(item.key())) {
+					items.add(item);
+				}
+			}
+		}
+		float[] queryVector = embeddings.embed(queryText(request));
+		int taken = 0;
+		for (FoundChunk hit : chunks.nearest(analysisId, queryVector, settings.vectorTopK())) {
+			if (taken >= OVERVIEW_VECTOR_HITS) {
+				break;
+			}
+			if (hit.similarity() >= settings.minSimilarity()) {
+				CodeItem item = code(Priority.VECTOR, hit, null, hit.similarity());
+				if (seen.add(item.key())) {
+					items.add(item);
+					taken++;
+				}
+			}
+		}
+		return new RetrievedContext(items, facts.isPresent());
 	}
 
 	/** The text the question is embedded as: a short question is joined with the one before it. */

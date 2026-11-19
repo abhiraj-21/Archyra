@@ -8,7 +8,7 @@ import com.abhiraj.archyra.ir.NodeType;
  * One piece of context for a question: code, or a fact from the graph. The prompt numbers the items {@code [1]..[N]} and
  * keeps a private map from number to node ids, so the model never sees or invents a node id.
  */
-public sealed interface ContextItem permits CodeItem, FactItem {
+public sealed interface ContextItem permits CodeItem, FactItem, ProjectItem {
 
 	Priority priority();
 

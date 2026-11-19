@@ -78,7 +78,7 @@ class ChatProviderChainIntegrationTest extends ChatIntegrationSupport {
 		OPENROUTER.failWith(502);
 		ZAI.failWith(503);
 
-		MvcResult result = chat(shop.user(), shop.analysisId(), "Will fail everywhere", null);
+		MvcResult result = chat(shop.user(), shop.analysisId(), q("Will fail everywhere"), null);
 
 		assertThat(result.getResponse().getStatus()).isEqualTo(503);
 		assertThat(code(result)).isEqualTo("AI_UNAVAILABLE");
@@ -95,13 +95,13 @@ class ChatProviderChainIntegrationTest extends ChatIntegrationSupport {
 		GROQ.rateLimitedFor(30);
 		OPENROUTER.rateLimitedFor(30);
 		ZAI.rateLimitedFor(30);
-		MvcResult first = chat(shop.user(), shop.analysisId(), "First, all of them answer 429", null);
+		MvcResult first = chat(shop.user(), shop.analysisId(), q("First, all of them answer 429"), null);
 		assertThat(first.getResponse().getStatus()).isEqualTo(503);
 		int calls = GEMINI.requestCount() + GROQ.requestCount() + OPENROUTER.requestCount() + ZAI.requestCount();
 		assertThat(calls).isEqualTo(4);
 		int usedAfterFirst = used(shop.user(), "AI_QUERY");
 
-		MvcResult second = chat(shop.user(), shop.analysisId(), "Second, nobody is usable", null);
+		MvcResult second = chat(shop.user(), shop.analysisId(), q("Second, nobody is usable"), null);
 
 		assertThat(second.getResponse().getStatus()).isEqualTo(503);
 		assertThat(code(second)).isEqualTo("AI_UNAVAILABLE");

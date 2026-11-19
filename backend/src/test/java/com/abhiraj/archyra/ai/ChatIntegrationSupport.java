@@ -64,6 +64,15 @@ public abstract class ChatIntegrationSupport extends AiIntegrationSupport {
 				&& !cooldowns.isCoolingDown("openrouter") && !cooldowns.isCoolingDown("zai"));
 	}
 
+	/**
+	 * An ordinary question about the sample shop, made unique by {@code tag}. A question must be about the repository to be answered
+	 * (an unrelated one is refused with 422 before anything is charged), so tests that only need "a question" use this: it names
+	 * {@code OrderController}, which retrieval always finds.
+	 */
+	protected static String q(String tag) {
+		return "What does OrderController do? " + tag;
+	}
+
 	protected static String chatPath(UUID analysisId) {
 		return "/api/v1/analyses/" + analysisId + "/chat";
 	}
@@ -103,6 +112,13 @@ public abstract class ChatIntegrationSupport extends AiIntegrationSupport {
 
 	protected Ready readyShop() throws Exception {
 		return readyShop(newUser());
+	}
+
+	/** A completed, READY analysis of {@code url} for {@code user} (a fixture URL of {@link AiIntegrationSupport}). */
+	protected Ready ready(User user, String url) throws Exception {
+		UUID id = analyzeCompleted(user, url);
+		awaitIndexStatus(user, id, "READY");
+		return new Ready(user, id);
 	}
 
 	protected Ready readyShop(User user) throws Exception {

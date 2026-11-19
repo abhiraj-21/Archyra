@@ -6,6 +6,7 @@ import org.springframework.stereotype.Component;
 import com.abhiraj.archyra.ai.index.AiIndexService;
 import com.abhiraj.archyra.ai.index.ChunkExtractor;
 import com.abhiraj.archyra.ai.index.ChunkSet;
+import com.abhiraj.archyra.ai.retrieval.ProjectContext;
 import com.abhiraj.archyra.common.AnalysisCompleted;
 import com.abhiraj.archyra.common.AnalysisDeleting;
 import com.abhiraj.archyra.common.AnalysisFailed;
@@ -35,6 +36,7 @@ class AiAnalysisEvents {
 	private final ChunkExtractor extractor;
 	private final AiIndexService index;
 	private final AiDataPurger purger;
+	private final ProjectContext projectContext;
 
 	@EventListener
 	void onGraphBuilt(AnalysisGraphBuilt event) {
@@ -67,6 +69,7 @@ class AiAnalysisEvents {
 
 	@EventListener
 	void onFailed(AnalysisFailed event) {
+		projectContext.evict(event.analysisId());
 		try {
 			purger.purge(event.analysisId());
 		}
@@ -77,6 +80,7 @@ class AiAnalysisEvents {
 
 	@EventListener
 	void onDeleting(AnalysisDeleting event) {
+		projectContext.evict(event.analysisId()); // the pack is cached per analysis and cannot outlive it
 		purger.purge(event.analysisId()); // may throw: that stops the delete on purpose
 	}
 }

@@ -25,7 +25,9 @@ import jakarta.validation.constraints.NotNull;
  * @param timeout   HTTP timeouts of a provider call and the budget of one whole question
  * @param answer    limits of one answer
  * @param history   how much of the conversation goes back to the model
- * @param retrieval hybrid retrieval settings (vector-seeds-expanded: how many of the best vector hits are expanded into graph facts)
+ * @param retrieval hybrid retrieval settings (vector-seeds-expanded: how many of the best vector hits are expanded into graph facts;
+ *                  min-similarity: the vector hits worth showing, and so also what makes a question that names no node answerable at
+ *                  all, see {@code RetrievedContext#usable} and the calibration in Architecture.md)
  * @param chunk     code chunk limits
  * @param embedding the local embedding model and the indexing batches
  * @param cache     answer cache

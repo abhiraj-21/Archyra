@@ -213,6 +213,117 @@ public class RetrievalGraphService {
 		return new Neighborhood(edges, totals);
 	}
 
+	// ---- the project as a whole ----------------------------------------------------------------
+
+	/** A module and how much of the repository's own (non-test) code it holds. */
+	public record ModuleSize(String id, String name, int files, int types) {
+	}
+
+	/** A class or interface and how many non-test classes and interfaces of the repository depend on it. */
+	public record DependedOn(String id, String name, String qualifiedName, int dependents) {
+	}
+
+	/**
+	 * The modules with the most non-test files, biggest first (ties by name), at most {@code limit}. A module whose files are
+	 * all tests is left out. External modules never appear.
+	 */
+	public List<ModuleSize> modulesBySize(String analysisId, int limit) {
+		if (limit <= 0) {
+			return List.of();
+		}
+		return neo4jClient.query("""
+						MATCH (m:Module {analysisId: $analysisId})
+						WHERE NOT coalesce(m.external, false)
+						CALL {
+						  WITH m
+						  MATCH (m)-[:CONTAINS]->(f:File {analysisId: $analysisId})
+						  RETURN collect(DISTINCT f.file) AS files
+						}
+						CALL {
+						  WITH m
+						  MATCH (m)-[:CONTAINS]->(:File {analysisId: $analysisId})-[:CONTAINS]->(t)
+						  WHERE (t:Class OR t:Interface) AND t.analysisId = $analysisId AND NOT coalesce(t.external, false)
+						  RETURN collect(DISTINCT t.nodeId + '|' + coalesce(t.file, '')) AS types
+						}
+						RETURN m.nodeId AS id, m.name AS name, files, types
+						""")
+				.bind(analysisId).to("analysisId")
+				.fetchAs(ModuleSize.class)
+				.mappedBy((typeSystem, record) -> new ModuleSize(record.get("id").asString(), record.get("name").asString(null),
+						(int) record.get("files").asList(value -> value.asString("")).stream().filter(file -> !file.isEmpty() && !TestPathClassifier.isTestPath(file)).count(),
+						(int) record.get("types").asList(value -> value.asString("")).stream()
+								.filter(entry -> !TestPathClassifier.isTestPath(entry.substring(entry.indexOf('|') + 1))).count()))
+				.all()
+				.stream()
+				.filter(module -> module.files() > 0)
+				.sorted(Comparator.comparingInt(ModuleSize::files).reversed().thenComparing(ModuleSize::name, Comparator.nullsLast(Comparator.naturalOrder())))
+				.limit(limit)
+				.toList();
+	}
+
+	/**
+	 * The classes and interfaces that the most others depend on (in-degree over {@code DEPENDS_ON}), most first (ties by
+	 * qualified name), at most {@code limit}. External nodes and test code count for nothing: neither a test that depends on a
+	 * class nor a test class itself appears.
+	 */
+	public List<DependedOn> mostDependedOn(String analysisId, int limit) {
+		if (limit <= 0) {
+			return List.of();
+		}
+		record Row(String id, String name, String qualifiedName, String file, List<String> dependentFiles) {
+		}
+		return neo4jClient.query("""
+						MATCH (d)-[:DEPENDS_ON]->(c)
+						WHERE c.analysisId = $analysisId AND d.analysisId = $analysisId
+						  AND (c:Class OR c:Interface) AND (d:Class OR d:Interface)
+						  AND NOT coalesce(c.external, false) AND NOT coalesce(d.external, false) AND d <> c
+						RETURN c.nodeId AS id, c.name AS name, c.qualifiedName AS qualifiedName, c.file AS file,
+						       collect(DISTINCT d.nodeId + '|' + coalesce(d.file, '')) AS dependents
+						""")
+				.bind(analysisId).to("analysisId")
+				.fetchAs(Row.class)
+				.mappedBy((typeSystem, record) -> new Row(record.get("id").asString(), record.get("name").asString(null),
+						record.get("qualifiedName").asString(null), record.get("file").asString(null),
+						record.get("dependents").asList(value -> value.asString(""))))
+				.all()
+				.stream()
+				.filter(row -> !TestPathClassifier.isTestPath(row.file()))
+				.map(row -> new DependedOn(row.id(), row.name(), row.qualifiedName(),
+						(int) row.dependentFiles().stream().filter(entry -> !TestPathClassifier.isTestPath(entry.substring(entry.indexOf('|') + 1))).count()))
+				.filter(found -> found.dependents() > 0)
+				.sorted(Comparator.comparingInt(DependedOn::dependents).reversed()
+						.thenComparing(DependedOn::qualifiedName, Comparator.nullsLast(Comparator.naturalOrder())).thenComparing(DependedOn::id))
+				.limit(limit)
+				.toList();
+	}
+
+	/**
+	 * Of the given ids, the nodes a citation may point at: everything {@link #nodesById} knows, plus the {@code Repository} and
+	 * {@code Module} nodes that the project context cites. Used to verify every source of an answer in Neo4j.
+	 */
+	public Map<String, NodeInfo> citableNodes(String analysisId, Collection<String> ids) {
+		Map<String, NodeInfo> found = new HashMap<>(nodesById(analysisId, ids));
+		Map<NodeType, List<String>> structural = new EnumMap<>(NodeType.class);
+		for (String id : new LinkedHashSet<>(ids)) {
+			typeOf(id).filter(type -> type == NodeType.REPOSITORY || type == NodeType.MODULE)
+					.ifPresent(type -> structural.computeIfAbsent(type, key -> new ArrayList<>()).add(id));
+		}
+		for (Map.Entry<NodeType, List<String>> group : structural.entrySet()) {
+			neo4jClient.query("""
+							MATCH (n:%s {analysisId: $analysisId})
+							WHERE n.nodeId IN $ids AND NOT coalesce(n.external, false)
+							RETURN %s
+							""".formatted(group.getKey().label(), NODE_PROPERTIES.formatted("n")))
+					.bind(analysisId).to("analysisId")
+					.bind(group.getValue()).to("ids")
+					.fetchAs(NodeInfo.class)
+					.mappedBy((typeSystem, record) -> node(group.getKey(), record))
+					.all()
+					.forEach(node -> found.put(node.id(), node));
+		}
+		return found;
+	}
+
 	// ---- helpers -------------------------------------------------------------------------------
 
 	private static NodeInfo node(NodeType type, Record record) {

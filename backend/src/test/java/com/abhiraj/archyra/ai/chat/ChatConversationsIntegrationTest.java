@@ -78,7 +78,7 @@ class ChatConversationsIntegrationTest extends ChatIntegrationSupport {
 		String newer = createConversation(shop.user(), shop.analysisId());
 		assertThat(ids(getAs(shop.user(), conversationsPath(shop.analysisId())))).containsExactly(newer, older);
 
-		ask(shop.user(), shop.analysisId(), "Activity in the older one", older);
+		ask(shop.user(), shop.analysisId(), q("Activity in the older one"), older);
 
 		MvcResult list = getAs(shop.user(), conversationsPath(shop.analysisId()));
 		assertThat(ids(list)).containsExactly(older, newer);
@@ -115,7 +115,7 @@ class ChatConversationsIntegrationTest extends ChatIntegrationSupport {
 		GEMINI.answerWith(prompt -> "See [" + com.abhiraj.archyra.ai.FakeProviders.itemNumber(prompt, ".service.OrderService#place") + "].");
 		String first = ask(shop.user(), shop.analysisId(), PLACE_QUESTION, null);
 		String id = read(first, "$.conversationId");
-		ask(shop.user(), shop.analysisId(), "And the other one?", id);
+		ask(shop.user(), shop.analysisId(), q("And the other one?"), id);
 
 		MvcResult messages = getAs(shop.user(), messagesPath(id));
 
@@ -149,8 +149,8 @@ class ChatConversationsIntegrationTest extends ChatIntegrationSupport {
 	@Test
 	void deletingAConversationRemovesItAndItsMessages() throws Exception {
 		Ready shop = readyShop();
-		String id = read(ask(shop.user(), shop.analysisId(), "To be deleted", null), "$.conversationId");
-		String kept = read(ask(shop.user(), shop.analysisId(), "To be kept", null), "$.conversationId");
+		String id = read(ask(shop.user(), shop.analysisId(), q("To be deleted"), null), "$.conversationId");
+		String kept = read(ask(shop.user(), shop.analysisId(), q("To be kept"), null), "$.conversationId");
 
 		assertThat(deleteAs(shop.user(), "/api/v1/conversations/" + id).getResponse().getStatus()).isEqualTo(204);
 
@@ -164,7 +164,7 @@ class ChatConversationsIntegrationTest extends ChatIntegrationSupport {
 	@Test
 	void everyoneElseGetsNotFoundIncludingAdminsAndTheSameForUnknownOrMalformedIds() throws Exception {
 		Ready shop = readyShop();
-		String id = read(ask(shop.user(), shop.analysisId(), "A private question", null), "$.conversationId");
+		String id = read(ask(shop.user(), shop.analysisId(), q("A private question"), null), "$.conversationId");
 		User stranger = newUser();
 		User admin = userService.save(User.administrator("admin-" + UUID.randomUUID() + "@example.com", "Admin",
 				passwordEncoder.encode("irrelevant"), Instant.now()));
@@ -178,7 +178,7 @@ class ChatConversationsIntegrationTest extends ChatIntegrationSupport {
 			assertThat(list.getResponse().getStatus()).isEqualTo(404);
 			assertThat(code(list)).isEqualTo("ANALYSIS_NOT_FOUND");
 			assertThat(postAs(caller, conversationsPath(shop.analysisId())).getResponse().getStatus()).isEqualTo(404);
-			MvcResult asking = chat(caller, shop.analysisId(), "Let me in", id);
+			MvcResult asking = chat(caller, shop.analysisId(), q("Let me in"), id);
 			assertThat(asking.getResponse().getStatus()).isEqualTo(404);
 		}
 		for (String unknown : List.of(UUID.randomUUID().toString(), "not-a-uuid", "1-1-1-1-1")) {
@@ -193,7 +193,7 @@ class ChatConversationsIntegrationTest extends ChatIntegrationSupport {
 		Ready shop = readyShop();
 		UUID other = analyzeCompleted(shop.user(), TESTS_AND_MAIN);
 		awaitIndexStatus(shop.user(), other, "READY");
-		String foreign = read(ask(shop.user(), other, "A question about the other repository", null), "$.conversationId");
+		String foreign = read(ask(shop.user(), other, q("A question about the other repository"), null), "$.conversationId");
 		int usedBefore = used(shop.user(), "AI_QUERY");
 
 		MvcResult result = chat(shop.user(), shop.analysisId(), PLACE_QUESTION, foreign);
@@ -218,17 +218,17 @@ class ChatConversationsIntegrationTest extends ChatIntegrationSupport {
 	@Test
 	void aFullConversationRefusesFurtherQuestionsWithoutACharge() throws Exception {
 		Ready shop = readyShop();
-		String id = read(ask(shop.user(), shop.analysisId(), "Question one", null), "$.conversationId");
-		ask(shop.user(), shop.analysisId(), "Question two", id); // four messages: the conversation is full
+		String id = read(ask(shop.user(), shop.analysisId(), q("Question one"), null), "$.conversationId");
+		ask(shop.user(), shop.analysisId(), q("Question two"), id); // four messages: the conversation is full
 		int usedBefore = used(shop.user(), "AI_QUERY");
 
-		MvcResult result = chat(shop.user(), shop.analysisId(), "Question three", id);
+		MvcResult result = chat(shop.user(), shop.analysisId(), q("Question three"), id);
 
 		assertThat(result.getResponse().getStatus()).isEqualTo(409);
 		assertThat(code(result)).isEqualTo("CONVERSATION_FULL");
 		assertThat(used(shop.user(), "AI_QUERY")).isEqualTo(usedBefore);
 		assertThat(storedMessages(shop.analysisId())).isEqualTo(4);
-		assertThat(chat(shop.user(), shop.analysisId(), "Question three, elsewhere", null).getResponse().getStatus()).isEqualTo(200); // a new conversation is fine
+		assertThat(chat(shop.user(), shop.analysisId(), q("Question three, elsewhere"), null).getResponse().getStatus()).isEqualTo(200); // a new conversation is fine
 	}
 
 	@Test
@@ -236,11 +236,11 @@ class ChatConversationsIntegrationTest extends ChatIntegrationSupport {
 		Ready shop = readyShop();
 		createConversation(shop.user(), shop.analysisId());
 		createConversation(shop.user(), shop.analysisId());
-		ask(shop.user(), shop.analysisId(), "Fills the third slot", null);
+		ask(shop.user(), shop.analysisId(), q("Fills the third slot"), null);
 		int usedBefore = used(shop.user(), "AI_QUERY");
 
 		MvcResult empty = postAs(shop.user(), conversationsPath(shop.analysisId()));
-		MvcResult byQuestion = chat(shop.user(), shop.analysisId(), "Would need a fourth", null);
+		MvcResult byQuestion = chat(shop.user(), shop.analysisId(), q("Would need a fourth"), null);
 
 		assertThat(empty.getResponse().getStatus()).isEqualTo(409);
 		assertThat(code(empty)).isEqualTo("TOO_MANY_CONVERSATIONS");
@@ -263,7 +263,7 @@ class ChatConversationsIntegrationTest extends ChatIntegrationSupport {
 			assertThat(result.getResponse().getStatus()).isEqualTo(400);
 			assertThat(code(result)).isEqualTo("VALIDATION_ERROR");
 		}
-		assertThat(chat(shop.user(), shop.analysisId(), "x".repeat(2000)).getResponse().getStatus()).isEqualTo(200); // exactly the limit is fine
+		assertThat(chat(shop.user(), shop.analysisId(), q("").concat("x".repeat(2000 - q("").length()))).getResponse().getStatus()).isEqualTo(200); // exactly the limit is fine
 		assertThat(used(shop.user(), "AI_QUERY")).isEqualTo(1);
 	}
 
@@ -272,7 +272,7 @@ class ChatConversationsIntegrationTest extends ChatIntegrationSupport {
 	@Test
 	void aConversationAnswersOneQuestionAtATimeAndAPendingQuestionIsInvisible() throws Exception {
 		Ready shop = readyShop();
-		String id = read(ask(shop.user(), shop.analysisId(), "An earlier question", null), "$.conversationId");
+		String id = read(ask(shop.user(), shop.analysisId(), q("An earlier question"), null), "$.conversationId");
 		int usedBefore = used(shop.user(), "AI_QUERY");
 		CountDownLatch inModel = new CountDownLatch(1);
 		CountDownLatch release = new CountDownLatch(1);
@@ -288,11 +288,11 @@ class ChatConversationsIntegrationTest extends ChatIntegrationSupport {
 		});
 		ExecutorService threads = Executors.newSingleThreadExecutor();
 		try {
-			Future<MvcResult> slow = threads.submit(() -> chat(shop.user(), shop.analysisId(), "A slow question", id));
+			Future<MvcResult> slow = threads.submit(() -> chat(shop.user(), shop.analysisId(), q("A slow question"), id));
 			assertThat(inModel.await(30, TimeUnit.SECONDS)).isTrue();
 			assertThat(used(shop.user(), "AI_QUERY")).isEqualTo(usedBefore + 1); // reserved before the model call
 
-			MvcResult second = chat(shop.user(), shop.analysisId(), "Asked at the same time", id);
+			MvcResult second = chat(shop.user(), shop.analysisId(), q("Asked at the same time"), id);
 			MvcResult deletion = deleteAs(shop.user(), "/api/v1/conversations/" + id);
 			MvcResult messages = getAs(shop.user(), messagesPath(id));
 
@@ -302,7 +302,7 @@ class ChatConversationsIntegrationTest extends ChatIntegrationSupport {
 			assertThat(code(deletion)).isEqualTo("CONVERSATION_BUSY");
 			assertThat(used(shop.user(), "AI_QUERY")).isEqualTo(usedBefore + 1); // the refused one cost nothing
 			assertThat((List<String>) JsonPath.read(messages.getResponse().getContentAsString(), "$.items[*].content"))
-					.containsExactly("An earlier question", "default answer"); // the pending question is not listed
+					.containsExactly(q("An earlier question"), "default answer"); // the pending question is not listed
 
 			release.countDown();
 			assertThat(slow.get(60, TimeUnit.SECONDS).getResponse().getStatus()).isEqualTo(200);
@@ -315,7 +315,7 @@ class ChatConversationsIntegrationTest extends ChatIntegrationSupport {
 		assertThat(getAs(shop.user(), messagesPath(id)).getResponse().getStatus()).isEqualTo(200);
 		assertThat(used(shop.user(), "AI_QUERY")).isEqualTo(usedBefore + 1);
 		// the conversation is not busy any more: a fifth message is refused for being full, not for being busy
-		assertThat(code(chat(shop.user(), shop.analysisId(), "Is it free?", id))).isEqualTo("CONVERSATION_FULL");
+		assertThat(code(chat(shop.user(), shop.analysisId(), q("Is it free?"), id))).isEqualTo("CONVERSATION_FULL");
 	}
 
 	// ---- with their analysis -------------------------------------------------------------------
@@ -324,9 +324,9 @@ class ChatConversationsIntegrationTest extends ChatIntegrationSupport {
 	void deletingAnAnalysisRemovesItsConversationsAndMessages() throws Exception {
 		Ready shop = readyShop();
 		Ready other = readyShop(shop.user());
-		ask(shop.user(), shop.analysisId(), "Doomed one", null);
-		ask(shop.user(), shop.analysisId(), "Doomed two", null);
-		ask(other.user(), other.analysisId(), "Kept", null);
+		ask(shop.user(), shop.analysisId(), q("Doomed one"), null);
+		ask(shop.user(), shop.analysisId(), q("Doomed two"), null);
+		ask(other.user(), other.analysisId(), q("Kept"), null);
 
 		assertThat(deleteAs(shop.user(), "/api/v1/analyses/" + shop.analysisId()).getResponse().getStatus()).isEqualTo(204);
 
@@ -340,7 +340,7 @@ class ChatConversationsIntegrationTest extends ChatIntegrationSupport {
 	@Test
 	void aCompletedRerunRemovesTheReplacedAnalysesConversations() throws Exception {
 		Ready shop = readyShop();
-		ask(shop.user(), shop.analysisId(), "Asked about the old analysis", null);
+		ask(shop.user(), shop.analysisId(), q("Asked about the old analysis"), null);
 
 		MvcResult rerun = postAs(shop.user(), "/api/v1/analyses/" + shop.analysisId() + "/reanalyze");
 		UUID replacement = UUID.fromString(json(rerun, "$.analysisId"));
@@ -372,7 +372,7 @@ class ChatConversationsIntegrationTest extends ChatIntegrationSupport {
 		try {
 			Future<Object> pending = threads.submit(() -> {
 				try {
-					return chat(shop.user(), shop.analysisId(), "Overtaken by a delete", null).getResponse().getStatus();
+					return chat(shop.user(), shop.analysisId(), q("Overtaken by a delete"), null).getResponse().getStatus();
 				}
 				catch (Exception ex) {
 					return ex; // the answer has nowhere to go: the request ends in an error, not a hang

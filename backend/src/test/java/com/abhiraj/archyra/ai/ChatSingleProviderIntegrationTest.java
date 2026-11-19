@@ -28,12 +28,12 @@ class ChatSingleProviderIntegrationTest extends ChatIntegrationSupport {
 		Ready shop = readyShop();
 		GROQ.rateLimitedFor(1);
 
-		MvcResult first = chat(shop.user(), shop.analysisId(), "Throttled", null);
+		MvcResult first = chat(shop.user(), shop.analysisId(), q("Throttled"), null);
 		assertThat(first.getResponse().getStatus()).isEqualTo(503);
 		assertThat(code(first)).isEqualTo("AI_UNAVAILABLE");
 		int calls = GROQ.requestCount();
 
-		MvcResult second = chat(shop.user(), shop.analysisId(), "Refused up front", null);
+		MvcResult second = chat(shop.user(), shop.analysisId(), q("Refused up front"), null);
 
 		assertThat(second.getResponse().getStatus()).isEqualTo(503);
 		assertThat(GROQ.requestCount()).isEqualTo(calls);

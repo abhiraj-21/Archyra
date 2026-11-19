@@ -22,6 +22,9 @@ import com.abhiraj.archyra.ai.llm.ProviderGateway;
 import com.abhiraj.archyra.ai.llm.ProviderRegistry;
 import com.abhiraj.archyra.ai.retrieval.CodeItem;
 import com.abhiraj.archyra.ai.retrieval.ContextItem;
+import com.abhiraj.archyra.ai.retrieval.ProjectContext;
+import com.abhiraj.archyra.ai.retrieval.QuestionIntent;
+import com.abhiraj.archyra.ai.retrieval.QuestionIntents;
 import com.abhiraj.archyra.ai.retrieval.RetrievalRequest;
 import com.abhiraj.archyra.ai.retrieval.RetrievalService;
 import com.abhiraj.archyra.ai.retrieval.RetrievedContext;
@@ -45,10 +48,12 @@ import lombok.extern.slf4j.Slf4j;
  *   <li><b>Validate</b>, with no side effects: the message, ownership and completion of the analysis, a READY index, the
  *       conversation (yours, this analysis, room left), the rate limit, one question at a time per conversation, and a
  *       provider that is configured and not cooling down. Anything refused here costs nothing.</li>
- *   <li><b>Cache</b>: a hit stores both messages and costs nothing.</li>
+ *   <li><b>Cache</b>: a hit stores both messages and costs nothing. The key includes the question's intent (overview or specific).</li>
+ *   <li><b>Retrieve</b>, still free. A question with no usable context in this repository is refused with
+ *       {@code 422 QUESTION_NOT_ANSWERABLE}: never sent to a provider, not counted, nothing stored.</li>
  *   <li><b>Reserve</b> one quota unit and the PENDING question (a short transaction).</li>
- *   <li><b>Retrieve</b>, <b>build the prompt per provider</b>, <b>call the model</b> through the gateway, <b>ground</b> the
- *       citations and verify every source in Neo4j. No transaction is open meanwhile.</li>
+ *   <li><b>Build the prompt per provider</b>, <b>call the model</b> through the gateway, <b>ground</b> the citations and verify
+ *       every source in Neo4j. No transaction is open meanwhile.</li>
  *   <li><b>Persist</b> the answer.</li>
  *   <li>Any failure after the reservation <b>refunds</b> exactly once and removes the PENDING question.</li>
  * </ol>
@@ -71,6 +76,7 @@ public class ChatService {
 	private final ProviderRegistry providers;
 	private final RetrievalService retrieval;
 	private final RetrievalGraphService graph;
+	private final ProjectContext project;
 	private final PromptBuilder prompts;
 	private final RateLimiter rateLimiter;
 	private final AiProperties properties;
@@ -107,7 +113,8 @@ public class ChatService {
 				List<ChatTurn> history = history(newest);
 
 				// 2. cache
-				String key = ChatAnswerCache.key(analysisId, message, history, String.valueOf(indexes.describe(analysisId).indexedAt()));
+				QuestionIntent intent = QuestionIntents.classify(message);
+				String key = ChatAnswerCache.key(analysisId, message, history, String.valueOf(indexes.describe(analysisId).indexedAt()), intent);
 				Optional<ChatAnswerCache.Entry> hit = cache.get(key);
 				if (hit.isPresent()) {
 					ChatAnswerCache.Entry entry = hit.get();
@@ -119,21 +126,28 @@ public class ChatService {
 							entry.sources(), true, entry.provider(), providers.displayName(entry.provider()));
 				}
 
-				// 3. reserve
+				// 3. retrieve: still free. A question that nothing in this repository relates to stops here (422), is never sent to a
+				// provider, is not counted and is not stored; the rate limit above was consumed all the same.
+				RetrievedContext context = retrieve(analysisId, message, newest);
+				if (!context.usable()) {
+					throw AiRuleException.questionNotAnswerable();
+				}
+
+				// 4. reserve one unit and the PENDING question; everything from here on refunds exactly once if it fails
 				ChatTransactions.Reservation reservation = reserve(userId, analysisId, conversationId, message);
 				ChatAnswer answer;
 				try {
-					// 4. retrieve, prompt, call, ground
-					Generated generated = generate(analysisId, message, newest, history);
+					// 5. prompt per provider, call, ground
+					Generated generated = generate(analysisId, message, context, history);
 					provider = generated.provider();
-					// 5. persist
+					// 6. persist
 					ChatTransactions.Saved saved = transactions.complete(reservation, generated.text(),
 							SourcesJson.write(generated.sources()), generated.provider());
 					answer = new ChatAnswer(saved.conversationId().toString(), saved.assistantMessageId().toString(), generated.text(),
 							generated.sources(), false, generated.provider(), providers.displayName(generated.provider()));
 				}
 				catch (Throwable failure) {
-					// 6. refund once, drop the PENDING question
+					// refund once, drop the PENDING question
 					refund(userId, reservation);
 					if (failure instanceof AllProvidersFailedException) {
 						throw AiRuleException.unavailable();
@@ -165,14 +179,18 @@ public class ChatService {
 	private record Generated(String text, List<ChatSource> sources, String provider) {
 	}
 
-	private Generated generate(UUID analysisId, String message, List<ChatMessage> newest, List<ChatTurn> history) {
+	/** What to show the model for the question (no quota is involved, no transaction is open). */
+	private RetrievedContext retrieve(UUID analysisId, String message, List<ChatMessage> newest) {
 		String previousQuestion = newest.stream().filter(m -> m.getRole() == MessageRole.USER).map(ChatMessage::getContent).findFirst().orElse(null);
 		List<String> sticky = newest.stream().filter(m -> m.getRole() == MessageRole.ASSISTANT).findFirst()
 				.map(m -> SourcesJson.read(m.getSourcesJson()).stream().map(ChatSource::id).toList()).orElse(List.of());
-		RetrievedContext context = retrieval.retrieve(new RetrievalRequest(analysisId, message, previousQuestion, sticky));
+		return retrieval.retrieve(new RetrievalRequest(analysisId, message, previousQuestion, sticky));
+	}
 
+	private Generated generate(UUID analysisId, String message, RetrievedContext context, List<ChatTurn> history) {
+		String preamble = project.preamble(analysisId);
 		ProviderGateway.Result<PromptBuilder.Built> result = gateway.ask(provider -> {
-			PromptBuilder.Built built = prompts.build(provider.contextBudgetTokens(), context, history, message);
+			PromptBuilder.Built built = prompts.build(provider.contextBudgetTokens(), context, history, message, preamble);
 			return new ProviderGateway.Prepared<>(built.request(), built);
 		});
 		List<ContextItem> items = result.attachment().items();
@@ -181,7 +199,7 @@ public class ChatService {
 		// ground: ignore numbers that are not context items, verify every node in Neo4j, renumber by first appearance
 		List<Integer> candidates = Grounding.citedIndexes(answer, items.size());
 		Set<String> candidateNodes = candidates.stream().flatMap(index -> items.get(index).nodeIds().stream()).collect(Collectors.toSet());
-		Map<String, NodeInfo> verified = candidateNodes.isEmpty() ? Map.of() : graph.nodesById(analysisId.toString(), candidateNodes);
+		Map<String, NodeInfo> verified = candidateNodes.isEmpty() ? Map.of() : graph.citableNodes(analysisId.toString(), candidateNodes);
 		Set<Integer> accepted = candidates.stream()
 				.filter(index -> items.get(index).nodeIds().stream().anyMatch(verified::containsKey)).collect(Collectors.toSet());
 		Grounding.Outcome grounded = Grounding.ground(answer, items, accepted::contains);

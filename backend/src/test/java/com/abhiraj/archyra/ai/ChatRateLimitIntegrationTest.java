@@ -14,13 +14,13 @@ class ChatRateLimitIntegrationTest extends ChatIntegrationSupport {
 
 	private void exceedsTheLimitAfterThree(Ready shop) throws Exception {
 		for (int i = 1; i <= 3; i++) {
-			ask(shop.user(), shop.analysisId(), "Question " + i, null);
+			ask(shop.user(), shop.analysisId(), q("Question " + i), null);
 		}
 		int messages = storedMessages(shop.analysisId());
 		int used = used(shop.user(), "AI_QUERY");
 		int calls = FakeProviders.GEMINI.requestCount();
 
-		MvcResult limited = chat(shop.user(), shop.analysisId(), "Question 4", null);
+		MvcResult limited = chat(shop.user(), shop.analysisId(), q("Question 4"), null);
 
 		assertThat(limited.getResponse().getStatus()).isEqualTo(429);
 		assertThat(code(limited)).isEqualTo("RATE_LIMITED");
@@ -45,11 +45,11 @@ class ChatRateLimitIntegrationTest extends ChatIntegrationSupport {
 		Ready busy = readyShop();
 		Ready other = readyShop();
 		for (int i = 1; i <= 3; i++) {
-			ask(busy.user(), busy.analysisId(), "Question " + i, null);
+			ask(busy.user(), busy.analysisId(), q("Question " + i), null);
 		}
-		assertThat(chat(busy.user(), busy.analysisId(), "Question 4", null).getResponse().getStatus()).isEqualTo(429);
+		assertThat(chat(busy.user(), busy.analysisId(), q("Question 4"), null).getResponse().getStatus()).isEqualTo(429);
 
-		assertThat(chat(other.user(), other.analysisId(), "Someone else's first question", null).getResponse().getStatus()).isEqualTo(200);
+		assertThat(chat(other.user(), other.analysisId(), q("Someone else's first question"), null).getResponse().getStatus()).isEqualTo(200);
 	}
 
 	@Test
@@ -60,7 +60,7 @@ class ChatRateLimitIntegrationTest extends ChatIntegrationSupport {
 		}
 
 		for (int i = 1; i <= 3; i++) {
-			assertThat(chat(shop.user(), shop.analysisId(), "Valid question " + i).getResponse().getStatus()).isEqualTo(200);
+			assertThat(chat(shop.user(), shop.analysisId(), q("Valid question " + i)).getResponse().getStatus()).isEqualTo(200);
 		}
 	}
 }

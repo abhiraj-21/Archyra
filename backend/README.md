@@ -107,7 +107,11 @@ them (the provider's own 429 is the backstop). A 429 cools a provider down (its 
 or an unknown model cools it down for 30 min with an `ERROR` log. Administrators can see every provider's state at `GET /api/v1/admin/ai/providers`.
 
 **Limits.** FREE users get `AI_LIMIT` questions for life (a failed answer never counts, a cached one is free), everyone gets 10 questions per
-minute (`app.security.rate-limit.ai-chat-per-user-per-minute`). Tuning keys (`archyra.ai.*`) are in `application.properties`.
+minute (`app.security.rate-limit.ai-chat-per-user-per-minute`). A question that nothing in the repository relates to ("write me a poem") is stopped
+before it reaches a provider: `422 QUESTION_NOT_ANSWERABLE`, not counted, not stored (it still takes a token of the per-minute limit); a question that does
+reach a provider counts even if the answer is "I can't tell". `archyra.ai.retrieval.min-similarity` decides what "related" means and was calibrated with the
+real embedding model (numbers in `Architecture.md`): re-measure it if you change the model. "What is this project about?" is answered from the project's README
+and manifests (captured at analysis time) and a few facts about its languages, modules and classes. Tuning keys (`archyra.ai.*`) are in `application.properties`.
 
 **Privacy.** Questions and code excerpts are sent to the third-party providers of the chain. On their free tiers some of them log prompts or use
 them to improve their products (see the table). The chat UI says so next to the composer. Archyra only clones public GitHub repositories. Nothing sent or received is ever written to the logs, and API keys never are.

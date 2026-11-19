@@ -22,11 +22,16 @@ class ChunkExtractorTest {
 
 	private static ChunkExtractor extractor(int maxChars, int maxPerAnalysis) {
 		return new ChunkExtractor(new AiProperties(null, null, null, null, null,
-				new AiProperties.Chunk(maxChars, maxPerAnalysis), null, null, null));
+				new AiProperties.Chunk(maxChars, maxPerAnalysis), null, null, null), new ProjectDocs());
 	}
 
 	private static ChunkSet capture(RealGraph graph) {
 		return extractor(6000, 20000).extract(graph.graph, graph.root);
+	}
+
+	/** The chunks of code: the README and manifest chunks of the repository node come after them and are tested apart. */
+	private static List<ChunkData> codeOf(ChunkSet set) {
+		return set.chunks().stream().filter(chunk -> !chunk.kind().isProjectDoc()).toList();
 	}
 
 	private static ChunkData chunk(ChunkSet set, String nodeId) {
@@ -85,9 +90,9 @@ class ChunkExtractorTest {
 		RealGraph graph = RealGraph.of(FIXTURES.resolve("sample-repo"));
 		ChunkSet set = capture(graph);
 
-		assertThat(set.chunks()).isNotEmpty();
+		assertThat(codeOf(set)).isNotEmpty();
 		assertThat(set.capped()).isFalse();
-		for (ChunkData chunk : set.chunks()) {
+		for (ChunkData chunk : codeOf(set)) {
 			NodeIR node = graph.node(chunk.nodeId());
 			assertThat(node.external()).isFalse();
 			assertThat(node.type()).isIn(NodeType.CLASS, NodeType.INTERFACE, NodeType.METHOD, NodeType.FUNCTION);
@@ -95,7 +100,7 @@ class ChunkExtractorTest {
 			assertThat(chunk.startLine()).isBetween(1, chunk.endLine());
 			assertThat(chunk.endLine()).isLessThanOrEqualTo(lines(graph.root, chunk.file()).size());
 		}
-		assertThat(set.chunks()).extracting(ChunkData::nodeId).doesNotHaveDuplicates();
+		assertThat(codeOf(set)).extracting(ChunkData::nodeId).doesNotHaveDuplicates();
 	}
 
 	@Test
@@ -106,10 +111,10 @@ class ChunkExtractorTest {
 		ChunkSet second = capture(graph);
 
 		assertThat(first).isEqualTo(second);
-		List<String> files = first.chunks().stream().map(ChunkData::file).distinct().toList();
+		List<String> files = codeOf(first).stream().map(ChunkData::file).distinct().toList();
 		assertThat(files).isSorted();
 		for (String file : files) {
-			assertThat(first.chunks().stream().filter(chunk -> chunk.file().equals(file)).map(ChunkData::startLine).toList())
+			assertThat(codeOf(first).stream().filter(chunk -> chunk.file().equals(file)).map(ChunkData::startLine).toList())
 					.isSorted();
 		}
 	}
@@ -219,13 +224,15 @@ class ChunkExtractorTest {
 	void beyondTheLimitTheFirstChunksInFileOrderAreKeptAndTheResultSaysSo() {
 		RealGraph graph = RealGraph.of(FIXTURES.resolve("sample-repo"));
 		ChunkSet all = capture(graph);
-		assertThat(all.chunks().size()).isGreaterThan(5);
+		assertThat(codeOf(all).size()).isGreaterThan(5);
 
 		ChunkSet capped = extractor(6000, 5).extract(graph.graph, graph.root);
 
 		assertThat(capped.capped()).isTrue();
-		assertThat(capped.chunks()).hasSize(5).isEqualTo(all.chunks().subList(0, 5));
-		assertThat(extractor(6000, all.chunks().size()).extract(graph.graph, graph.root).capped()).isFalse(); // exactly full is not capped
+		assertThat(codeOf(capped)).hasSize(5).isEqualTo(codeOf(all).subList(0, 5));
+		// the README comes after the cap: two chunks of the repository's own words cannot be crowded out by code
+		assertThat(capped.chunks()).filteredOn(chunk -> chunk.kind().isProjectDoc()).hasSize(1);
+		assertThat(extractor(6000, codeOf(all).size()).extract(graph.graph, graph.root).capped()).isFalse(); // exactly full is not capped
 	}
 
 	@Test
@@ -239,6 +246,71 @@ class ChunkExtractorTest {
 
 		assertThat(set.chunks()).isEmpty();
 		assertThat(set.capped()).isFalse();
+	}
+
+	// ---- the README and the manifests ----------------------------------------------------------
+
+	private static void javaRepository(Path root) throws IOException {
+		Files.createDirectories(root.resolve("src/main/java/p"));
+		Files.writeString(root.resolve("src/main/java/p/Ok.java"), "package p;\n\npublic class Ok {\n    public void go() {}\n}\n");
+	}
+
+	@Test
+	void theReadmeAndTheManifestBecomeChunksOfTheRepositoryNodeAfterTheCode(@TempDir Path root) throws IOException {
+		javaRepository(root);
+		Files.writeString(root.resolve("README.md"), "# Shop\n\n[![Build](https://ci/badge.svg)](https://ci)\n\nA small shop that takes orders.\n");
+		Files.writeString(root.resolve("pom.xml"), "<project><name>Shop</name><description>Takes orders</description></project>");
+		RealGraph graph = RealGraph.of(root);
+
+		ChunkSet set = capture(graph);
+
+		String repository = graph.graph.nodes().stream().filter(node -> node.type() == NodeType.REPOSITORY).findFirst().orElseThrow().id();
+		List<ChunkData> docs = set.chunks().stream().filter(chunk -> chunk.kind().isProjectDoc()).toList();
+		assertThat(docs).extracting(ChunkData::kind).containsExactly(ChunkKind.README, ChunkKind.MANIFEST);
+		assertThat(docs).extracting(ChunkData::nodeId).containsOnly(repository);
+		assertThat(docs.getFirst().file()).isEqualTo("README.md");
+		assertThat(docs.getFirst().content()).contains("A small shop that takes orders.").doesNotContain("badge").doesNotContain("[!");
+		assertThat(docs.getFirst().startLine()).isEqualTo(1);
+		assertThat(docs.get(1).file()).isEqualTo("pom.xml");
+		assertThat(docs.get(1).content()).contains("name: Shop").contains("description: Takes orders");
+		assertThat(set.chunks().subList(set.chunks().size() - 2, set.chunks().size())).isEqualTo(docs); // after the code
+	}
+
+	@Test
+	void aRepositoryWithoutAReadmeOrManifestIsFine(@TempDir Path root) throws IOException {
+		javaRepository(root);
+
+		ChunkSet set = capture(RealGraph.of(root));
+
+		assertThat(set.chunks()).isNotEmpty().allMatch(chunk -> !chunk.kind().isProjectDoc());
+	}
+
+	@Test
+	void aReadmeAloneIsNotIndexedSoAnAnalysisOfOnlyTestsStaysEmpty(@TempDir Path root) throws IOException {
+		Files.createDirectories(root.resolve("tests"));
+		Files.writeString(root.resolve("tests/test_it.py"), "def test_it():\n    assert True\n");
+		Files.writeString(root.resolve("README.md"), "# Only tests\n\nNothing but tests here.\n");
+		Files.writeString(root.resolve("package.json"), "{\"name\": \"only-tests\", \"description\": \"tests\"}");
+
+		ChunkSet set = capture(RealGraph.of(root));
+
+		assertThat(set.chunks()).isEmpty();
+	}
+
+	@Test
+	void anUnreadableReadmeOrManifestSkipsOnlyThatChunk(@TempDir Path root) throws IOException {
+		javaRepository(root);
+		Files.createDirectories(root.resolve("README.md")); // a directory with the name of a README
+		Files.writeString(root.resolve("package.json"), "{ this is not json");
+		Files.writeString(root.resolve("go.mod"), "module example.com/shop\n");
+
+		ChunkSet set = capture(RealGraph.of(root));
+
+		assertThat(codeOf(set)).isNotEmpty();
+		assertThat(set.chunks()).filteredOn(chunk -> chunk.kind().isProjectDoc()).singleElement().satisfies(chunk -> {
+			assertThat(chunk.kind()).isEqualTo(ChunkKind.MANIFEST);
+			assertThat(chunk.content()).contains("module: example.com/shop").doesNotContain("not json");
+		});
 	}
 
 	@Test

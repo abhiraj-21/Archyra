@@ -13,12 +13,13 @@ import org.springframework.stereotype.Component;
 
 import com.abhiraj.archyra.ai.AiProperties;
 import com.abhiraj.archyra.ai.llm.ChatTurn;
+import com.abhiraj.archyra.ai.retrieval.QuestionIntent;
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
 
 /**
- * Answers that were already given. The key is the analysis, the normalised question, the history that would be sent and
- * the version of the index, so the same question in the same situation is a hit and a re-indexed analysis is not. A hit
+ * Answers that were already given. The key is the analysis, the normalised question, the history that would be sent, the
+ * version of the index and the question's intent (overview or specific), so the same question in the same situation is a hit and a re-indexed analysis is not. A hit
  * costs no quota. Only successful, grounded answers are stored, never failures. The key is a hash: no question text is
  * kept as a key. Single instance, in memory.
  */
@@ -42,16 +43,22 @@ class ChatAnswerCache {
 		entries.put(key, entry);
 	}
 
-	static String key(UUID analysisId, String message, List<ChatTurn> history, String indexVersion) {
+	/** The key of a question as an overview or a specific one: an overview answer is never reused for a specific question. */
+	static String key(UUID analysisId, String message, List<ChatTurn> history, String indexVersion, QuestionIntent intent) {
 		MessageDigest digest = sha256();
 		update(digest, analysisId.toString());
 		update(digest, normalise(message));
 		update(digest, indexVersion);
+		update(digest, intent.name());
 		for (ChatTurn turn : history) {
 			update(digest, turn.role().name());
 			update(digest, turn.content());
 		}
 		return HexFormat.of().formatHex(digest.digest());
+	}
+
+	static String key(UUID analysisId, String message, List<ChatTurn> history, String indexVersion) {
+		return key(analysisId, message, history, indexVersion, QuestionIntent.SPECIFIC);
 	}
 
 	/** Case and runs of whitespace do not make a different question. */

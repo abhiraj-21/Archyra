@@ -2,6 +2,10 @@ package com.abhiraj.archyra.ai.retrieval;
 
 /** Why an item is in the context. Declaration order is the rank: earlier items are filled into the budget first. */
 public enum Priority {
+	/** A fact about the project as a whole (name, languages, technologies, counts, main modules, most depended-on classes): overview questions only. */
+	PROJECT,
+	/** The README or the manifests' description, as a chunk of the repository node: overview questions only (any question can still find it by vector). */
+	PROJECT_DOCS,
 	/** Code of a node the question names (a type with a few of its methods, a method, the declarations of a file). */
 	NAME_MATCH,
 	/** A relationship from the graph, or a note that a node has more of them than listed. */

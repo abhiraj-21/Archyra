@@ -224,4 +224,12 @@ public class AnalysisService {
 	public long countAll() {
 		return analysisRepository.count();
 	}
+
+	/**
+	 * The repository URL of an analysis. Not ownership-scoped, so only for other features' code that already passed
+	 * {@link #requireCompleted} for the id (Ask AI's project context), never for request handling on its own.
+	 */
+	public java.util.Optional<String> repositoryUrlOf(UUID analysisId) {
+		return analysisRepository.findById(analysisId).map(Analysis::getRepositoryUrl);
+	}
 }
