@@ -15,6 +15,11 @@ public final class MovableClock extends Clock {
 		now = now.plus(duration);
 	}
 
+	/** Jumps to an absolute instant (earlier or later). */
+	public void setTo(Instant instant) {
+		now = instant;
+	}
+
 	@Override
 	public ZoneId getZone() {
 		return ZoneOffset.UTC;

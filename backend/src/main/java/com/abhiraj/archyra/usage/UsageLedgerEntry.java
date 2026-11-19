@@ -19,7 +19,8 @@ import lombok.NoArgsConstructor;
 /**
  * What a deleted account had consumed ({@code usage_ledger}): one row per identity key and usage type, holding only a
  * keyed hash and a count. No email, name, repository URL or content, and nothing that can be reversed without the
- * secret. Written only by {@link UsageLedgerRepository#raiseTo}; counts only go up.
+ * secret. Written only by {@link UsageLedgerRepository#raiseTo} and {@link UsageLedgerRepository#raiseToInWindow}; within a
+ * window counts only go up, and a newer window replaces an older one.
  */
 @Entity
 @Table(name = "usage_ledger",
@@ -41,6 +42,13 @@ public class UsageLedgerEntry {
 
 	@Column(name = "used_count", nullable = false)
 	private int usedCount;
+
+	/**
+	 * The weekly window {@code used_count} was consumed in; only a weekly type has one. An entry with none (a lifetime
+	 * type, or a weekly one written before the allowance became weekly) restores nothing for a weekly type.
+	 */
+	@Column(name = "window_start")
+	private Instant windowStart;
 
 	@Column(name = "updated_at", nullable = false)
 	private Instant updatedAt;

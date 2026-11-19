@@ -53,10 +53,10 @@ class ChatTransactions {
 	@Transactional
 	Reservation reserve(UUID userId, UUID analysisId, UUID conversationId, String message) {
 		usage.lock(userId, UsageType.AI_QUERY);
-		usage.charge(userId, UsageType.AI_QUERY);
+		Instant window = usage.charge(userId, UsageType.AI_QUERY);
 		Instant now = clock.instant();
 		Conversation conversation = conversationFor(userId, analysisId, conversationId, message, now);
-		ChatMessage question = messages.save(ChatMessage.user(conversation.getId(), message, MessageStatus.PENDING, true, now));
+		ChatMessage question = messages.save(ChatMessage.user(conversation.getId(), message, MessageStatus.PENDING, true, window, now));
 		return new Reservation(conversation.getId(), question.getId(), conversationId == null);
 	}
 
@@ -78,7 +78,7 @@ class ChatTransactions {
 	Saved storeCached(UUID userId, UUID analysisId, UUID conversationId, String message, String answer, String sourcesJson, String provider) {
 		Instant now = clock.instant();
 		Conversation conversation = conversationFor(userId, analysisId, conversationId, message, now);
-		messages.save(ChatMessage.user(conversation.getId(), message, MessageStatus.ANSWERED, false, now));
+		messages.save(ChatMessage.user(conversation.getId(), message, MessageStatus.ANSWERED, false, null, now));
 		ChatMessage reply = messages.save(ChatMessage.assistant(conversation.getId(), answer, sourcesJson, provider, true,
 				now.plus(1, ChronoUnit.MILLIS)));
 		conversation.touch(now.plus(1, ChronoUnit.MILLIS));
@@ -86,14 +86,16 @@ class ChatTransactions {
 	}
 
 	/**
-	 * Returns the unit of a question that failed, once: only the caller that wins the guarded UPDATE releases it. Then the
+	 * Returns the unit of a question that failed, once: only the caller that wins the guarded UPDATE releases it, and only
+	 * into the window it was charged in (after the Monday reset the refund changes nothing). Then the
 	 * PENDING message goes, and the conversation too if it was created for this question and holds nothing else.
 	 * Idempotent: a second call finds nothing to do.
 	 */
 	@Transactional
 	void refund(UUID userId, UUID conversationId, UUID userMessageId, boolean deleteConversationIfEmpty) {
+		Instant chargedWindow = messages.quotaWindowOf(userMessageId);
 		if (messages.markQuotaRefunded(userMessageId) == 1) {
-			usage.release(userId, UsageType.AI_QUERY);
+			usage.release(userId, UsageType.AI_QUERY, chargedWindow); // a no-op if the week has turned since the reservation
 		}
 		messages.deletePending(userMessageId);
 		if (deleteConversationIfEmpty && messages.countAll(conversationId) == 0) {

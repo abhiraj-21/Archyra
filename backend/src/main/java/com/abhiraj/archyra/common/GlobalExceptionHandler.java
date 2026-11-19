@@ -87,10 +87,13 @@ public class GlobalExceptionHandler {
 		return ResponseEntity.status(HttpStatus.FORBIDDEN).body(new ErrorResponse("PREMIUM_FEATURE", ex.getMessage()));
 	}
 
-	/** 403 like PREMIUM_FEATURE: a lifetime limit is not a "retry later" situation, which is what 429 would mean. */
+	/**
+	 * 403 like PREMIUM_FEATURE: an allowance is not a "retry in a moment" situation, which is what 429 would mean. A
+	 * weekly allowance adds {@code resetsAt}.
+	 */
 	@ExceptionHandler(UsageLimitExceededException.class)
 	public ResponseEntity<ErrorResponse> handleUsageLimitExceeded(UsageLimitExceededException ex) {
-		return ResponseEntity.status(HttpStatus.FORBIDDEN).body(new ErrorResponse("USAGE_LIMIT_EXCEEDED", ex.getMessage()));
+		return ResponseEntity.status(HttpStatus.FORBIDDEN).body(new ErrorResponse("USAGE_LIMIT_EXCEEDED", ex.getMessage(), ex.resetsAt()));
 	}
 
 	@ExceptionHandler(AnalysisInProgressException.class)

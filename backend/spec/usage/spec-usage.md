@@ -53,7 +53,7 @@ Under `ddl-auto=update`, adding a non-null column to a table with rows fails in 
 
 ```properties
 archyra.usage.free-tier.repository-analysis-limit=5
-archyra.usage.free-tier.ai-query-limit=20
+archyra.usage.free-tier.ai-query-limit=20   # superseded: Ask AI questions are weekly, default 15 (spec/weekly-ask-ai-limit/spec.md)
 ```
 
 - `@Validated`, `@Min(0)` on each limit. Missing or negative values fail startup.

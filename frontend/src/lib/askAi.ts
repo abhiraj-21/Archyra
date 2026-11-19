@@ -166,14 +166,22 @@ export const LOW_QUESTIONS_LEFT = 3;
 export interface UsageLabel {
   text: string;
   tone: 'normal' | 'warn' | 'full';
+  /** What the free plan includes, for the counting note and the guide ("15 free questions per week, ..."); null for PREMIUM. */
+  allowance: string | null;
 }
 
-/** "17 of 20 questions left" for FREE, "Unlimited" for PREMIUM; the numbers are always the server's. */
+/** "15 free questions per week" and when they come back. The number is the server's limit, never a literal here. */
+export function allowanceNote(limit: number): string {
+  return `The free plan includes ${limit} free ${limit === 1 ? 'question' : 'questions'} per week, and they reset every Monday.`;
+}
+
+/** "13 of 15 questions left this week" for FREE, "Unlimited" for PREMIUM; the numbers are always the server's. */
 export function questionsLabel(entry: Pick<UsageEntry, 'limit' | 'remaining' | 'limitReached'>): UsageLabel {
-  if (entry.limit === null || entry.remaining === null) return { text: 'Unlimited questions', tone: 'normal' };
-  if (entry.limitReached || entry.remaining <= 0) return { text: `No questions left of ${entry.limit}`, tone: 'full' };
-  const text = `${entry.remaining} of ${entry.limit} questions left`;
-  return { text, tone: entry.remaining <= LOW_QUESTIONS_LEFT ? 'warn' : 'normal' };
+  if (entry.limit === null || entry.remaining === null) return { text: 'Unlimited questions', tone: 'normal', allowance: null };
+  const allowance = allowanceNote(entry.limit);
+  if (entry.limitReached || entry.remaining <= 0) return { text: 'No questions left this week', tone: 'full', allowance };
+  const text = `${entry.remaining} of ${entry.limit} questions left this week`;
+  return { text, tone: entry.remaining <= LOW_QUESTIONS_LEFT ? 'warn' : 'normal', allowance };
 }
 
 /**

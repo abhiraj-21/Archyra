@@ -10,6 +10,7 @@ import { useSession } from '@/hooks/sessionContext';
 import { useUpdateName } from '@/hooks/useAccount';
 import { useUpgrade } from '@/hooks/upgradeContext';
 import { describeError } from '@/lib/errorCopy';
+import { AiUsageMeter } from '@/features/usage/AiUsageMeter';
 import { UsageMeter } from '@/features/usage/UsageMeter';
 import { nameError } from '@/features/auth/validation';
 import { Appearance } from './Appearance';
@@ -99,8 +100,9 @@ export default function SettingsPage() {
             </Button>
           </div>
         ) : null}
-        <div className="max-w-[24rem]">
+        <div className="grid max-w-[24rem] gap-md">
           <UsageMeter />
+          <AiUsageMeter />
         </div>
       </Section>
 

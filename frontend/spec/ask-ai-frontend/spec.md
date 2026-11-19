@@ -14,7 +14,7 @@ Replace the "coming soon" Ask AI tab (`features/repository/ask-ai/AskAiPage.tsx`
 - One JSON response per question (no streaming): show a thinking state until it arrives.
 - A source is a chip with a type glyph and name; it expands to `file:line–endLine` and the code excerpt, and has an **Open in graph** link.
 - Chat is disabled until the index is `READY`. Old analyses say "Re-analyze to enable Ask AI". A failed index has a free **Retry**.
-- FREE users have 20 questions for life (`GET /usage`, `AI_QUERY`); PREMIUM is unlimited; everyone is limited to 10 questions per minute.
+- FREE users have 20 questions for life (`GET /usage`, `AI_QUERY`) *(superseded 2026-11-20: 15 per week, resetting every Monday, with `resetsAt`; see `spec/weekly-ask-ai-limit/spec.md`)*; PREMIUM is unlimited; everyone is limited to 10 questions per minute.
 - Re-analyzing deletes the replaced analysis's conversations; the re-analyze confirmation must say so.
 - Free-tier data-use disclosure sits next to the composer.
 
@@ -60,13 +60,13 @@ The tab opens `useAiIndex(analysisId)` once the workspace is ready, then switche
 - **Empty conversation:** the five example questions from `Architecture.md` as buttons that fill the composer (not send).
 - **Asking:** Enter sends, Shift+Enter inserts a newline, the message is limited to 2,000 characters with a visible counter near the limit. On send: show the user message at once, then an assistant "Thinking…" placeholder (`aria-live="polite"`), disable the composer for that conversation only. A client abort at about 75 s turns into the `AI_UNAVAILABLE` copy. On success replace the placeholder with the answer and invalidate the conversation list, the messages and `GET /usage`. If no `conversationId` was open, the response's `conversationId` becomes the selected one (`?c=`).
 - **Failure handling (the question text must never be lost):**
-    - `USAGE_LIMIT_EXCEEDED` (403): the composer is replaced by `LimitPanel` ("You've used all your free questions") with the upgrade dialog (`upgradeContext`) and no further sends.
+    - `USAGE_LIMIT_EXCEEDED` (403): the composer is replaced by `LimitPanel` (*now: "Out of credits. Upgrade to Premium or wait till hh:mm / N days.", see `spec/weekly-ask-ai-limit/spec.md`*) with the upgrade dialog (`upgradeContext`) and no further sends.
     - `RATE_LIMITED` (429): inline notice with a countdown from `Retry-After` (reuse `Countdown`/`useCountdown`); the text stays in the composer; send re-enables when it ends.
     - `AI_UNAVAILABLE` (503): inline error on that turn, "The AI service is busy right now. Your question wasn't counted. Try again in a minute.", a **Try again** button, text preserved.
     - `AI_NOT_READY` (409): refetch the index state and switch panels.
     - `CONVERSATION_BUSY`: "Wait for the current answer." `CONVERSATION_FULL`: copy asking to start a new conversation (with a button).
     - `AUTHENTICATION_REQUIRED` goes through the existing single-flight refresh and one retry; never handle it in the feature.
-- **Usage meter:** a compact chip near the composer from `useUsage` (the existing `AI_QUERY` entry, `UsageMeter`): "17 of 20 questions left" for FREE, "Unlimited" for PREMIUM, a warning style at 3 left; never a hard-coded 20. If the existing `UsageMeter` can be reused, reuse it.
+- **Usage meter:** a compact chip near the composer from `useUsage` (the existing `AI_QUERY` entry, `UsageMeter`): "17 of 20 questions left" for FREE *(now "13 of 15 questions left this week")*, "Unlimited" for PREMIUM, a warning style at 3 left; never a hard-coded 20. If the existing `UsageMeter` can be reused, reuse it.
 - A **cached** answer shows a small "from this conversation's cache" note (no usage consumed); the `provider` shows as a quiet "Answered by Gemini/Groq" line (Groq may be shown as "fallback").
 
 ### Messages and sources

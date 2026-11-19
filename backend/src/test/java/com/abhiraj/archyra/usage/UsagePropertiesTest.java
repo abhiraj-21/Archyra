@@ -18,8 +18,10 @@ class UsagePropertiesTest {
 	private static final String LIMITS = "archyra.usage.free-tier.repository-analysis-limit=3";
 	private static final String AI_LIMIT = "archyra.usage.free-tier.ai-query-limit=3";
 
+	private static final String ZONE = "archyra.usage.reset-zone=Asia/Kolkata";
+
 	private final ApplicationContextRunner runner = new ApplicationContextRunner().withUserConfiguration(Config.class)
-			.withPropertyValues("archyra.usage.ledger-secret=" + SECRET);
+			.withPropertyValues("archyra.usage.ledger-secret=" + SECRET, ZONE);
 
 	@Test
 	void boundLimitsAreReturnedPerType() {
@@ -62,7 +64,7 @@ class UsagePropertiesTest {
 
 	@Test
 	void everyUsageTypeHasALimit() {
-		UsageProperties properties = new UsageProperties(new UsageProperties.FreeTier(4, 9), SECRET);
+		UsageProperties properties = new UsageProperties(new UsageProperties.FreeTier(4, 9), SECRET, "UTC");
 
 		for (UsageType type : UsageType.values()) {
 			assertThat(properties.freeLimit(type)).isNotNegative();
@@ -71,10 +73,10 @@ class UsagePropertiesTest {
 
 	@Test
 	void theLedgerSecretIsRequired() {
-		new ApplicationContextRunner().withUserConfiguration(Config.class).withPropertyValues(LIMITS, AI_LIMIT)
+		new ApplicationContextRunner().withUserConfiguration(Config.class).withPropertyValues(LIMITS, AI_LIMIT, ZONE)
 				.run(context -> assertThat(context).hasFailed());
 		new ApplicationContextRunner().withUserConfiguration(Config.class)
-				.withPropertyValues(LIMITS, AI_LIMIT, "archyra.usage.ledger-secret=   ")
+				.withPropertyValues(LIMITS, AI_LIMIT, ZONE, "archyra.usage.ledger-secret=   ")
 				.run(context -> assertThat(context).hasFailed());
 	}
 
@@ -82,17 +84,51 @@ class UsagePropertiesTest {
 	void aShortOrObviouslyWeakLedgerSecretFailsStartup() {
 		for (String weak : new String[] { "too-short", "0123456789012345678901234567890", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" }) {
 			new ApplicationContextRunner().withUserConfiguration(Config.class)
-					.withPropertyValues(LIMITS, AI_LIMIT, "archyra.usage.ledger-secret=" + weak)
+					.withPropertyValues(LIMITS, AI_LIMIT, ZONE, "archyra.usage.ledger-secret=" + weak)
 					.run(context -> assertThat(context).hasFailed());
 		}
 	}
 
 	@Test
 	void aLongEnoughLedgerSecretIsAcceptedAndNeverPrinted() {
-		new ApplicationContextRunner().withUserConfiguration(Config.class).withPropertyValues(LIMITS, AI_LIMIT, "archyra.usage.ledger-secret=" + SECRET)
+		new ApplicationContextRunner().withUserConfiguration(Config.class).withPropertyValues(LIMITS, AI_LIMIT, ZONE, "archyra.usage.ledger-secret=" + SECRET)
 				.run(context -> {
 					assertThat(context).hasNotFailed();
 					assertThat(context.getBean(UsageProperties.class).toString()).doesNotContain(SECRET);
 				});
+	}
+
+	// ---- the weekly reset zone -------------------------------------------------------------------
+
+	private ApplicationContextRunner withoutZone() {
+		return new ApplicationContextRunner().withUserConfiguration(Config.class)
+				.withPropertyValues("archyra.usage.ledger-secret=" + SECRET, LIMITS, AI_LIMIT);
+	}
+
+	@Test
+	void aKnownIanaZoneIsAccepted() {
+		for (String zone : new String[] { "Asia/Kolkata", "UTC", "America/New_York", "Europe/London", "Pacific/Auckland" }) {
+			withoutZone().withPropertyValues("archyra.usage.reset-zone=" + zone).run(context -> {
+				assertThat(context).hasNotFailed();
+				assertThat(context.getBean(UsageProperties.class).zone()).isEqualTo(java.time.ZoneId.of(zone));
+			});
+		}
+	}
+
+	@Test
+	void anUnknownZoneFailsStartupWithoutEchoingAnythingUseful() {
+		for (String zone : new String[] { "Mars/Olympus_Mons", "IST", "not a zone", "Asia/Calcutta2" }) {
+			withoutZone().withPropertyValues("archyra.usage.reset-zone=" + zone).run(context -> {
+				assertThat(context).hasFailed();
+				assertThat(context.getStartupFailure()).hasRootCauseMessage(
+						"archyra.usage.reset-zone (USAGE_RESET_ZONE) is not a known time zone, use an IANA id such as Asia/Kolkata or UTC");
+			});
+		}
+	}
+
+	@Test
+	void aMissingOrBlankZoneFailsStartup() {
+		withoutZone().run(context -> assertThat(context).hasFailed());
+		withoutZone().withPropertyValues("archyra.usage.reset-zone=   ").run(context -> assertThat(context).hasFailed());
 	}
 }

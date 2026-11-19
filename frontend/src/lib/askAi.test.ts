@@ -5,6 +5,7 @@ import {
   parseBlocks,
   parseInline,
   providerNote,
+  allowanceNote,
   questionsLabel,
   retrySeconds,
   safeHref,
@@ -128,14 +129,21 @@ describe('retrySeconds', () => {
 
 describe('questionsLabel', () => {
   it('reads the server numbers and warns when few are left', () => {
-    expect(questionsLabel({ limit: 20, remaining: 17, limitReached: false })).toEqual({ text: '17 of 20 questions left', tone: 'normal' });
-    expect(questionsLabel({ limit: 20, remaining: 3, limitReached: false }).tone).toBe('warn');
-    expect(questionsLabel({ limit: 20, remaining: 0, limitReached: true }).tone).toBe('full');
-    expect(questionsLabel({ limit: null, remaining: null, limitReached: false })).toEqual({ text: 'Unlimited questions', tone: 'normal' });
+    expect(questionsLabel({ limit: 15, remaining: 13, limitReached: false })).toEqual({
+      text: '13 of 15 questions left this week',
+      tone: 'normal',
+      allowance: 'The free plan includes 15 free questions per week, and they reset every Monday.',
+    });
+    expect(questionsLabel({ limit: 15, remaining: 3, limitReached: false }).tone).toBe('warn');
+    expect(questionsLabel({ limit: 15, remaining: 0, limitReached: true })).toMatchObject({ text: 'No questions left this week', tone: 'full' });
+    expect(questionsLabel({ limit: null, remaining: null, limitReached: false })).toEqual({ text: 'Unlimited questions', tone: 'normal', allowance: null });
   });
 
-  it('never invents a limit', () => {
-    expect(questionsLabel({ limit: 5, remaining: 4, limitReached: false }).text).toBe('4 of 5 questions left');
+  it('never invents a limit: the number in every sentence is the entry\'s', () => {
+    expect(questionsLabel({ limit: 5, remaining: 4, limitReached: false }).text).toBe('4 of 5 questions left this week');
+    expect(questionsLabel({ limit: 5, remaining: 4, limitReached: false }).allowance).toContain('5 free questions per week');
+    expect(questionsLabel({ limit: 1, remaining: 1, limitReached: false }).allowance).toContain('1 free question per week');
+    expect(allowanceNote(40)).toContain('40 free questions per week');
   });
 });
 

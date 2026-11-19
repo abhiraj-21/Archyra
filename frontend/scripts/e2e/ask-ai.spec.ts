@@ -86,11 +86,11 @@ const composer = (page: Page) => page.getByLabel('Your question');
 const askButton = (page: Page) => page.getByRole('button', { name: 'Ask', exact: true });
 
 /** Answers the next chat request with a backend error body, so the failure UI can be seen without spending a question. */
-async function failChat(page: Page, status: number, code: string, headers: Record<string, string> = {}) {
+async function failChat(page: Page, status: number, code: string, headers: Record<string, string> = {}, extra: Record<string, unknown> = {}) {
   let hits = 0;
   await page.route('**/api/v1/analyses/*/chat', async (route) => {
     hits += 1;
-    await route.fulfill({ status, headers: { 'content-type': 'application/json', ...headers }, body: JSON.stringify({ code, message: 'injected by the e2e test' }) });
+    await route.fulfill({ status, headers: { 'content-type': 'application/json', ...headers }, body: JSON.stringify({ code, message: 'injected by the e2e test', ...extra }) });
   });
   return () => hits;
 }
@@ -258,18 +258,90 @@ live('QUESTION_NOT_ANSWERABLE says the question was not counted, keeps the text,
   await page.unroute('**/api/v1/analyses/*/chat');
 }, 'ready');
 
-live('USAGE_LIMIT_EXCEEDED replaces the composer with the limit panel', async (page) => {
-  const hits = await failChat(page, 403, 'USAGE_LIMIT_EXCEEDED');
+// "Out of credits. Upgrade to Premium or wait till hh:mm." (reset under 24 hours away) / "... wait N day(s)." (otherwise).
+const OUT_OF_CREDITS = /^Out of credits\. Upgrade to Premium or wait (till \d\d:\d\d|\d+ days?)\.$/;
+
+live('USAGE_LIMIT_EXCEEDED replaces the composer with the out-of-credits message (the 403 is injected, its body is the backend\'s)', async (page) => {
+  const resetsAt = new Date(Date.now() + 3 * 24 * 3_600_000 + 3_600_000).toISOString(); // 3 days and an hour away: "wait 4 days"
+  const hits = await failChat(page, 403, 'USAGE_LIMIT_EXCEEDED', {}, { resetsAt });
   await page.goto(ASK());
   await composer(page).fill('A question that is refused');
   await askButton(page).click();
-  await expect(page.getByRole('heading', { name: /used all your free questions/i })).toBeVisible();
+  const message = page.getByTestId('limit-message');
+  await expect(message).toHaveText(OUT_OF_CREDITS);
+  await expect(message).toHaveText('Out of credits. Upgrade to Premium or wait 4 days.');
   await expect(composer(page)).toHaveCount(0);
-  await page.getByRole('button', { name: 'See Premium' }).click();
+  await page.getByRole('button', { name: 'Upgrade to Premium' }).click();
   await expect(page.getByRole('dialog')).toBeVisible();
   await page.keyboard.press('Escape');
   expect(hits()).toBe(1);
   await page.unroute('**/api/v1/analyses/*/chat');
+}, 'ready');
+
+live('the usage chip and the counting note say the allowance is weekly, with the server\'s number', async (page) => {
+  const usage = (await (await page.request.get('/api/v1/usage', { headers: { Authorization: `Bearer ${token}` } })).json()) as {
+    plan: string;
+    usage: { usageType: string; limit: number | null; resetsAt?: string }[];
+  };
+  const entry = usage.usage.find((u) => u.usageType === 'AI_QUERY');
+  test.skip(!entry || entry.limit === null, 'the test account is on Premium: no weekly allowance is shown');
+  expect(usage.usage.find((u) => u.usageType === 'REPOSITORY_ANALYSIS')).not.toHaveProperty('resetsAt');
+  expect(Date.parse(entry?.resetsAt ?? '')).toBeGreaterThan(Date.now());
+  await page.goto(ASK());
+  await expect(page.getByTestId('counting-note')).toContainText(`${entry?.limit} free questions per week`);
+  await expect(page.getByRole('status').filter({ hasText: /this week/ })).toBeVisible();
+}, 'ready');
+
+/**
+ * The real flow: ask real questions until the backend refuses one, then read the message the page shows. It spends real
+ * provider quota (and the account's AI_QUERY units until it is out), so it runs only with ARCHYRA_E2E_AI_EXHAUST=1; an account
+ * that is already out of questions is checked without asking anything. Skips, saying why, otherwise.
+ */
+live('exhausting the weekly allowance through the real flow shows "Out of credits. Upgrade to Premium or wait ..."', async (page) => {
+  test.setTimeout(10 * 60_000);
+  const headers = { Authorization: `Bearer ${token}` };
+  const read = async () =>
+    (await (await page.request.get('/api/v1/usage', { headers })).json()) as { usage: { usageType: string; limit: number | null; remaining: number | null; limitReached: boolean; resetsAt?: string }[] };
+  const entry = (await read()).usage.find((u) => u.usageType === 'AI_QUERY');
+  test.skip(!entry || entry.limit === null, 'the test account is on Premium: its questions are never limited');
+  const state = entry as { limit: number; remaining: number; limitReached: boolean };
+  test.skip(
+    !state.limitReached && env.ARCHYRA_E2E_AI_EXHAUST !== '1',
+    `the test account has ${state.remaining} of ${state.limit} questions left this week; using them all spends real provider quota, so set ARCHYRA_E2E_AI_EXHAUST=1 to allow it`,
+  );
+  let refusal: { code: string; resetsAt?: string } | null = null;
+  for (let i = 0; !state.limitReached && i < state.limit + 3; i++) {
+    const answer = await page.request.post(`/api/v1/analyses/${analysisId}/chat`, {
+      headers,
+      data: { message: `In one sentence, what is the purpose of this repository? (variant ${Date.now()}-${i})` },
+      timeout: 120_000,
+    });
+    if (answer.status() === 403) {
+      refusal = (await answer.json()) as { code: string; resetsAt?: string };
+      break;
+    }
+    expect([200, 422, 429, 503]).toContain(answer.status()); // a refused or failed question is not counted: just ask the next one
+    await page.waitForTimeout(7_000); // stay under 10 questions a minute
+    const now = (await read()).usage.find((u) => u.usageType === 'AI_QUERY');
+    if (now?.limitReached) break;
+  }
+  if (refusal) {
+    expect(refusal.code).toBe('USAGE_LIMIT_EXCEEDED');
+    expect(Date.parse(refusal.resetsAt ?? '')).toBeGreaterThan(Date.now()); // the 403 body carries the reset moment
+  }
+  const after = (await read()).usage.find((u) => u.usageType === 'AI_QUERY');
+  expect(after?.limitReached).toBe(true);
+  expect(Date.parse(after?.resetsAt ?? '')).toBeGreaterThan(Date.now());
+
+  await page.goto(ASK());
+  await expect(page.getByTestId('limit-message')).toHaveText(OUT_OF_CREDITS);
+  await expect(composer(page)).toHaveCount(0);
+  await page.getByRole('button', { name: 'Upgrade to Premium' }).click();
+  await expect(page.getByRole('dialog')).toBeVisible();
+  await page.keyboard.press('Escape');
+  await page.goto('/settings');
+  await expect(page.getByTestId('ai-usage')).toContainText('per week, resets Monday');
+  await expect(page.getByTestId('ai-usage')).toContainText(OUT_OF_CREDITS);
 }, 'ready');
 
 live('RATE_LIMITED shows a countdown and keeps the text', async (page) => {

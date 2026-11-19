@@ -61,6 +61,13 @@ class ChatMessage {
 	@Column(name = "quota_charged", nullable = false, updatable = false, columnDefinition = "boolean not null default false")
 	private boolean quotaCharged;
 
+	/**
+	 * The weekly window the charged unit belongs to (what {@code UsageService.charge} returned), so a refund after the
+	 * reset is known to be a no-op. Null for an uncharged message and for one charged before the allowance became weekly.
+	 */
+	@Column(name = "quota_window_start", updatable = false)
+	private Instant quotaWindowStart;
+
 	/** Set by one guarded UPDATE, which is what makes a refund happen only once. */
 	@Column(name = "quota_refunded", nullable = false, columnDefinition = "boolean not null default false")
 	private boolean quotaRefunded;
@@ -68,7 +75,8 @@ class ChatMessage {
 	@Column(name = "created_at", nullable = false, updatable = false)
 	private Instant createdAt;
 
-	static ChatMessage user(UUID conversationId, String content, MessageStatus status, boolean quotaCharged, Instant now) {
+	static ChatMessage user(UUID conversationId, String content, MessageStatus status, boolean quotaCharged, Instant quotaWindowStart,
+			Instant now) {
 		ChatMessage message = new ChatMessage();
 		message.id = UUID.randomUUID();
 		message.conversationId = conversationId;
@@ -76,6 +84,7 @@ class ChatMessage {
 		message.content = content;
 		message.status = status;
 		message.quotaCharged = quotaCharged;
+		message.quotaWindowStart = quotaWindowStart;
 		message.createdAt = now;
 		return message;
 	}

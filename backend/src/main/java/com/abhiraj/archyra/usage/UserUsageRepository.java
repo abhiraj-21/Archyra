@@ -1,5 +1,6 @@
 package com.abhiraj.archyra.usage;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -34,6 +35,16 @@ interface UserUsageRepository extends JpaRepository<UserUsage, UUID> {
 			""", nativeQuery = true)
 	int insertIfAbsent(@Param("id") UUID id, @Param("userId") UUID userId, @Param("type") String type);
 
+	/** Like {@link #insertIfAbsent} for a weekly type: a new row starts in the given window. */
+	@Modifying(flushAutomatically = true)
+	@Query(value = """
+			insert into user_usage (id, user_id, usage_type, used_count, window_start, created_at, updated_at)
+			values (:id, :userId, :type, 0, :window, now(), now())
+			on conflict (user_id, usage_type) do nothing
+			""", nativeQuery = true)
+	int insertIfAbsentInWindow(@Param("id") UUID id, @Param("userId") UUID userId, @Param("type") String type,
+			@Param("window") Instant window);
+
 	/**
 	 * Raises the counter to {@code count} (creating the row if needed) and never lowers it. Used only to restore what the
 	 * usage ledger remembers, so it is a plain atomic upsert and does not take the row lock of {@link #findForUpdate}.
@@ -47,6 +58,27 @@ interface UserUsageRepository extends JpaRepository<UserUsage, UUID> {
 			""", nativeQuery = true)
 	int raiseTo(@Param("id") UUID id, @Param("userId") UUID userId, @Param("type") String type, @Param("count") int count);
 
+	/**
+	 * {@link #raiseTo} for a weekly type, in the window {@code window} (the current one). A stored count only competes with
+	 * a count of the same window: the same window keeps the larger count, an older (or missing) window is replaced, and a
+	 * newer window is kept. Postgres evaluates every SET expression against the old row, so the three branches agree.
+	 */
+	@Modifying(flushAutomatically = true)
+	@Query(value = """
+			insert into user_usage (id, user_id, usage_type, used_count, window_start, created_at, updated_at)
+			values (:id, :userId, :type, :count, :window, now(), now())
+			on conflict (user_id, usage_type)
+			do update set
+				used_count = case
+					when user_usage.window_start = excluded.window_start then greatest(user_usage.used_count, excluded.used_count)
+					when user_usage.window_start is null or user_usage.window_start < excluded.window_start then excluded.used_count
+					else user_usage.used_count end,
+				window_start = greatest(user_usage.window_start, excluded.window_start),
+				updated_at = now()
+			""", nativeQuery = true)
+	int raiseToInWindow(@Param("id") UUID id, @Param("userId") UUID userId, @Param("type") String type, @Param("count") int count,
+			@Param("window") Instant window);
+
 	/** Removes every counter of a deleted account (its consumption lives on in the ledger). */
 	@Modifying(flushAutomatically = true)
 	@Query("delete from UserUsage u where u.userId = :userId")
@@ -59,6 +91,18 @@ interface UserUsageRepository extends JpaRepository<UserUsage, UUID> {
 			where user_id = :userId and usage_type = :type and used_count > 0
 			""", nativeQuery = true)
 	int decrement(@Param("userId") UUID userId, @Param("type") String type);
+
+	/**
+	 * Returns one unit of a weekly type, only if the row is still in the window the unit was charged in: the row has
+	 * rolled over (or never was in that window) means no row matches and nothing changes, so a refund can neither go below
+	 * 0 nor credit a newer week.
+	 */
+	@Modifying(flushAutomatically = true)
+	@Query(value = """
+			update user_usage set used_count = used_count - 1, updated_at = now()
+			where user_id = :userId and usage_type = :type and used_count > 0 and window_start = :window
+			""", nativeQuery = true)
+	int decrementInWindow(@Param("userId") UUID userId, @Param("type") String type, @Param("window") Instant window);
 
 	/**
 	 * Bounds how long this transaction waits for a row lock, so a stuck holder cannot pile up request threads.

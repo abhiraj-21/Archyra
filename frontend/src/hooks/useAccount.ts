@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { changePassword } from '@/api/endpoints/auth';
 import { confirmAccountDeletion, deleteAccount, getUsage, requestAccountDeletion, updateMe } from '@/api/endpoints/users';
 import { queryKeys } from '@/api/queryKeys';
+import { useRefetchWhenDue } from './useRefetchWhenDue';
 import { useSession } from './sessionContext';
 
 export function useUsage() {
@@ -16,10 +17,15 @@ export function useAnalysisUsage() {
   return { ...usage, entry, plan: usage.data?.plan };
 }
 
-/** The AI_QUERY entry of /usage: FREE has a limit, PREMIUM has null. */
+/**
+ * The AI_QUERY entry of /usage: FREE has a weekly limit, PREMIUM has null. The entry says when the week turns (`resetsAt`), so this
+ * hook fetches `/usage` again once that moment has passed (one timer, and again on focus), and the remaining count and the composer
+ * unlock without a reload.
+ */
 export function useAiUsage() {
   const usage = useUsage();
   const entry = usage.data?.usage.find((u) => u.usageType === 'AI_QUERY');
+  useRefetchWhenDue(entry?.resetsAt, usage.dataUpdatedAt, usage.refetch);
   return { ...usage, entry, plan: usage.data?.plan };
 }
 

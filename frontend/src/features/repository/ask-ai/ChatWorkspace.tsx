@@ -49,7 +49,9 @@ export function ChatWorkspace({ analysisId, index }: { analysisId: string; repos
   const [draft, setDraft] = useState('');
   const [pending, setPending] = useState<{ conversation: string | null; message: string } | null>(null);
   const [failure, setFailure] = useState<Failure | null>(null);
-  const [limitHit, setLimitHit] = useState(false);
+  // The server refused a question for the limit: `resetsAt` is from its body. Kept until `/usage`, fetched after that moment, says the
+  // questions are back (a limit that the entry already reports needs no state).
+  const [limitHit, setLimitHit] = useState<{ resetsAt: string | undefined } | null>(null);
   const [rateLimit, setRateLimit] = useState<{ id: number; seconds: number } | null>(null);
   const [listOpen, setListOpen] = useState(false);
   const [missing, setMissing] = useState(false);
@@ -106,7 +108,8 @@ export function ChatWorkspace({ analysisId, index }: { analysisId: string; repos
 
   const handleFailure = (error: unknown, text: string, id: number) => {
     if (hasCode(error, 'USAGE_LIMIT_EXCEEDED')) {
-      setLimitHit(true);
+      setLimitHit({ resetsAt: error.resetsAt });
+      void usage.refetch(); // the count and the reset moment are the server's
       return;
     }
     if (hasCode(error, 'AI_NOT_READY')) void refreshIndex();
@@ -118,7 +121,16 @@ export function ChatWorkspace({ analysisId, index }: { analysisId: string; repos
   const items = conversations.data?.items ?? [];
   const sendingHere = pending !== null && pending.conversation === selectedId;
   const entry = usage.entry;
-  const limitReached = limitHit || entry?.limitReached === true;
+  const limitReached = limitHit !== null || entry?.limitReached === true;
+  const limitResetsAt = entry?.limitReached ? entry.resetsAt : (limitHit?.resetsAt ?? entry?.resetsAt);
+  // The week turned: a `/usage` read at or after the reset that no longer reports the limit ends the refusal, so the composer is back.
+  const entryLimitReached = entry?.limitReached;
+  const usageReadAt = usage.dataUpdatedAt;
+  useEffect(() => {
+    if (limitHit === null) return;
+    const reset = Date.parse(limitHit.resetsAt ?? '');
+    if (!Number.isNaN(reset) && entryLimitReached === false && usageReadAt >= reset) setLimitHit(null);
+  }, [limitHit, entryLimitReached, usageReadAt]);
   const disabledReason = sendingHere ? 'Waiting for the answer…' : rateLimit ? 'Too many questions. Wait for the countdown to end.' : null;
   const usageLabel = entry ? questionsLabel(entry) : null;
   const onExample = (question: string) => {
@@ -214,11 +226,14 @@ export function ChatWorkspace({ analysisId, index }: { analysisId: string; repos
             {conversationIsEmpty ? null : <GuideToggle open={guideOpen} controls={guideId} onToggle={() => setGuideOpen((open) => !open)} />}
           </div>
           {limitReached ? (
-            <LimitPanel />
+            <LimitPanel resetsAt={limitResetsAt} />
           ) : (
             <Composer ref={composer} value={draft} onChange={setDraft} onSend={() => void send(draft.trim())} disabledReason={disabledReason} sending={sendingHere} />
           )}
-          <p className="max-w-[80ch] text-xs text-muted" data-testid="counting-note">{COUNTING_NOTE}</p>
+          <p className="max-w-[80ch] text-xs text-muted" data-testid="counting-note">
+            {usageLabel?.allowance ? `${usageLabel.allowance} ` : null}
+            {COUNTING_NOTE}
+          </p>
           <p className="max-w-[80ch] text-xs text-muted">{DATA_USE_NOTE}</p>
         </div>
       </section>

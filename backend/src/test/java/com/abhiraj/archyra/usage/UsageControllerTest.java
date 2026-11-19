@@ -30,6 +30,7 @@ class UsageControllerTest {
 
 	private static final String ME = "6f1c1d8e-3a52-4b55-9d0e-0a8b1c2d3e4f";
 	private static final UUID ME_ID = UUID.fromString(ME);
+	private static final java.time.Instant RESETS = java.time.Instant.parse("2026-11-22T18:30:00Z");
 
 	@Autowired
 	private MockMvc mockMvc;
@@ -48,14 +49,17 @@ class UsageControllerTest {
 	@WithMockUser(username = ME)
 	void aFreeUserSeesUsedLimitRemainingAndLimitReached() throws Exception {
 		given(usageService.usageOf(ME_ID)).willReturn(new UsageResponse(Plan.FREE, List.of(
-				UsageEntry.limited(UsageType.REPOSITORY_ANALYSIS, 3, 5), UsageEntry.limited(UsageType.AI_QUERY, 0, 20))));
+				UsageEntry.limited(UsageType.REPOSITORY_ANALYSIS, 3, 5, null), UsageEntry.limited(UsageType.AI_QUERY, 0, 20, RESETS))));
 
 		mockMvc.perform(get("/api/v1/usage"))
 				.andExpect(status().isOk())
 				.andExpect(jsonPath("$.length()").value(2))
 				.andExpect(jsonPath("$.plan").value("FREE"))
 				.andExpect(jsonPath("$.usage.length()").value(2))
-				.andExpect(jsonPath("$.usage[0].length()").value(5))
+				.andExpect(jsonPath("$.usage[0].length()").value(5)) // a lifetime type has no resetsAt, not even null
+				.andExpect(jsonPath("$.usage[0].resetsAt").doesNotExist())
+				.andExpect(jsonPath("$.usage[1].length()").value(6))
+				.andExpect(jsonPath("$.usage[1].resetsAt").value("2026-11-22T18:30:00Z"))
 				.andExpect(jsonPath("$.usage[0].usageType").value("REPOSITORY_ANALYSIS"))
 				.andExpect(jsonPath("$.usage[0].used").value(3))
 				.andExpect(jsonPath("$.usage[0].limit").value(5))
@@ -72,7 +76,7 @@ class UsageControllerTest {
 	@WithMockUser(username = ME)
 	void aFreeUserAtTheCap() throws Exception {
 		given(usageService.usageOf(ME_ID)).willReturn(new UsageResponse(Plan.FREE, List.of(
-				UsageEntry.limited(UsageType.REPOSITORY_ANALYSIS, 5, 5))));
+				UsageEntry.limited(UsageType.REPOSITORY_ANALYSIS, 5, 5, null))));
 
 		mockMvc.perform(get("/api/v1/usage"))
 				.andExpect(jsonPath("$.usage[0].used").value(5))
@@ -85,7 +89,7 @@ class UsageControllerTest {
 	@WithMockUser(username = ME)
 	void aPremiumUserHasExplicitNullsAndNeverReachesALimit() throws Exception {
 		given(usageService.usageOf(ME_ID)).willReturn(new UsageResponse(Plan.PREMIUM, List.of(
-				UsageEntry.unlimited(UsageType.REPOSITORY_ANALYSIS, 12), UsageEntry.unlimited(UsageType.AI_QUERY, 0))));
+				UsageEntry.unlimited(UsageType.REPOSITORY_ANALYSIS, 12, null), UsageEntry.unlimited(UsageType.AI_QUERY, 0, RESETS))));
 
 		mockMvc.perform(get("/api/v1/usage"))
 				.andExpect(jsonPath("$.plan").value("PREMIUM"))
@@ -94,7 +98,9 @@ class UsageControllerTest {
 				.andExpect(jsonPath("$.usage[0].limit").value((Object) null))
 				.andExpect(jsonPath("$.usage[0].remaining").value((Object) null))
 				.andExpect(jsonPath("$.usage[0].limitReached").value(false))
-				.andExpect(jsonPath("$.usage[1].limit").value((Object) null));
+				.andExpect(jsonPath("$.usage[1].limit").value((Object) null))
+				.andExpect(jsonPath("$.usage[1].resetsAt").value("2026-11-22T18:30:00Z")) // present, but nothing is blocked
+				.andExpect(jsonPath("$.usage[0].resetsAt").doesNotExist());
 	}
 
 	@Test

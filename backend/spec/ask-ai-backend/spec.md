@@ -31,7 +31,7 @@ Out (follow-up specs): `/explain`, `/architecture`, `expertiseLevel` (V3), strea
 | Delivery | One JSON response (no streaming). |
 | Conversations | Many per analysis, multi-turn. List, create, delete. `/chat` takes an optional `conversationId`. Automatic titles. Last few turns go to the model. |
 | Quota | Reserve one `AI_QUERY` before the model call under the user's lock, refund once (idempotent) on any failure. Cache hits are free. |
-| Limits | FREE: 20 questions for life. All users: 10 questions per minute (`RATE_LIMITED`). PREMIUM: no lifetime cap. |
+| Limits | FREE: 20 questions for life *(superseded 2026-11-20: 15 per week, see `spec/weekly-ask-ai-limit/spec.md`)*. All users: 10 questions per minute (`RATE_LIMITED`). PREMIUM: no cap. |
 | Re-analyze | Conversations of the replaced analysis are deleted with it. |
 | Tests | WireMock as fake Gemini and Groq, real ONNX, Testcontainers with pgvector, an opt-in live smoke test. |
 
@@ -219,7 +219,7 @@ Retry the embedding of a `FAILED` index. `202` with the same body when it starts
 - The title is set automatically on the first question. There is no rename in V1.
 
 ### 9.6 Usage
-`GET /usage` is unchanged in shape. After this change the `AI_QUERY` entry counts real chat questions (`used`, `limit` 20 for FREE from `AI_LIMIT`, `null` for PREMIUM). Update the "nothing consumes it yet" notes in `Architecture.md` and `backend/CLAUDE.md`.
+`GET /usage` is unchanged in shape. After this change the `AI_QUERY` entry counts real chat questions (`used`, `limit` 20 for FREE from `AI_LIMIT`, `null` for PREMIUM). *Superseded 2026-11-20: the allowance is 15 per week with `resetsAt`, see `spec/weekly-ask-ai-limit/spec.md`.* Update the "nothing consumes it yet" notes in `Architecture.md` and `backend/CLAUDE.md`.
 
 ## 10. Errors (new codes in bold; add each to `GlobalExceptionHandler`)
 

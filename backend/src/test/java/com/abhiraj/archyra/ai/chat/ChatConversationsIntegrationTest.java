@@ -158,7 +158,7 @@ class ChatConversationsIntegrationTest extends ChatIntegrationSupport {
 		assertThat(jdbc.queryForObject("SELECT count(*) FROM chat_messages WHERE conversation_id = ?::uuid", Integer.class, id)).isZero();
 		assertThat(ids(getAs(shop.user(), conversationsPath(shop.analysisId())))).containsExactly(kept);
 		assertThat(deleteAs(shop.user(), "/api/v1/conversations/" + id).getResponse().getStatus()).isEqualTo(404); // already gone
-		assertThat(used(shop.user(), "AI_QUERY")).isEqualTo(2); // deleting never gives questions back: the allowance is for life
+		assertThat(used(shop.user(), "AI_QUERY")).isEqualTo(2); // deleting never gives questions back: the question stays counted for its week
 	}
 
 	@Test

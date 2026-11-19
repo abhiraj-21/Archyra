@@ -55,13 +55,16 @@ export class ApiError extends Error {
   readonly code: ErrorCode;
   /** Seconds, from the Retry-After header (RATE_LIMITED). */
   readonly retryAfter: number | undefined;
+  /** ISO-8601 instant, from the body of a weekly USAGE_LIMIT_EXCEEDED (Ask AI): when the allowance starts again. */
+  readonly resetsAt: string | undefined;
 
-  constructor(status: number, code: ErrorCode, message: string, retryAfter?: number) {
+  constructor(status: number, code: ErrorCode, message: string, retryAfter?: number, resetsAt?: string) {
     super(message);
     this.name = 'ApiError';
     this.status = status;
     this.code = code;
     this.retryAfter = retryAfter;
+    this.resetsAt = resetsAt;
   }
 }
 
@@ -87,17 +90,19 @@ export async function errorFromResponse(response: Response): Promise<ApiError> {
   const retryAfter = parseRetryAfter(response.headers.get('Retry-After'));
   let code: ErrorCode = `HTTP_${response.status}`;
   let message = response.statusText || 'The request failed.';
+  let resetsAt: string | undefined;
   try {
     const body: unknown = await response.json();
     if (body && typeof body === 'object') {
       const record = body as Record<string, unknown>;
       if (typeof record.code === 'string' && record.code) code = record.code;
       if (typeof record.message === 'string' && record.message) message = record.message;
+      if (typeof record.resetsAt === 'string' && !Number.isNaN(Date.parse(record.resetsAt))) resetsAt = record.resetsAt;
     }
   } catch {
     // Not JSON (a proxy error page, an empty body): keep the HTTP_<status> code.
   }
-  return new ApiError(response.status, code, message, retryAfter);
+  return new ApiError(response.status, code, message, retryAfter, resetsAt);
 }
 
 export function networkError(): ApiError {

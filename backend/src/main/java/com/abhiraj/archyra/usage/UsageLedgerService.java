@@ -1,5 +1,6 @@
 package com.abhiraj.archyra.usage;
 
+import java.time.Instant;
 import java.util.Collection;
 import java.util.EnumMap;
 import java.util.LinkedHashSet;
@@ -18,7 +19,8 @@ import com.abhiraj.archyra.user.Provider;
  * allowances (see {@code spec/account-deletion/spec.md}). The ledger holds, per identity key, only the per-type
  * {@code used_count}; a key is a keyed hash of the normalised email or of {@code provider:providerUserId}.
  *
- * <p>Rules: counts only go up (a returning user gets the maximum over all their keys, and a merge never lowers a count);
+ * <p>Rules: counts only go up (a returning user gets the maximum over all their keys, and a merge never lowers a count;
+ * a weekly count is remembered with its window and only restored in that same week: after the next Monday it is 0);
  * the plan is not stored (a returning user is FREE); nothing here reveals to a caller whether a key matched; and no key,
  * hash or raw value is ever logged. Every method that writes needs the caller's transaction ({@code MANDATORY}) so a
  * user and the counts restored for them commit together, with no window of zero counts.
@@ -36,11 +38,13 @@ public class UsageLedgerService {
 	private final UsageLedgerRepository ledger;
 	private final UserUsageRepository usage;
 	private final LedgerKeys keys;
+	private final UsageWindows windows;
 
-	UsageLedgerService(UsageLedgerRepository ledger, UserUsageRepository usage, UsageProperties properties) {
+	UsageLedgerService(UsageLedgerRepository ledger, UserUsageRepository usage, UsageProperties properties, UsageWindows windows) {
 		this.ledger = ledger;
 		this.usage = usage;
 		this.keys = new LedgerKeys(properties.ledgerSecret());
+		this.windows = windows;
 	}
 
 	/** The key of an email (normalised as in {@link LedgerKeys#normalizeEmail}) followed by one key per identity. */
@@ -61,32 +65,47 @@ public class UsageLedgerService {
 
 	/**
 	 * Called inside the deletion transaction, before anything is removed: stores the user's current counts under every
-	 * key, keeping the larger value where one exists already. Types the user never used are not stored.
+	 * key, keeping the larger value where one exists already. Types the user never used are not stored. A weekly type is
+	 * stored with the window its count belongs to (a row without a window, from before the allowance became weekly, counts
+	 * as nothing and is not stored).
 	 */
 	@Transactional(propagation = Propagation.MANDATORY)
 	public void record(UUID userId, Collection<String> identityKeys) {
 		for (UserUsage row : usage.findByUserId(userId)) {
-			if (row.getUsedCount() <= 0) {
+			if (row.getUsedCount() <= 0 || (row.getUsageType().weekly() && row.getWindowStart() == null)) {
 				continue;
 			}
 			for (String key : identityKeys) {
-				ledger.raiseTo(UUID.randomUUID(), key, row.getUsageType().name(), row.getUsedCount());
+				if (row.getUsageType().weekly()) {
+					ledger.raiseToInWindow(UUID.randomUUID(), key, row.getUsageType().name(), row.getUsedCount(), row.getWindowStart());
+				}
+				else {
+					ledger.raiseTo(UUID.randomUUID(), key, row.getUsageType().name(), row.getUsedCount());
+				}
 			}
 		}
 	}
 
-	/** The largest remembered count per usage type over all the keys. Types never recorded are absent. */
+	/**
+	 * The largest remembered count per usage type over all the keys. Types never recorded are absent. A weekly type only
+	 * counts entries of the current window: an entry of an earlier week (or without a window) restores nothing.
+	 */
 	@Transactional(readOnly = true)
 	public Map<UsageType, Integer> restoreFor(Collection<String> identityKeys) {
+		return restoreFor(identityKeys, windows.currentStart());
+	}
+
+	private Map<UsageType, Integer> restoreFor(Collection<String> identityKeys, Instant currentWindow) {
 		Map<UsageType, Integer> result = new EnumMap<>(UsageType.class);
 		if (identityKeys.isEmpty()) {
 			return result;
 		}
 		for (UsageLedgerEntry entry : ledger.findByIdentityKeyIn(identityKeys)) {
 			UsageType type = typeOf(entry.getUsageType());
-			if (type != null) {
-				result.merge(type, entry.getUsedCount(), Math::max);
+			if (type == null || (type.weekly() && (entry.getWindowStart() == null || entry.getWindowStart().isBefore(currentWindow)))) {
+				continue;
 			}
+			result.merge(type, entry.getUsedCount(), Math::max);
 		}
 		return result;
 	}
@@ -98,9 +117,15 @@ public class UsageLedgerService {
 	 */
 	@Transactional(propagation = Propagation.MANDATORY)
 	public void restoreInto(UUID userId, Collection<String> identityKeys) {
-		restoreFor(identityKeys).forEach((type, count) -> {
+		Instant currentWindow = windows.currentStart();
+		restoreFor(identityKeys, currentWindow).forEach((type, count) -> {
 			if (count > 0) {
-				usage.raiseTo(UUID.randomUUID(), userId, type.name(), count);
+				if (type.weekly()) {
+					usage.raiseToInWindow(UUID.randomUUID(), userId, type.name(), count, currentWindow);
+				}
+				else {
+					usage.raiseTo(UUID.randomUUID(), userId, type.name(), count);
+				}
 			}
 		});
 	}

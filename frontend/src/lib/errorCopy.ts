@@ -1,4 +1,5 @@
 import { isApiError, type ErrorCode } from '@/api/errors';
+import { outOfCreditsMessage, resetWait } from './resetTime';
 
 /**
  * What the UI says and does for each machine-readable error code. Decisions are made from `code` only; the
@@ -84,8 +85,16 @@ const COPY: Record<string, Entry> = {
 
 const GENERIC: Entry = { title: 'Something went wrong', message: 'The request failed. Try again in a moment.', retryable: true };
 
-export function describeError(error: unknown): ErrorCopy {
+/**
+ * `USAGE_LIMIT_EXCEEDED` is two limits: the lifetime analyses (no `resetsAt`, the copy above) and the weekly Ask AI questions,
+ * whose body carries `resetsAt`; that one says when the questions are back, computed here from the instant in the reader's time
+ * zone (`now` is a parameter for the tests).
+ */
+export function describeError(error: unknown, now: number = Date.now()): ErrorCopy {
   if (!isApiError(error)) return { code: 'UNKNOWN', ...GENERIC };
+  if (error.code === 'USAGE_LIMIT_EXCEEDED' && error.resetsAt) {
+    return { code: error.code, title: 'Out of credits', message: outOfCreditsMessage(resetWait(error.resetsAt, now)?.text ?? null), retryable: false };
+  }
   const entry = COPY[error.code] ?? (error.status >= 500 ? GENERIC : { ...GENERIC, retryable: false });
   const message = error.code === 'VALIDATION_ERROR' && error.message ? error.message : entry.message;
   return { code: error.code, ...entry, message, retryAfter: error.retryAfter };

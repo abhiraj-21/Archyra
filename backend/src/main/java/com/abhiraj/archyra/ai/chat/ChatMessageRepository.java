@@ -56,6 +56,10 @@ interface ChatMessageRepository extends JpaRepository<ChatMessage, UUID> {
 			+ "and m.status = com.abhiraj.archyra.ai.chat.MessageStatus.PENDING")
 	int markQuotaRefunded(@Param("id") UUID id);
 
+	/** The window a message's unit was charged in (null: none, or the message is gone). Read before {@link #markQuotaRefunded}. */
+	@Query("select m.quotaWindowStart from ChatMessage m where m.id = :id")
+	Instant quotaWindowOf(@Param("id") UUID id);
+
 	/** PENDING to ANSWERED; 0 rows if the message is gone or was already settled. */
 	@Transactional
 	@Modifying(flushAutomatically = true, clearAutomatically = true)

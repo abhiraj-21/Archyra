@@ -40,7 +40,9 @@ Everything is in `src/main/resources/application.properties`; secrets come from 
 | `SMTP_HOST`, `SMTP_PORT`, `SMTP_USERNAME`, `SMTP_PASSWORD`, `SMTP_AUTH`, `SMTP_STARTTLS`, `MAIL_FROM` | no | Outgoing mail. Defaults point at `localhost:587` |
 | `ADMIN_EMAIL`, `ADMIN_PASSWORD` | no | Creates the first administrator at startup if none exists. Remove `ADMIN_PASSWORD` afterwards |
 | `NATIVE_LIB_DIR` | no | Where the Tree-sitter libraries are (default `native`) |
-| `ANALYSIS_LIMIT`, `AI_LIMIT` | yes | Lifetime allowance of analyses and of Ask AI questions for FREE users (PREMIUM is never capped). Startup fails if missing or negative |
+| `ANALYSIS_LIMIT` | yes | Lifetime allowance of repository analyses for FREE users (PREMIUM is never capped). Startup fails if missing or negative |
+| `AI_LIMIT` | no | Weekly allowance of Ask AI questions for FREE users, default `15`; it starts again every Monday 00:00 in `USAGE_RESET_ZONE` (PREMIUM is never capped). Startup fails if negative |
+| `USAGE_RESET_ZONE` | no | IANA time zone whose Monday midnight starts a new week of Ask AI questions, default `Asia/Kolkata`. An unknown zone fails startup |
 | `USAGE_LEDGER_SECRET` | yes | HMAC key of the usage ledger: when an account is deleted only keyed hashes of its email and linked identities are kept, with the counts used, so deleting and registering again does not reset the free allowances. At least 32 bytes of random text (`openssl rand -base64 48`); startup fails if missing or weak. Keep it stable (changing it makes existing entries unmatchable) and never commit it |
 | `GEMINI_API_KEY`, `GROQ_API_KEY`, `OPENROUTER_API_KEY`, `CLOUDFLARE_API_TOKEN` + `CLOUDFLARE_ACCOUNT_ID`, `ZAI_API_KEY`, `COHERE_API_KEY`, `LLM7_API_KEY` | no | Ask AI providers (see *Ask AI* below). Chat needs at least one provider in the chain; indexing needs none. A provider without a key is simply not used, and missing keys never fail startup |
 | `OVH_ENABLED` | no | OVHcloud AI Endpoints needs no key (it is used anonymously) and is on by default; `false` leaves it out |
@@ -106,7 +108,7 @@ requests per UTC day and month) keep us from spending a free quota on calls that
 them (the provider's own 429 is the backstop). A 429 cools a provider down (its `Retry-After`, else 30 s; repeated 429s double it, up to 1 h); a bad key
 or an unknown model cools it down for 30 min with an `ERROR` log. Administrators can see every provider's state at `GET /api/v1/admin/ai/providers`.
 
-**Limits.** FREE users get `AI_LIMIT` questions for life (a failed answer never counts, a cached one is free), everyone gets 10 questions per
+**Limits.** FREE users get `AI_LIMIT` questions (default 15) per week, resetting every Monday at 00:00 in `USAGE_RESET_ZONE` (default `Asia/Kolkata`; a failed answer never counts, a cached one is free; repository analyses stay a lifetime allowance), everyone gets 10 questions per
 minute (`app.security.rate-limit.ai-chat-per-user-per-minute`). A question that nothing in the repository relates to ("write me a poem") is stopped
 before it reaches a provider: `422 QUESTION_NOT_ANSWERABLE`, not counted, not stored (it still takes a token of the per-minute limit); a question that does
 reach a provider counts even if the answer is "I can't tell". `archyra.ai.retrieval.min-similarity` decides what "related" means and was calibrated with the

@@ -5,7 +5,7 @@ import type { UsageLabel } from '@/lib/askAi';
 
 interface GuideProps {
   examples: GuideExamples;
-  /** The real remaining count from `/usage` (never a literal); null while it loads. */
+  /** The real remaining count and weekly allowance from `/usage` (never a literal); null while it loads. */
   usage: UsageLabel | null;
   /** Fills the composer. An example never sends. */
   onExample: (question: string) => void;
@@ -61,6 +61,7 @@ export function QuestionGuide({ examples, usage, onExample }: GuideProps) {
       </div>
 
       <p className="max-w-[70ch] text-sm text-ink-2">
+        {usage?.allowance ? `${usage.allowance} ` : null}
         {COUNTING_NOTE}
         {usage ? <> You have <strong className="font-medium text-ink">{usage.text}</strong>.</> : null}
       </p>

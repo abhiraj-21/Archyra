@@ -16,6 +16,47 @@ describe('Ask AI error copy', () => {
   });
 });
 
+describe('USAGE_LIMIT_EXCEEDED copy', () => {
+  const now = Date.parse('2026-11-22T10:00:00Z');
+
+  it('keeps the lifetime analysis copy when the body has no resetsAt', () => {
+    const copy = describeError(new ApiError(403, 'USAGE_LIMIT_EXCEEDED', 'server text'), now);
+
+    expect(copy).toMatchObject({ code: 'USAGE_LIMIT_EXCEEDED', title: 'Free analyses used up', retryable: false });
+    expect(copy.message).toContain('Delete an old analysis');
+  });
+
+  it('says when the weekly Ask AI questions are back, by the code and the resetsAt of the body, never the server text', () => {
+    const soon = describeError(new ApiError(403, 'USAGE_LIMIT_EXCEEDED', 'server text', undefined, '2026-11-22T18:30:00Z'), now);
+    const days = describeError(new ApiError(403, 'USAGE_LIMIT_EXCEEDED', 'server text', undefined, '2026-11-25T10:00:00Z'), now);
+    const oneDay = describeError(new ApiError(403, 'USAGE_LIMIT_EXCEEDED', 'server text', undefined, '2026-11-23T10:00:00Z'), now);
+
+    expect(soon).toMatchObject({ title: 'Out of credits', retryable: false });
+    expect(soon.message).toMatch(/^Out of credits\. Upgrade to Premium or wait till \d\d:\d\d\.$/);
+    expect(days.message).toBe('Out of credits. Upgrade to Premium or wait 3 days.');
+    expect(oneDay.message).toBe('Out of credits. Upgrade to Premium or wait 1 day.');
+    expect([soon, days, oneDay].map((copy) => copy.message).join()).not.toContain('server text');
+  });
+
+  it('ignores a resetsAt that is not a date and falls back to the lifetime copy only without one', () => {
+    const copy = describeError(new ApiError(403, 'USAGE_LIMIT_EXCEEDED', 'x', undefined, 'garbage'), now);
+
+    expect(copy.message).toBe('Out of credits. Upgrade to Premium or wait for the weekly reset.');
+  });
+});
+
+describe('ApiError.resetsAt', () => {
+  it('is read from a USAGE_LIMIT_EXCEEDED body, only when it is a real date', async () => {
+    const { errorFromResponse } = await import('@/api/errors');
+    const body = (resetsAt: unknown) => new Response(JSON.stringify({ code: 'USAGE_LIMIT_EXCEEDED', message: 'm', resetsAt }), { status: 403 });
+
+    expect((await errorFromResponse(body('2026-11-22T18:30:00Z'))).resetsAt).toBe('2026-11-22T18:30:00Z');
+    expect((await errorFromResponse(body('not a date'))).resetsAt).toBeUndefined();
+    expect((await errorFromResponse(body(12345))).resetsAt).toBeUndefined();
+    expect((await errorFromResponse(new Response(JSON.stringify({ code: 'USAGE_LIMIT_EXCEEDED', message: 'm' }), { status: 403 }))).resetsAt).toBeUndefined();
+  });
+});
+
 describe('QUESTION_NOT_ANSWERABLE copy', () => {
   it('says the question was not counted, tells the user to edit it, and is not a retry', () => {
     const copy = describeError(new ApiError(422, 'QUESTION_NOT_ANSWERABLE', 'server text'));

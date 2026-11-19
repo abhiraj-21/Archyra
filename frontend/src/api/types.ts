@@ -290,6 +290,11 @@ export interface UsageEntry {
   /** null for PREMIUM. */
   remaining: number | null;
   limitReached: boolean;
+  /**
+   * ISO-8601 instant the weekly allowance starts again (next Monday 00:00 in the server's reset zone). Only the AI_QUERY entry
+   * has it (also for PREMIUM, where nothing is blocked); the lifetime analysis entry leaves it out.
+   */
+  resetsAt?: string;
 }
 export interface UsageResponse {
   plan: Plan;

@@ -21,7 +21,7 @@ describe('the question guide', () => {
   afterEach(cleanup);
 
   it('shows the groups, the real names, the things that will not work and the honest counting note', () => {
-    render(<QuestionGuide examples={examples} usage={{ text: '17 of 20 questions left', tone: 'normal' }} onExample={() => undefined} />);
+    render(<QuestionGuide examples={examples} usage={{ text: '13 of 15 questions left this week', tone: 'normal', allowance: 'The free plan includes 15 free questions per week, and they reset every Monday.' }} onExample={() => undefined} />);
 
     expect(screen.getByRole('heading', { name: 'Questions that work well' })).toBeTruthy();
     for (const group of ['The project', 'How things work', 'Relationships', 'Explain code']) expect(screen.getByRole('heading', { name: group })).toBeTruthy();
@@ -30,7 +30,8 @@ describe('the question guide', () => {
     expect(screen.getByRole('heading', { name: /Questions that won.t work, or will waste one of your questions/ })).toBeTruthy();
     const note = screen.getByText(/A question that reaches the AI uses one of your questions/);
     expect(note.textContent).toContain('isn\'t counted');
-    expect(note.textContent).toContain('17 of 20 questions left'); // the server's number, never a literal in the guide
+    expect(note.textContent).toContain('13 of 15 questions left this week'); // the server's number, never a literal in the guide
+    expect(note.textContent).toContain('15 free questions per week');
   });
 
   it('fills the composer on a click and never sends', () => {

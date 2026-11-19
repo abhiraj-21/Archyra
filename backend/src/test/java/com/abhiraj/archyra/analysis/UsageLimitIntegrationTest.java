@@ -99,6 +99,7 @@ class UsageLimitIntegrationTest extends UsageIntegrationSupport {
 		assertThat(code(refused)).isEqualTo("USAGE_LIMIT_EXCEEDED");
 		assertThat((String) JsonPath.read(body(refused), "$.message"))
 				.isEqualTo("You have used all " + limit() + " free repository analyses. Upgrade to Archyra Premium to continue.");
+		assertThat(body(refused)).doesNotContain("resetsAt"); // a lifetime allowance never resets
 		assertThat(analysisRows(user)).isEqualTo(limit());
 		assertThat(used(user)).isEqualTo(limit());
 		verify(pipeline, times(limit())).run(any());

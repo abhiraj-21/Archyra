@@ -3,6 +3,12 @@ package com.abhiraj.archyra.ai.chat;
 import static com.abhiraj.archyra.ai.FakeProviders.GEMINI;
 import static org.assertj.core.api.Assertions.assertThat;
 
+import java.time.DayOfWeek;
+import java.time.Duration;
+import java.time.Instant;
+import java.time.LocalTime;
+import java.time.ZoneId;
+import java.time.ZonedDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
@@ -48,7 +54,7 @@ class ChatQuotaIntegrationTest extends ChatIntegrationSupport {
 	}
 
 	@Test
-	void aFreeUserGetsTheirLifetimeQuestionsAndIsThenRefusedWithNothingStored() throws Exception {
+	void aFreeUserGetsTheirWeeklyQuestionsAndIsThenRefusedWithTheResetTimeAndNothingStored() throws Exception {
 		Ready shop = readyShop();
 		for (int i = 1; i <= LIMIT; i++) {
 			ask(shop.user(), shop.analysisId(), q("Question number " + i), null);
@@ -60,7 +66,12 @@ class ChatQuotaIntegrationTest extends ChatIntegrationSupport {
 
 		assertThat(refused.getResponse().getStatus()).isEqualTo(403);
 		assertThat(code(refused)).isEqualTo("USAGE_LIMIT_EXCEEDED");
-		assertThat(refused.getResponse().getContentAsString()).contains("3 free AI queries").doesNotContain("One too many");
+		assertThat(refused.getResponse().getContentAsString()).contains("3 free AI queries for this week").doesNotContain("One too many");
+		Instant resetsAt = Instant.parse(read(refused.getResponse().getContentAsString(), "$.resetsAt"));
+		ZonedDateTime reset = resetsAt.atZone(ZoneId.of("Asia/Kolkata"));
+		assertThat(resetsAt).isAfter(Instant.now()).isBeforeOrEqualTo(Instant.now().plus(Duration.ofDays(7)).plusSeconds(3600));
+		assertThat(reset.getDayOfWeek()).isEqualTo(DayOfWeek.MONDAY);
+		assertThat(reset.toLocalTime()).isEqualTo(LocalTime.MIDNIGHT);
 		assertThat(used(shop.user(), "AI_QUERY")).isEqualTo(LIMIT);
 		assertThat(storedMessages(shop.analysisId())).isEqualTo(messages);
 		assertThat(GEMINI.requestCount()).isEqualTo(calls); // no model call was made for it
@@ -68,6 +79,51 @@ class ChatQuotaIntegrationTest extends ChatIntegrationSupport {
 		assertThat((Integer) usageField(usage, "limit")).isEqualTo(LIMIT);
 		assertThat((Integer) usageField(usage, "remaining")).isZero();
 		assertThat((Boolean) usageField(usage, "limitReached")).isTrue();
+		assertThat(Instant.parse(usageField(usage, "resetsAt"))).isEqualTo(resetsAt); // the same moment as in the refusal
+	}
+
+	@Test
+	void theWindowOfAReservationIsStoredWithTheMessage() throws Exception {
+		Ready shop = readyShop();
+
+		ChatTransactions.Reservation reservation = transactions.reserve(shop.user().getId(), shop.analysisId(), null, "A reserved question");
+
+		Instant window = jdbc.queryForObject("SELECT quota_window_start FROM chat_messages WHERE id = ?", java.sql.Timestamp.class,
+				reservation.userMessageId()).toInstant();
+		assertThat(window).isEqualTo(jdbc.queryForObject("SELECT window_start FROM user_usage WHERE user_id = ? AND usage_type = 'AI_QUERY'",
+				java.sql.Timestamp.class, shop.user().getId()).toInstant());
+		transactions.refund(shop.user().getId(), reservation.conversationId(), reservation.userMessageId(), reservation.createdConversation());
+	}
+
+	@Test
+	void aRefundForAUnitOfAnEarlierWeekChangesNothingAndNeverCreditsThisWeek() throws Exception {
+		Ready shop = readyShop();
+		ask(shop.user(), shop.analysisId(), q("An answered question this week"), null);
+		int before = used(shop.user(), "AI_QUERY");
+		ChatTransactions.Reservation reservation = transactions.reserve(shop.user().getId(), shop.analysisId(), null, "Reserved last week");
+		assertThat(used(shop.user(), "AI_QUERY")).isEqualTo(before + 1);
+		// the week turned while the model was running: the unit belongs to the window before the one the row is in
+		jdbc.update("UPDATE chat_messages SET quota_window_start = quota_window_start - interval '7 days' WHERE id = ?", reservation.userMessageId());
+
+		transactions.refund(shop.user().getId(), reservation.conversationId(), reservation.userMessageId(), reservation.createdConversation());
+		transactions.refund(shop.user().getId(), reservation.conversationId(), reservation.userMessageId(), reservation.createdConversation());
+
+		assertThat(used(shop.user(), "AI_QUERY")).isEqualTo(before + 1); // not credited
+		assertThat(pendingMessages(shop.analysisId())).isZero(); // the message itself is still cleaned up
+		assertThat(jdbc.queryForObject("SELECT count(*) FROM user_usage WHERE user_id = ? AND used_count < 0", Integer.class, shop.user().getId())).isZero();
+	}
+
+	@Test
+	void aRefundOfAUnitChargedBeforeTheAllowanceWasWeeklyChangesNothing() throws Exception {
+		Ready shop = readyShop();
+		int before = used(shop.user(), "AI_QUERY");
+		ChatTransactions.Reservation reservation = transactions.reserve(shop.user().getId(), shop.analysisId(), null, "Reserved by the old version");
+		jdbc.update("UPDATE chat_messages SET quota_window_start = NULL WHERE id = ?", reservation.userMessageId()); // what the old code wrote
+
+		transactions.refund(shop.user().getId(), reservation.conversationId(), reservation.userMessageId(), reservation.createdConversation());
+
+		assertThat(used(shop.user(), "AI_QUERY")).isEqualTo(before + 1);
+		assertThat(pendingMessages(shop.analysisId())).isZero();
 	}
 
 	@Test
