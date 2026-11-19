@@ -59,6 +59,11 @@ const COPY: Record<string, Entry> = {
     message: 'This account signs in with Google or GitHub. Use Forgot password with your account email to set one.',
     retryable: false,
   },
+  DELETE_METHOD_MISMATCH: {
+    title: 'Use the other way to delete',
+    message: 'Reload Settings: it shows the way that fits how your account signs in.',
+    retryable: false,
+  },
   AI_NOT_READY: { title: 'Ask AI is not ready', message: 'This repository is still being prepared for questions. Check its status and try again.', retryable: true },
   AI_REANALYZE_REQUIRED: { title: 'Re-analyze to enable Ask AI', message: 'This analysis cannot be prepared for questions again. Re-analyze the repository to enable Ask AI.', retryable: false },
   AI_UNAVAILABLE: { title: 'The AI service is busy', message: 'The AI service is busy right now. Your question wasn\'t counted. Try again in a minute.', retryable: true },
@@ -78,6 +83,40 @@ export function describeError(error: unknown): ErrorCopy {
   const entry = COPY[error.code] ?? (error.status >= 500 ? GENERIC : { ...GENERIC, retryable: false });
   const message = error.code === 'VALIDATION_ERROR' && error.message ? error.message : entry.message;
   return { code: error.code, ...entry, message, retryAfter: error.retryAfter };
+}
+
+/**
+ * Copy for the delete-account flow, where the generic copy would be wrong: a wrong password is not a sign-in failure,
+ * and an expired link means asking for a new one from Settings. Anything else is the ordinary copy.
+ */
+const DELETE_COPY: Record<string, Entry> = {
+  INVALID_CREDENTIALS: { title: 'Wrong password', message: 'That is not your password. Nothing was deleted.', retryable: false },
+  LAST_ADMIN: {
+    title: 'You are the last administrator',
+    message: 'At least one enabled administrator must remain, so this account cannot be deleted yet. Nothing was deleted.',
+    retryable: false,
+  },
+  DELETE_METHOD_MISMATCH: {
+    title: 'Use the other way to delete',
+    message: 'Reload Settings: it shows the way that fits how your account signs in. Nothing was deleted.',
+    retryable: false,
+  },
+  INVALID_OR_EXPIRED_TOKEN: {
+    title: 'This link has expired',
+    message: 'Confirmation links work once and last 15 minutes. Go to Settings and ask for a new one. Nothing was deleted.',
+    retryable: false,
+  },
+  ANALYSIS_IN_PROGRESS: {
+    title: 'A repository is still being analysed',
+    message: 'Wait until it finishes, then delete your account. Nothing was deleted.',
+    retryable: false,
+  },
+};
+
+export function describeDeleteError(error: unknown): ErrorCopy {
+  const base = describeError(error);
+  const entry = Object.hasOwn(DELETE_COPY, base.code) ? DELETE_COPY[base.code] : undefined;
+  return entry ? { ...base, ...entry } : base;
 }
 
 /** OAuth failures arrive as /login?error=<code>. Only these codes map to copy; the raw value is never rendered. */

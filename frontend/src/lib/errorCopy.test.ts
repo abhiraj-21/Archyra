@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { ApiError, SERVER_ERROR_CODES, CLIENT_ERROR_CODES } from '@/api/errors';
-import { describeError, describeOAuthError, OAUTH_FALLBACK } from './errorCopy';
+import { describeDeleteError, describeError, describeOAuthError, OAUTH_FALLBACK } from './errorCopy';
 
 describe('Ask AI error copy', () => {
   it('says what happened and what to do for every Ask AI code', () => {
@@ -51,5 +51,40 @@ describe('describeOAuthError', () => {
     expect(describeOAuthError('<script>alert(1)</script>')).toBe(OAUTH_FALLBACK);
     expect(describeOAuthError('constructor')).toBe(OAUTH_FALLBACK);
     expect(describeOAuthError(null)).toBeNull();
+  });
+});
+
+describe('describeDeleteError', () => {
+  it('says a wrong password is a wrong password, not a failed sign-in', () => {
+    const copy = describeDeleteError(new ApiError(401, 'INVALID_CREDENTIALS', 'Invalid email or password'));
+    expect(copy).toMatchObject({ code: 'INVALID_CREDENTIALS', title: 'Wrong password', retryable: false });
+    expect(copy.message).not.toContain('email');
+    expect(describeError(new ApiError(401, 'INVALID_CREDENTIALS', 'x')).title).toBe('Sign-in failed');
+  });
+
+  it('has delete-specific copy that says nothing was deleted, for every refusal the backend can send', () => {
+    for (const code of ['INVALID_CREDENTIALS', 'LAST_ADMIN', 'DELETE_METHOD_MISMATCH', 'INVALID_OR_EXPIRED_TOKEN', 'ANALYSIS_IN_PROGRESS']) {
+      const copy = describeDeleteError(new ApiError(code === 'LAST_ADMIN' ? 409 : 400, code, 'server text'));
+      expect(copy.title, code).not.toBe('Something went wrong');
+      expect(copy.message, code).toContain('Nothing was deleted');
+      expect(copy.message, code).not.toContain('server text');
+    }
+  });
+
+  it('points an expired link to Settings for a new one', () => {
+    expect(describeDeleteError(new ApiError(400, 'INVALID_OR_EXPIRED_TOKEN', 'x'))).toMatchObject({
+      title: 'This link has expired',
+      message: expect.stringContaining('Settings'),
+    });
+  });
+
+  it('keeps the ordinary copy and retry advice for everything else', () => {
+    expect(describeDeleteError(new ApiError(429, 'RATE_LIMITED', 'x', 30))).toMatchObject({ retryable: true, retryAfter: 30 });
+    expect(describeDeleteError(new ApiError(0, 'NETWORK_ERROR', 'x'))).toMatchObject({ retryable: true });
+    expect(describeDeleteError(new Error('boom'))).toMatchObject({ code: 'UNKNOWN' });
+  });
+
+  it('has copy for DELETE_METHOD_MISMATCH in the general table too', () => {
+    expect(describeError(new ApiError(400, 'DELETE_METHOD_MISMATCH', 'x')).title).not.toBe('Something went wrong');
   });
 });

@@ -14,6 +14,12 @@ export interface SessionValue {
   isAdmin: boolean;
   signIn: (email: string, password: string) => Promise<void>;
   signOut: () => Promise<void>;
+  /**
+   * The account was just deleted on the server (its refresh cookie is already cleared and its token family gone): end
+   * the local session the way a sign-out does, without calling the server again. Synchronous, so the caller can navigate
+   * in the same tick.
+   */
+  endAfterDeletion: () => void;
   retryBoot: () => void;
   /** Gives up waiting for the boot (retry screen's "Back to sign in"): the visitor is treated as anonymous. */
   abandonBoot: () => void;

@@ -13,6 +13,7 @@ import { describeError } from '@/lib/errorCopy';
 import { UsageMeter } from '@/features/usage/UsageMeter';
 import { nameError } from '@/features/auth/validation';
 import { ChangePassword } from './ChangePassword';
+import { DeleteAccount } from './DeleteAccount';
 import { SignInMethods } from './SignInMethods';
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
@@ -124,6 +125,10 @@ export default function SettingsPage() {
             Sign out
           </Button>
         </div>
+      </Section>
+
+      <Section title="Danger zone">
+        <DeleteAccount />
       </Section>
     </div>
   );

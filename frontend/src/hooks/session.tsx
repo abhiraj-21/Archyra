@@ -5,7 +5,7 @@ import { login as loginRequest } from '@/api/endpoints/auth';
 import { getMe } from '@/api/endpoints/users';
 import { isApiError } from '@/api/errors';
 import { queryKeys } from '@/api/queryKeys';
-import { onSessionExpired } from '@/api/session';
+import { clearAccessToken, onSessionExpired } from '@/api/session';
 import type { UserProfile } from '@/api/types';
 import { canSeeAdmin } from '@/lib/roles';
 import { SessionContext, type SessionStatus, type SessionValue } from './sessionContext';
@@ -121,6 +121,13 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     setStatus('anonymous');
   }, [queryClient]);
 
+  const endAfterDeletion = useCallback(() => {
+    clearAccessToken();
+    queryClient.clear();
+    setEndReason('signed-out');
+    setStatus('anonymous');
+  }, [queryClient]);
+
   const retryBoot = useCallback(() => {
     resetBoot();
     setStatus('booting');
@@ -147,11 +154,12 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       isAdmin: canSeeAdmin(me),
       signIn,
       signOut,
+      endAfterDeletion,
       retryBoot,
       abandonBoot,
       refetchMe: meQuery.refetch,
     }),
-    [status, endReason, me, meState, signIn, signOut, retryBoot, abandonBoot, meQuery.refetch],
+    [status, endReason, me, meState, signIn, signOut, endAfterDeletion, retryBoot, abandonBoot, meQuery.refetch],
   );
 
   return <SessionContext.Provider value={value}>{children}</SessionContext.Provider>;

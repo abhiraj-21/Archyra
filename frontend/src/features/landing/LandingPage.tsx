@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
-import { Link } from 'react-router';
+import { Link, useLocation, useNavigate } from 'react-router';
 import { ArrowRight } from 'lucide-react';
-import { ButtonLink } from '@/components/ui/Button';
+import { Button, ButtonLink } from '@/components/ui/Button';
+import { Notice } from '@/components/ui/Notice';
 import { LogoMark } from '@/components/ui/Logo';
 import { useDocumentTitle } from '@/components/ui/useDocumentTitle';
 import { useSession } from '@/hooks/sessionContext';
@@ -73,6 +74,10 @@ export default function LandingPage() {
   const { status } = useSession();
   const signedIn = status === 'authenticated';
   const start = signedIn ? '/dashboard' : '/register';
+  const location = useLocation();
+  const navigate = useNavigate();
+  // Set by the navigation that follows deleting the account; dropped from history state on dismiss, so a reload does not repeat it.
+  const [deletedNoticeOpen, setDeletedNoticeOpen] = useState(() => (location.state as { accountDeleted?: boolean } | null)?.accountDeleted === true);
 
   return (
     <div className="landing">
@@ -92,6 +97,27 @@ export default function LandingPage() {
       </header>
 
       <main>
+        {deletedNoticeOpen ? (
+          <div className="container pb-sm">
+            <Notice
+              tone="success"
+              title="Account deleted"
+              action={
+                <Button
+                  size="sm"
+                  onClick={() => {
+                    setDeletedNoticeOpen(false);
+                    navigate('.', { replace: true, state: null });
+                  }}
+                >
+                  Dismiss
+                </Button>
+              }
+            >
+              Your account, repositories and conversations were deleted.
+            </Notice>
+          </div>
+        ) : null}
         <section className="lp-hero desk" aria-labelledby="hero-heading">
           <div className="container lp-hero__grid">
             <div>
