@@ -167,6 +167,30 @@ async function main() {
     if (c) report('GET /classes/{id}', await call(`${a}/classes/${enc(c.id)}`, { token }));
     const i = byType('INTERFACE');
     if (i) report('GET /classes/{interface id}', await call(`${a}/classes/${enc(i.id)}`, { token }));
+    // Ask AI: nothing here spends a question. (A question is POST /chat; use ARCHYRA_E2E_AI for the e2e test that asks one.)
+    const aiIndex = await call(`${a}/ai-index`, { token });
+    report('GET /ai-index', aiIndex);
+    check('/ai-index has a known status and the documented fields',
+      ['NOT_INDEXED', 'INDEXING', 'READY', 'FAILED', 'EMPTY'].includes(aiIndex.json?.status)
+      && typeof aiIndex.json?.chunkCount === 'number' && typeof aiIndex.json?.embeddedCount === 'number'
+      && typeof aiIndex.json?.retryable === 'boolean' && 'reason' in aiIndex.json && 'indexedAt' in aiIndex.json);
+    const conversations = await call(`${a}/conversations?page=0&size=50`, { token });
+    report('GET /conversations', conversations);
+    check('/conversations is a page of { id, title, createdAt, updatedAt, messageCount }',
+      Array.isArray(conversations.json?.items) && conversations.json.items.every((c) => typeof c.id === 'string' && typeof c.title === 'string' && typeof c.messageCount === 'number'));
+    const firstConversation = conversations.json?.items?.[0];
+    if (firstConversation) {
+      const messages = await call(`/conversations/${firstConversation.id}/messages?page=0&size=100`, { token });
+      report('GET /conversations/{id}/messages', messages);
+      check('messages have role, content and cached; sources only on ASSISTANT',
+        (messages.json?.items ?? []).every((m) => (m.role === 'USER' || m.role === 'ASSISTANT') && typeof m.content === 'string' && typeof m.cached === 'boolean'
+          && (m.role === 'ASSISTANT' || (m.sources === undefined && m.provider === undefined))));
+    }
+    const unknownConversation = await call('/conversations/00000000-0000-0000-0000-000000000000/messages', { token });
+    report('GET /conversations/{random}/messages', unknownConversation);
+    check('an unknown conversation is 404 CONVERSATION_NOT_FOUND', unknownConversation.status === 404 && unknownConversation.json?.code === 'CONVERSATION_NOT_FOUND');
+    const aiUsage = (await call('/usage', { token })).json?.usage?.find((u) => u.usageType === 'AI_QUERY');
+    check('/usage carries an AI_QUERY entry', aiUsage !== undefined && typeof aiUsage.used === 'number');
     report('DELETE /analyses/{random}', await call('/analyses/00000000-0000-0000-0000-000000000000', { token, method: 'DELETE' }));
   }
 

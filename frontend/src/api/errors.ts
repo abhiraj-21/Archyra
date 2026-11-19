@@ -31,6 +31,13 @@ export const SERVER_ERROR_CODES = [
   'IDENTITY_NOT_FOUND',
   'INCORRECT_PASSWORD',
   'NO_PASSWORD_SET',
+  'AI_NOT_READY',
+  'AI_REANALYZE_REQUIRED',
+  'AI_UNAVAILABLE',
+  'CONVERSATION_NOT_FOUND',
+  'CONVERSATION_FULL',
+  'CONVERSATION_BUSY',
+  'TOO_MANY_CONVERSATIONS',
 ] as const;
 
 /** Codes the client assigns when no backend answer could be read. */

@@ -2,6 +2,20 @@ import { describe, expect, it } from 'vitest';
 import { ApiError, SERVER_ERROR_CODES, CLIENT_ERROR_CODES } from '@/api/errors';
 import { describeError, describeOAuthError, OAUTH_FALLBACK } from './errorCopy';
 
+describe('Ask AI error copy', () => {
+  it('says what happened and what to do for every Ask AI code', () => {
+    for (const code of ['AI_NOT_READY', 'AI_REANALYZE_REQUIRED', 'AI_UNAVAILABLE', 'CONVERSATION_NOT_FOUND', 'CONVERSATION_FULL', 'CONVERSATION_BUSY', 'TOO_MANY_CONVERSATIONS']) {
+      const copy = describeError(new ApiError(409, code, 'server text'));
+      expect(copy.title, code).not.toBe('Something went wrong');
+      expect(copy.message, code).not.toContain('server text');
+    }
+  });
+
+  it('tells the user an unavailable AI did not count their question', () => {
+    expect(describeError(new ApiError(503, 'AI_UNAVAILABLE', 'x'))).toMatchObject({ retryable: true, message: expect.stringContaining('wasn\'t counted') });
+  });
+});
+
 describe('describeError', () => {
   it('has specific copy for every code the backend and client emit', () => {
     for (const code of [...SERVER_ERROR_CODES, ...CLIENT_ERROR_CODES]) {

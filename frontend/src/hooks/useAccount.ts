@@ -16,6 +16,13 @@ export function useAnalysisUsage() {
   return { ...usage, entry, plan: usage.data?.plan };
 }
 
+/** The AI_QUERY entry of /usage: FREE has a limit, PREMIUM has null. */
+export function useAiUsage() {
+  const usage = useUsage();
+  const entry = usage.data?.usage.find((u) => u.usageType === 'AI_QUERY');
+  return { ...usage, entry, plan: usage.data?.plan };
+}
+
 /** Changes the password; on success the session is replaced by the one this call returns (see `changePassword`). */
 export function useChangePassword() {
   return useMutation({ mutationFn: (v: { currentPassword: string; newPassword: string }) => changePassword(v.currentPassword, v.newPassword) });

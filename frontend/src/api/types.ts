@@ -219,6 +219,63 @@ export interface FilesQuery {
   size: number;
 }
 
+// ---- Ask AI ----
+export type AiIndexStatus = 'NOT_INDEXED' | 'INDEXING' | 'READY' | 'FAILED' | 'EMPTY';
+export interface AiIndexResponse {
+  status: AiIndexStatus;
+  chunkCount: number;
+  embeddedCount: number;
+  embeddingModel: string | null;
+  /** True only for FAILED with chunks stored: a free retry is possible. */
+  retryable: boolean;
+  /** A safe message for FAILED and EMPTY, or a partial-coverage note on a READY index. */
+  reason: string | null;
+  indexedAt: string | null;
+}
+export type AiProvider = 'GEMINI' | 'GROQ';
+export interface ChatSource {
+  /** The number of the [n] marker in the answer that first cited this node. */
+  ref: number;
+  type: NodeType;
+  id: string;
+  name: string;
+  file: string | null;
+  line: number | null;
+  endLine: number | null;
+  /** The first lines of the chunk the model saw; null for a node known only from a graph fact. */
+  excerpt: string | null;
+}
+export interface ChatAnswer {
+  conversationId: string;
+  messageId: string;
+  answer: string;
+  sources: ChatSource[];
+  cached: boolean;
+  provider: AiProvider;
+}
+export interface ChatQuestion {
+  message: string;
+  conversationId?: string;
+}
+export interface ConversationSummary {
+  id: string;
+  title: string;
+  createdAt: string;
+  updatedAt: string;
+  messageCount: number;
+}
+export interface ChatMessage {
+  id: string;
+  role: 'USER' | 'ASSISTANT';
+  content: string;
+  /** Assistant messages only. */
+  sources?: ChatSource[];
+  /** Assistant messages only. */
+  provider?: AiProvider;
+  cached: boolean;
+  createdAt: string;
+}
+
 // ---- usage ----
 export interface UsageEntry {
   usageType: UsageType;
