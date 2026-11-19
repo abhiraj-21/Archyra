@@ -71,7 +71,8 @@ public record AiProperties(
 		}
 	}
 
-	public record Groq(String apiKey, @NotBlank String model, @NotBlank String baseUrl) implements ProviderSettings {
+	/** @param reasoningEffort sent as {@code reasoning_effort} when not blank (reasoning models spend output tokens on thinking; leave blank for other models) */
+	public record Groq(String apiKey, @NotBlank String model, @NotBlank String baseUrl, String reasoningEffort) implements ProviderSettings {
 
 		@Override
 		public String toString() {
@@ -98,7 +99,12 @@ public record AiProperties(
 			@DefaultValue("4500") @Min(500) int groqMaxTokens) {
 	}
 
-	public record History(@DefaultValue("4") @Min(0) int turns) {
+	/**
+	 * @param turns     how many of the latest question and answer pairs go back to the model
+	 * @param maxTokens estimated token cap of that history (older turns are dropped first), so history cannot crowd out the
+	 *                  context or push a request over a provider's per-request limit
+	 */
+	public record History(@DefaultValue("4") @Min(0) int turns, @DefaultValue("1500") @Min(0) int maxTokens) {
 	}
 
 	public record Retrieval(

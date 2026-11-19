@@ -8,7 +8,7 @@ public enum UsageType {
 
 	REPOSITORY_ANALYSIS("repository analyses"),
 
-	/** A placeholder for the V1 AI chat. Nothing consumes it yet. */
+	/** One question asked to Ask AI (V1). Reserved before the model is called and returned once if the answer fails. */
 	AI_QUERY("AI queries");
 
 	private final String displayName;

@@ -4,6 +4,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 import org.springframework.ai.transformers.TransformersEmbeddingModel;
 import org.springframework.beans.factory.DisposableBean;
@@ -31,6 +32,13 @@ public class EmbeddingService implements DisposableBean {
 
 	private final AiProperties properties;
 	private volatile TransformersEmbeddingModel model;
+	/**
+	 * Inference holds the read lock, closing the model takes the write lock. The ONNX session is native memory: freeing it
+	 * under a running inference is a use-after-free that crashes the whole JVM (it did, when a Spring context was closed while
+	 * an embedding job ran), so {@link #destroy} waits for the batches in flight and later calls are refused.
+	 */
+	private final ReentrantReadWriteLock lifecycle = new ReentrantReadWriteLock();
+	private boolean closed;
 
 	public EmbeddingService(AiProperties properties) {
 		this.properties = properties;
@@ -46,19 +54,42 @@ public class EmbeddingService implements DisposableBean {
 		if (texts.isEmpty()) {
 			return List.of();
 		}
-		List<float[]> vectors = model().embed(texts);
-		for (float[] vector : vectors) {
-			if (vector.length != EmbeddingSpec.DIMENSION) {
-				throw new IllegalStateException("The embedding model returned " + vector.length
-						+ " values; the code_chunks column holds " + EmbeddingSpec.DIMENSION);
+		lifecycle.readLock().lock();
+		try {
+			requireOpen();
+			List<float[]> vectors = model().embed(texts);
+			for (float[] vector : vectors) {
+				if (vector.length != EmbeddingSpec.DIMENSION) {
+					throw new IllegalStateException("The embedding model returned " + vector.length
+							+ " values; the code_chunks column holds " + EmbeddingSpec.DIMENSION);
+				}
 			}
+			return vectors;
 		}
-		return vectors;
+		finally {
+			lifecycle.readLock().unlock();
+		}
 	}
 
 	/** Loads the model and proves that its output size is the column's. Throws if either is not so. */
 	public void verify() {
-		float[] probe = model().embed("verify");
+		lifecycle.readLock().lock();
+		try {
+			requireOpen();
+			verifyDimension(model().embed("verify"));
+		}
+		finally {
+			lifecycle.readLock().unlock();
+		}
+	}
+
+	private void requireOpen() {
+		if (closed) {
+			throw new EmbeddingClosedException();
+		}
+	}
+
+	private static void verifyDimension(float[] probe) {
 		if (probe.length != EmbeddingSpec.DIMENSION) {
 			throw new IllegalStateException("The embedding model " + EmbeddingSpec.MODEL_NAME + " returns "
 					+ probe.length + " values but code_chunks.embedding is vector(" + EmbeddingSpec.DIMENSION
@@ -66,18 +97,25 @@ public class EmbeddingService implements DisposableBean {
 		}
 	}
 
-	/** Releases the native ONNX session when the application context closes. */
+	/** Releases the native ONNX session when the application context closes, after the batches in flight have finished. */
 	@Override
 	public void destroy() {
-		TransformersEmbeddingModel loaded = model;
-		model = null;
-		if (loaded != null) {
-			try {
-				loaded.close();
+		lifecycle.writeLock().lock();
+		try {
+			closed = true;
+			TransformersEmbeddingModel loaded = model;
+			model = null;
+			if (loaded != null) {
+				try {
+					loaded.close();
+				}
+				catch (Exception ex) {
+					log.warn("The embedding model did not close cleanly ({})", ex.getClass().getSimpleName());
+				}
 			}
-			catch (Exception ex) {
-				log.warn("The embedding model did not close cleanly ({})", ex.getClass().getSimpleName());
-			}
+		}
+		finally {
+			lifecycle.writeLock().unlock();
 		}
 	}
 

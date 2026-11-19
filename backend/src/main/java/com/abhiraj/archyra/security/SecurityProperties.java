@@ -122,7 +122,8 @@ public record SecurityProperties(
 			@DefaultValue("10") @Min(1) int loginPerIpPerMinute,
 			@DefaultValue("5") @Min(1) int sensitivePerIpPerHour,
 			@DefaultValue("10") @Min(1) int createAnalysisPerUserPerHour,
-			@DefaultValue("10") @Min(1) int linkIntentPerUserPerHour) {
+			@DefaultValue("10") @Min(1) int linkIntentPerUserPerHour,
+			@DefaultValue("10") @Min(1) int aiChatPerUserPerMinute) {
 	}
 
 	public record Lockout(

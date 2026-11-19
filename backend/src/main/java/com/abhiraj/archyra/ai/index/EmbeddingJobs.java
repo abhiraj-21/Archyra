@@ -114,6 +114,9 @@ class EmbeddingJobs {
 				}
 			}
 		}
+		catch (EmbeddingClosedException shuttingDown) {
+			log.info("Embedding of analysis {} stopped because the application is shutting down; it resumes at the next start", analysisId);
+		}
 		catch (Throwable failure) { // an index must never stay INDEXING because of a job that died
 			log.error("Embedding failed for analysis {}", analysisId, failure);
 			try {

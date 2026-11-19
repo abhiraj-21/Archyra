@@ -29,6 +29,35 @@ public class AiRuleException extends RuntimeException {
 				"Re-analyze this repository to enable Ask AI.");
 	}
 
+	/** 404: not yours, belongs to another analysis, deleted, or malformed in the URL. */
+	public static AiRuleException conversationNotFound() {
+		return new AiRuleException("CONVERSATION_NOT_FOUND", HttpStatus.NOT_FOUND, "Conversation not found");
+	}
+
+	/** 409: {@code archyra.ai.limits.messages-per-conversation} reached. */
+	public static AiRuleException conversationFull() {
+		return new AiRuleException("CONVERSATION_FULL", HttpStatus.CONFLICT,
+				"This conversation is full. Start a new conversation to keep asking.");
+	}
+
+	/** 409: a question of this conversation is still being answered. */
+	public static AiRuleException conversationBusy() {
+		return new AiRuleException("CONVERSATION_BUSY", HttpStatus.CONFLICT,
+				"A question in this conversation is still being answered. Wait for it to finish.");
+	}
+
+	/** 409: {@code archyra.ai.limits.conversations-per-analysis} reached. */
+	public static AiRuleException tooManyConversations() {
+		return new AiRuleException("TOO_MANY_CONVERSATIONS", HttpStatus.CONFLICT,
+				"This repository has too many conversations. Delete one to start another.");
+	}
+
+	/** 503: no provider could answer. The question was not counted. */
+	public static AiRuleException unavailable() {
+		return new AiRuleException("AI_UNAVAILABLE", HttpStatus.SERVICE_UNAVAILABLE,
+				"Ask AI is not available right now. Your question was not counted; please try again later.");
+	}
+
 	public String code() {
 		return code;
 	}

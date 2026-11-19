@@ -4,6 +4,11 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.util.List;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -77,5 +82,46 @@ class EmbeddingServiceTest {
 
 		assertThatThrownBy(broken::verify).isInstanceOf(IllegalStateException.class)
 				.hasMessageContaining("fetch-embedding-model.sh");
+	}
+
+	@Test
+	void closingWhileBatchesAreRunningWaitsForThemAndLaterCallsAreRefusedInsteadOfCrashingTheJvm() throws Exception {
+		// Freeing the native ONNX session under a running inference crashed the JVM (SIGSEGV) when a Spring context closed during a job.
+		EmbeddingService own = new EmbeddingService(properties(MODEL_URI));
+		own.verify();
+		List<String> batch = java.util.stream.IntStream.range(0, 32).mapToObj(i -> "public Order place(OrderRequest request) number " + i + " ".repeat(5) + "word ".repeat(120)).toList();
+		CountDownLatch running = new CountDownLatch(4);
+		ExecutorService threads = Executors.newFixedThreadPool(4);
+		try {
+			List<Future<Integer>> workers = new java.util.ArrayList<>();
+			for (int i = 0; i < 4; i++) {
+				workers.add(threads.submit(() -> {
+					int batches = 0;
+					while (true) {
+						try {
+							own.embedAll(batch);
+							batches++;
+							running.countDown();
+						}
+						catch (EmbeddingClosedException closed) {
+							return batches;
+						}
+					}
+				}));
+			}
+			assertThat(running.await(60, TimeUnit.SECONDS)).isTrue(); // every worker is inside the model
+
+			own.destroy();
+
+			for (Future<Integer> worker : workers) {
+				assertThat(worker.get(60, TimeUnit.SECONDS)).isPositive(); // each ended by being refused, none by crashing
+			}
+		}
+		finally {
+			threads.shutdownNow();
+		}
+		assertThatThrownBy(() -> own.embed("after")).isInstanceOf(EmbeddingClosedException.class);
+		assertThatThrownBy(own::verify).isInstanceOf(EmbeddingClosedException.class);
+		own.destroy(); // closing twice is harmless
 	}
 }

@@ -28,6 +28,10 @@ public class TestcontainersConfiguration {
 	@Bean
 	@ServiceConnection
 	Neo4jContainer neo4j() {
-		return new Neo4jContainer(DockerImageName.parse("neo4j:5.26-community")).withoutAuthentication();
+		// Neo4j sizes its heap and page cache from the host's memory by default. The suite keeps a dozen Spring contexts (and so a dozen of
+		// these containers) alive at once, which on an 8 GB Docker VM got the kernel to kill Neo4j containers (and a developer's own).
+		return new Neo4jContainer(DockerImageName.parse("neo4j:5.26-community")).withoutAuthentication()
+				.withEnv("NEO4J_server_memory_heap_initial__size", "256m").withEnv("NEO4J_server_memory_heap_max__size", "256m")
+				.withEnv("NEO4J_server_memory_pagecache_size", "128m");
 	}
 }

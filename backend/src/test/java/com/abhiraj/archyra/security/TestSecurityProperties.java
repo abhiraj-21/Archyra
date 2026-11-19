@@ -21,7 +21,7 @@ public final class TestSecurityProperties {
 				Duration.ofHours(24), Duration.ofMinutes(30), "https://app.example.com/",
 				new SecurityProperties.Cors(List.of("https://app.example.com")),
 				new SecurityProperties.OAuth2("/auth/callback", "/login"),
-				new SecurityProperties.RateLimit(10, 5, 10, 10),
+				new SecurityProperties.RateLimit(10, 5, 10, 10, 10),
 				new SecurityProperties.Lockout(5, Duration.ofMinutes(15)),
 				new SecurityProperties.BootstrapAdmin(email, password));
 	}

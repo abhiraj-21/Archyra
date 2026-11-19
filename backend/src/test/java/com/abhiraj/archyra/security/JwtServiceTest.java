@@ -174,7 +174,7 @@ class JwtServiceTest {
 				Duration.ofHours(24), Duration.ofMinutes(30), "http://localhost:5173",
 				new SecurityProperties.Cors(List.of("http://localhost:5173")),
 				new SecurityProperties.OAuth2("/auth/callback", "/login"),
-				new SecurityProperties.RateLimit(10, 5, 10, 10),
+				new SecurityProperties.RateLimit(10, 5, 10, 10, 10),
 				new SecurityProperties.Lockout(5, Duration.ofMinutes(15)),
 				new SecurityProperties.BootstrapAdmin(null, null));
 	}
