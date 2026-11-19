@@ -13,10 +13,10 @@ import com.abhiraj.archyra.ai.ChatIntegrationSupport;
 
 /**
  * The context budget is the chosen provider's: Groq-class budgets are small, so an overview prompt for such a provider
- * truncates the README first, then drops modules, and never the identity line (and never the preamble, which comes off the
+ * drops (or truncates) the README first, then the modules, and never the identity line (and never the preamble, which comes off the
  * budget first).
  */
-@TestPropertySource(properties = { "archyra.ai.providers.gemini.api-key=", "archyra.ai.providers.groq.max-context-tokens=600" })
+@TestPropertySource(properties = { "archyra.ai.providers.gemini.api-key=", "archyra.ai.providers.groq.max-context-tokens=330" })
 class OverviewSmallBudgetIntegrationTest extends ChatIntegrationSupport {
 
 	@Test
@@ -29,10 +29,12 @@ class OverviewSmallBudgetIntegrationTest extends ChatIntegrationSupport {
 		assertThat(GEMINI.requestCount()).isZero();
 		assertThat(prompt).containsPattern("(?m)^\\[1\\] FACT: This repository is sample-shop-docs"); // never dropped
 		assertThat(prompt).contains("Repository summary (background only, not a numbered source)");
-		// the facts fit, so the README is what gave: cut or absent, never the whole of it plus every module
-		String context = prompt.substring(prompt.indexOf("<repository_context>"), prompt.indexOf("</repository_context>"));
-		assertThat(context.length() / 4.0 * 1.2).as("the context is within the provider's 600-token budget").isLessThan(600 + itemCount(prompt) * 3);
-		assertThat(context).doesNotContain("The web module receives requests, the service module places orders");
+		// what gives, in order: the README (and the manifest) first, then the modules, the last in rank first; the classes outlast them
+		String context = prompt.substring(prompt.indexOf("<repository_context>\nRepository summary"), prompt.indexOf("</repository_context>\n\nQuestion:"));
+		assertThat(context.length() / 4.0 * 1.2).as("the context is within the provider's 330-token budget").isLessThan(330 + itemCount(prompt) * 3);
+		assertThat(context).doesNotContain("Sample Shop is a tiny order service").doesNotContain("name: Sample Shop");
+		assertThat(context).doesNotContain("Module com.example.shop.web holds").contains("FACT: Order is depended on");
+		assertThat(context).contains("FACT: Detected technologies").contains("FACT: The repository has");
 	}
 
 	@Test

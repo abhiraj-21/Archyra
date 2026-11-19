@@ -55,7 +55,7 @@ class AccountDeletionPurgeIntegrationTest extends ChatIntegrationSupport {
 		Ready shop = readyShop(user);
 		UUID second = analyzeCompleted(user, TESTS_AND_MAIN);
 		for (int i = 1; i <= 3; i++) {
-			ask(user, shop.analysisId(), "Question number " + i, null);
+			ask(user, shop.analysisId(), q("Question number " + i), null);
 		}
 		assertThat(used(user, "REPOSITORY_ANALYSIS")).isEqualTo(2);
 		assertThat(used(user, "AI_QUERY")).isEqualTo(3);
