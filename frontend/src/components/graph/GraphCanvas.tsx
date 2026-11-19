@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { applyNodeChanges, MiniMap, Panel, ReactFlow, ReactFlowProvider, useReactFlow, type Edge, type NodeChange, type NodeMouseHandler } from '@xyflow/react';
 import { CircleHelp, Expand, Map as MapIcon, Maximize, Minimize, Minus, Plus, RotateCcw, Shapes } from 'lucide-react';
 import type { GraphEdge, GraphNode } from '@/api/types';
@@ -28,6 +28,10 @@ export interface GraphCanvasProps {
   /** Whether any visible node has been moved by hand (enables Reset layout). */
   moved?: boolean;
   interactive?: boolean;
+  /** Extra controls in the toolbar (the name filter), so they are there in full screen too. */
+  toolbarExtra?: ReactNode;
+  /** Shown over the canvas when there is nothing to draw (for example when a name filter matches nothing). */
+  emptyOverlay?: ReactNode;
   label: string;
 }
 
@@ -35,7 +39,7 @@ const GESTURES =
   'Drag a node to move it. Shift-drag on empty canvas draws a selection box; Ctrl or Cmd-click adds a node to the selection, and dragging any selected node moves the whole selection. ' +
   'With nodes selected, the arrow keys nudge them (hold Shift for bigger steps). Escape clears the selection. Enter inspects the focused node. Moves last until you reload; Reset layout undoes them.';
 
-function Toolbar({ fullscreen, onFullscreen, legend, onLegend, minimap, onMinimap, moved, onReset }: { fullscreen: boolean; onFullscreen: () => void; legend: boolean; onLegend: () => void; minimap: boolean; onMinimap: () => void; moved: boolean; onReset: () => void }) {
+function Toolbar({ fullscreen, onFullscreen, legend, onLegend, minimap, onMinimap, moved, onReset, extra }: { fullscreen: boolean; onFullscreen: () => void; legend: boolean; onLegend: () => void; minimap: boolean; onMinimap: () => void; moved: boolean; onReset: () => void; extra?: ReactNode }) {
   const { zoomIn, zoomOut, fitView } = useReactFlow();
   return (
     <Panel position="top-left" className="graph-toolbar" aria-label="Graph view controls">
@@ -63,6 +67,7 @@ function Toolbar({ fullscreen, onFullscreen, legend, onLegend, minimap, onMinima
       <span className="btn btn-quiet btn-icon" role="img" tabIndex={0} aria-label={`Gestures. ${GESTURES}`} title={GESTURES}>
         <CircleHelp size={16} aria-hidden="true" />
       </span>
+      {extra}
     </Panel>
   );
 }
@@ -133,7 +138,7 @@ function FitAndReveal({ layoutKey, fitToken, focusIds, minZoom, selectedId, posi
   return null;
 }
 
-function Canvas({ nodes, edges, positions, layoutKey, selectedId = null, highlight = null, onSelect, onMove, onResetLayout, moved = false, interactive = true, label }: GraphCanvasProps) {
+function Canvas({ nodes, edges, positions, layoutKey, selectedId = null, highlight = null, onSelect, onMove, onResetLayout, moved = false, interactive = true, toolbarExtra, emptyOverlay, label }: GraphCanvasProps) {
   const wrapper = useRef<HTMLDivElement>(null);
   const [fullscreen, setFullscreen] = useState(false);
   const [legend, setLegend] = useState(false);
@@ -330,12 +335,18 @@ function Canvas({ nodes, edges, positions, layoutKey, selectedId = null, highlig
               minimap={minimap}
               onMinimap={() => setMinimap((v) => !v)}
               moved={moved}
+              extra={toolbarExtra}
               onReset={() => {
                 clearSelection();
                 onResetLayout?.();
                 setFitToken((t) => t + 1);
               }}
             />
+            {emptyOverlay ? (
+              <Panel position="top-center" className="graph-empty-overlay">
+                {emptyOverlay}
+              </Panel>
+            ) : null}
             {legend ? (
               <Panel position="top-right" className="graph-legend-panel">
                 <Legend />

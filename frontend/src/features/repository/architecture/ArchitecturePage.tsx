@@ -1,10 +1,13 @@
-import { useCallback, useMemo } from 'react';
+import { useCallback, useEffect, useMemo } from 'react';
 import { useSearchParams } from 'react-router';
 import { List, Network } from 'lucide-react';
 import { hasCode } from '@/api/errors';
 import type { EdgeType, GraphResponse, NodeType } from '@/api/types';
-import { classicDefault, countByType, defaultFilter, isExternalId, neighbourhood, nodeSize, visibleGraph } from '@/components/graph/adapter';
+import { classicDefault, countByType, defaultFilter, idsKey, isExternalId, matchCounts, matchesQuery, neighbourhood, nodeSize, visibleGraph } from '@/components/graph/adapter';
 import { GraphCanvas } from '@/components/graph/GraphCanvas';
+import { GraphSearch } from '@/components/graph/GraphSearch';
+import { GRAPH_SEARCH_ID, isTypingTarget } from '@/components/graph/graphSearchKeys';
+import { NODE_STYLES } from '@/components/graph/graphStyles';
 import { Inspector } from '@/components/graph/Inspector';
 import { parseScope, SCOPE_DEFAULTS, scopeCounts, scopeParam, type Scope } from '@/components/graph/scope';
 import { movedCount, overlayPositions, useManualPositions } from '@/components/graph/manualPositions';
@@ -18,7 +21,7 @@ import { useGraph } from '@/hooks/useWorkspace';
 import { formatNumber, plural } from '@/lib/format';
 import { useWorkspace } from '../workspaceContext';
 import { GraphFilters, GraphUpcoming } from './GraphFilters';
-import { parseEdgeTypes, parseNodeTypes } from './graphParams';
+import { parseEdgeTypes, parseNodeTypes, parseQuery, queryParam } from './graphParams';
 import { NodeList } from './NodeList';
 
 export default function ArchitecturePage() {
@@ -67,6 +70,7 @@ function ArchitectureView({ analysisId, graph }: { analysisId: string; graph: Gr
   // Shown while the module default is what is drawn; any change to the selection writes a parameter and ends it.
   const moduleCaption = defaults.moduleDefault && !explicit;
   const scope = parseScope(params.get('scope'), SCOPE_DEFAULTS.architecture);
+  const query = parseQuery(params.get('q'));
   const selectedId = params.get('node');
   const listView = params.get('view') === 'list';
   const counts = useMemo(() => countByType(graph), [graph]);
@@ -92,18 +96,27 @@ function ArchitectureView({ analysisId, graph }: { analysisId: string; graph: Gr
   const nodeKey = nodeTypes.slice().sort().join(',');
   const edgeKey = edgeTypes.slice().sort().join(',');
   const visible = useMemo(
-    () => visibleGraph(graph, { scope, nodeTypes: new Set(nodeKey ? (nodeKey.split(',') as NodeType[]) : []), edgeTypes: new Set(edgeKey ? (edgeKey.split(',') as EdgeType[]) : []) }),
-    [graph, nodeKey, edgeKey, scope],
+    () => visibleGraph(graph, { scope, query, nodeTypes: new Set(nodeKey ? (nodeKey.split(',') as NodeType[]) : []), edgeTypes: new Set(edgeKey ? (edgeKey.split(',') as EdgeType[]) : []) }),
+    [graph, nodeKey, edgeKey, scope, query],
+  );
+  // "Showing 12 of 87": the nodes of the selected types and scope, and how many of them the name filter keeps.
+  const matches = useMemo(
+    () => matchCounts(graph, { scope, query, nodeTypes: new Set(nodeKey ? (nodeKey.split(',') as NodeType[]) : []) }),
+    [graph, nodeKey, scope, query],
   );
   // What each scope option would reveal under the current node-type filter, so an empty view explains itself.
   const scopeOptionCounts = useMemo(() => scopeCounts(graph.nodes, new Set(nodeKey ? (nodeKey.split(',') as NodeType[]) : [])), [graph, nodeKey]);
   const nodesById = useMemo(() => new Map(graph.nodes.map((n) => [n.id, n])), [graph]);
   const selected = selectedId && visible.nodes.some((n) => n.id === selectedId) ? selectedId : selectedId && nodesById.has(selectedId) ? selectedId : null;
-  const highlight = useMemo(() => (selected ? neighbourhood(visible.edges, selected) : null), [selected, visible.edges]);
+  // A selected node the name filter hides stays selected (the inspector says so), but must not dim everything that is shown.
+  const selectedIsDrawn = selected !== null && visible.nodes.some((n) => n.id === selected);
+  const hiddenByFilter = selected !== null && query !== '' && !matchesQuery(nodesById.get(selected) ?? { name: '' }, query);
+  const highlight = useMemo(() => (selected && selectedIsDrawn ? neighbourhood(visible.edges, selected) : null), [selected, selectedIsDrawn, visible.edges]);
 
   // The visible set is a function of the graph, the two type filters and the scope, so those key the layout cache:
   // a scope change lays out again, and going back to a set seen before reuses its layout.
-  const layoutKey = `${analysisId}|${nodeKey}|${edgeKey}|${scope}|${visible.nodes.length}|${visible.edges.length}`;
+  // It also carries the exact visible ids: a name filter produces sets of the same size with different members.
+  const layoutKey = `${analysisId}|${nodeKey}|${edgeKey}|${scope}|${idsKey(visible.nodes, visible.edges)}`;
   const layoutInput = useMemo(
     () => ({ nodes: visible.nodes.map((n) => ({ id: n.id, ...nodeSize(n) })), edges: visible.edges.map((e) => ({ id: e.id, source: e.source, target: e.target })) }),
     [visible],
@@ -120,8 +133,40 @@ function ArchitectureView({ analysisId, graph }: { analysisId: string; graph: Gr
   const moved = useMemo(() => movedCount(manual, visible.nodes.map((n) => n.id)) > 0, [manual, visible.nodes]);
 
   const select = useCallback((id: string | null) => update({ node: id }), [update]);
-  const reset = () => update({ nodes: null, edges: null, node: null, scope: null });
+  const reset = () => update({ nodes: null, edges: null, node: null, scope: null, q: null });
+  const setQuery = useCallback((term: string) => update({ q: queryParam(term) }), [update]);
+  const clearQuery = () => setQuery('');
+
+  // `/` jumps to the name filter, unless the person is typing somewhere (this tab only: the listener goes with the page).
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== '/' || e.ctrlKey || e.metaKey || e.altKey || isTypingTarget(e.target)) return;
+      const field = document.getElementById(GRAPH_SEARCH_ID);
+      if (!field) return;
+      e.preventDefault();
+      field.focus();
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, []);
   const setScope = (next: Scope) => update({ scope: scopeParam(next, SCOPE_DEFAULTS.architecture), node: null });
+
+  // The name filter keeps nothing: say what was asked for, and the two ways out.
+  const typeWords = nodeTypes.map((t) => NODE_STYLES[t].plural.toLowerCase());
+  const noMatch = (
+    <EmptyState
+      title={`No ${typeWords.length > 1 ? `${typeWords.slice(0, -1).join(', ')} or ${typeWords[typeWords.length - 1]}` : typeWords[0] ?? 'nodes'} match “${query}”`}
+      action={
+        <div className="flex flex-wrap gap-xs">
+          <Button onClick={clearQuery}>Clear filter</Button>
+          {scope !== 'all' ? <Button onClick={() => setScope('all')}>Show all</Button> : null}
+        </div>
+      }
+    >
+      The filter looks at names only, inside the node types and the {scope === 'tests' ? 'Tests' : scope === 'working' ? 'Working' : 'All'} scope you have selected.
+      {scope === 'all' ? '' : ' Show all includes test code.'}
+    </EmptyState>
+  );
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -139,9 +184,11 @@ function ArchitectureView({ analysisId, graph }: { analysisId: string; graph: Gr
         />
       </div>
       <div className="flex flex-wrap items-center justify-between gap-x-lg gap-y-xs border-b border-rule bg-paper px-md py-2xs sm:px-lg">
-        <p className="text-sm text-muted" aria-live="polite">
-          {plural(visible.nodes.length, 'node')}, {plural(visible.edges.length, 'relationship')}
+        <p className="text-sm text-muted" aria-live="polite" aria-atomic="true">
+          {query ? `Showing ${formatNumber(matches.shown)} of ${formatNumber(matches.total)} nodes, ` : `${plural(visible.nodes.length, 'node')}, `}
+          {plural(visible.edges.length, 'relationship')}
         </p>
+        {listView ? <GraphSearch value={query} onCommit={setQuery} /> : null}
         <GraphUpcoming onReset={reset} />
         <div className="flex gap-2xs" role="group" aria-label="View">
           <button type="button" className="btn btn-quiet btn-sm" aria-pressed={!listView} onClick={() => update({ view: null })}>
@@ -155,7 +202,7 @@ function ArchitectureView({ analysisId, graph }: { analysisId: string; graph: Gr
 
       <div className="relative flex min-h-0 flex-1 max-lg:h-[72dvh] max-lg:flex-none">
         <div className="relative min-w-0 flex-1">
-          {visible.nodes.length === 0 ? (
+          {visible.nodes.length === 0 && !(query && matches.total > 0) ? (
             <div className="grid h-full place-items-center bg-canvas px-md">
               {scope === 'tests' && !hasTests ? (
                 <EmptyState title="No test code found in this repository" action={<Button onClick={() => setScope('all')}>Show all</Button>}>
@@ -172,7 +219,7 @@ function ArchitectureView({ analysisId, graph }: { analysisId: string; graph: Gr
               )}
             </div>
           ) : listView ? (
-            <NodeList nodes={visible.nodes} degree={visible.degree} selectedId={selected} onSelect={select} />
+            visible.nodes.length === 0 ? <div className="grid h-full place-items-center bg-canvas px-md">{noMatch}</div> : <NodeList nodes={visible.nodes} degree={visible.degree} selectedId={selected} onSelect={select} />
           ) : layout.error ? (
             <div className="grid h-full place-items-center px-md">
               <ErrorState error={null} />
@@ -189,6 +236,8 @@ function ArchitectureView({ analysisId, graph }: { analysisId: string; graph: Gr
               onMove={move}
               onResetLayout={resetLayout}
               moved={moved}
+              toolbarExtra={<GraphSearch value={query} onCommit={setQuery} />}
+              emptyOverlay={visible.nodes.length === 0 ? noMatch : null}
               label={`Architecture graph: ${plural(visible.nodes.length, 'node')}. Use Tab to move between nodes and Enter to inspect one.`}
             />
           ) : (
@@ -199,7 +248,25 @@ function ArchitectureView({ analysisId, graph }: { analysisId: string; graph: Gr
             </div>
           )}
         </div>
-        {selected ? <Inspector analysisId={analysisId} nodeId={selected} nodesById={nodesById} onClose={() => select(null)} onSelect={select} /> : null}
+        {selected ? (
+          <Inspector
+            analysisId={analysisId}
+            nodeId={selected}
+            nodesById={nodesById}
+            onClose={() => select(null)}
+            onSelect={select}
+            notice={
+              hiddenByFilter ? (
+                <p className="flex flex-wrap items-center gap-x-xs gap-y-2xs text-sm text-muted" role="status">
+                  Hidden by the filter.
+                  <button type="button" className="link" onClick={clearQuery}>
+                    Clear filter
+                  </button>
+                </p>
+              ) : null
+            }
+          />
+        ) : null}
       </div>
     </div>
   );

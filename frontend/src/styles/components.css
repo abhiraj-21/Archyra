@@ -217,6 +217,12 @@ input[type="checkbox"]:disabled { opacity: 0.55; cursor: not-allowed; }
 .arch-node-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--text-sm); font-weight: 500; }
 .arch-node-type { font-size: var(--text-xs); color: var(--color-muted); }
 .graph-toolbar { display: flex; flex-wrap: wrap; gap: var(--space-2xs); }
+.graph-search { position: relative; display: flex; align-items: center; min-width: 11rem; width: 15rem; max-width: 100%; }
+.graph-search__icon { position: absolute; left: var(--space-xs); color: var(--color-muted); pointer-events: none; }
+.graph-search__input { width: 100%; min-height: 36px; padding-left: var(--space-lg); padding-right: var(--space-xl); }
+.graph-search__input::-webkit-search-cancel-button { display: none; }
+.graph-search__clear { position: absolute; right: 0; width: 32px; min-height: 32px; }
+.graph-empty-overlay { max-width: min(32rem, calc(100% - 2rem)); margin-top: var(--space-2xl); padding: var(--space-md) var(--space-lg); border: 1px solid var(--color-rule); border-radius: var(--radius-card); background: var(--color-cotton); box-shadow: var(--edge-stock), var(--cast-stock); }
 .graph-legend-panel, .graph-legend { max-width: 15rem; }
 .graph-legend { display: grid; gap: var(--space-2xs); padding: var(--space-sm); border: 1px solid var(--color-rule); border-radius: var(--radius-card); background: var(--color-cotton); box-shadow: var(--edge-stock), var(--cast-stock); }
 .graph-minimap.react-flow__minimap { --xy-minimap-background-color: var(--color-cotton); --xy-minimap-mask-background-color: var(--color-minimap-mask); --xy-minimap-mask-stroke-color: var(--color-rule-2); --xy-minimap-node-background-color: var(--color-paper-3); border: 1px solid var(--color-rule); border-radius: var(--radius-card); overflow: hidden; }

@@ -91,6 +91,8 @@ function live(title: string, body: (page: Page) => Promise<void>) {
 }
 
 const scopeRadio = (page: Page, name: 'Working' | 'Tests' | 'All') => page.getByRole('radiogroup', { name: /working code, tests, or all/i }).getByRole('radio', { name: new RegExp(`^${name}`) });
+/** The ids of the rendered nodes, as one string: two scopes can hold the same NUMBER of nodes (25 working and 25 test classes), never the same nodes. */
+const nodeIdSet = async (page: Page) => (await page.locator('.react-flow__node').evaluateAll((els) => els.map((el) => el.getAttribute('data-id') ?? '').sort())).join('|');
 const counts = (page: Page) => page.getByText(/\d[\d,]* nodes?, \d[\d,]* relationships?/).first();
 async function nodeTotal(page: Page): Promise<number> {
   const text = (await counts(page).textContent()) ?? '';
@@ -156,11 +158,12 @@ live('Architecture: Working by default, three states, scope in the URL and gone 
   await expect(scopeRadio(page, 'Working')).toHaveAttribute('aria-checked', 'true');
   expect(page.url()).not.toContain('scope=');
   const working = await nodeTotal(page);
+  const workingIds = await nodeIdSet(page);
 
   await scopeRadio(page, 'Tests').click();
   await expect(page).toHaveURL(/scope=tests/);
   await expect(scopeRadio(page, 'Tests')).toHaveAttribute('aria-checked', 'true');
-  await expect.poll(() => nodeTotal(page)).not.toBe(working);
+  await expect.poll(() => nodeIdSet(page)).not.toBe(workingIds);
   const tests = await nodeTotal(page);
 
   await scopeRadio(page, 'All').click();
@@ -246,10 +249,11 @@ live('Relationships: Working by default; the list follows the scope and the deta
   await expect(scopeRadio(page, 'Working')).toHaveAttribute('aria-checked', 'true');
   expect(page.url()).not.toContain('scope=');
   const working = await list.count();
+  const workingNames = await list.allTextContents();
 
   await scopeRadio(page, 'Tests').click();
   await expect(page).toHaveURL(/scope=tests/);
-  await expect.poll(() => list.count()).not.toBe(working); // the list re-renders after the URL changes
+  await expect.poll(async () => (await list.allTextContents()).join('|')).not.toBe(workingNames.join('|')); // the list re-renders after the URL changes
   const tests = await list.count();
   expect(tests).toBeGreaterThan(0);
   await scopeRadio(page, 'All').click();
@@ -470,4 +474,150 @@ live('Architecture: an explicit nodes parameter keeps the classic edges, so old 
   await expect(checkbox(page, /^Extends/)).toBeChecked();
   await expect(checkbox(page, /^Implements/)).toBeChecked();
   await expect(page.getByTestId('graph-default-caption')).toHaveCount(0);
+});
+
+// ---------------------------------------------------------------------------------------------------------------
+// The name filter (Task B)
+// ---------------------------------------------------------------------------------------------------------------
+
+const filterField = (page: Page) => page.getByLabel('Filter by name');
+/** How many nodes are drawn: "Showing 8 of 25 nodes" while a name filter is on, "25 nodes" otherwise. */
+async function shownNodes(page: Page): Promise<number> {
+  const text = (await counts(page).textContent()) ?? '';
+  return Number((/Showing ([\d,]+) of/.exec(text)?.[1] ?? /([\d,]+) nodes?/.exec(text)?.[1])?.replace(/,/g, ''));
+}
+const queryIn = (url: string) => new URL(url).searchParams.get('q');
+
+/** A term taken from a working class name that matches some, but not all, of the working classes and interfaces. */
+function pickTerm(graph: ApiGraph): { term: string; matching: number; total: number } | null {
+  const types = graph.nodes.filter((n) => (n.type === 'CLASS' || n.type === 'INTERFACE') && !n.test && !n.id.startsWith('external:'));
+  for (const sample of types) {
+    for (let length = 3; length <= sample.name.length; length += 1) {
+      const term = sample.name.slice(0, length).toLowerCase();
+      const matching = types.filter((n) => n.name.toLowerCase().includes(term)).length;
+      if (matching >= 1 && matching < types.length) return { term, matching, total: types.length };
+    }
+  }
+  return null;
+}
+
+live('Name filter: typing narrows the class view to the matching names, updates ?q=, and a reload restores it', async (page) => {
+  const picked = pickTerm(await readGraph(page));
+  test.skip(!picked, 'no class-name fragment matches only some of the classes in this analysis');
+  const { term, matching } = picked as NonNullable<typeof picked>;
+
+  await page.goto(ARCH());
+  await expect(page.locator('.react-flow__node').first()).toBeVisible();
+  expect(page.url()).not.toContain('q=');
+  const historyBefore = await page.evaluate(() => history.length);
+
+  await filterField(page).fill(term.toUpperCase()); // case-insensitive
+  await expect(page).toHaveURL(new RegExp(`[?&]q=${encodeURIComponent(term.toUpperCase())}`));
+  await expect.poll(() => shownNodes(page)).toBe(matching);
+  const names = (await nodeLabels(page)).map((label) => label.replace(/, (class|interface).*$/, '').toLowerCase());
+  // off-screen nodes are not rendered (onlyRenderVisibleElements): the count above is the truth, the drawn names must all match
+  expect(names.length).toBeGreaterThan(0);
+  expect(names.length).toBeLessThanOrEqual(matching);
+  expect(names.every((name) => name.includes(term))).toBe(true);
+  await expect(page.getByText(new RegExp(`Showing ${matching} of \\d+ nodes`))).toBeVisible();
+  expect(await page.evaluate(() => history.length)).toBe(historyBefore); // typing never fills the history
+
+  await page.reload();
+  await expect(filterField(page)).toHaveValue(term.toUpperCase());
+  await expect.poll(() => shownNodes(page)).toBe(matching);
+  expect(queryIn(page.url())).toBe(term.toUpperCase());
+
+  // Escape clears it and takes ?q= out of the URL
+  await filterField(page).focus();
+  await page.keyboard.press('Escape');
+  await expect(filterField(page)).toHaveValue('');
+  await expect.poll(() => queryIn(page.url())).toBeNull();
+  await expect.poll(() => shownNodes(page)).toBeGreaterThan(matching);
+
+  // and so does the clear button
+  await filterField(page).fill(term);
+  await expect.poll(() => queryIn(page.url())).toBe(term);
+  await page.getByRole('button', { name: 'Clear filter' }).click();
+  await expect(filterField(page)).toHaveValue('');
+  await expect.poll(() => queryIn(page.url())).toBeNull();
+});
+
+live('Name filter: `/` focuses the field unless someone is typing, and the field is in the full-screen toolbar too', async (page) => {
+  await page.goto(ARCH());
+  await expect(page.locator('.react-flow__node').first()).toBeVisible();
+  await page.locator('.graph-canvas .react-flow__pane').click({ position: { x: 5, y: 5 } });
+  await page.keyboard.press('/');
+  await expect(filterField(page)).toBeFocused();
+  expect(await filterField(page).inputValue()).toBe(''); // the slash was not typed into it
+  await page.keyboard.type('a/b');
+  await expect(filterField(page)).toHaveValue('a/b'); // while typing, `/` is just a character
+  await page.keyboard.press('Escape');
+
+  await page.getByRole('button', { name: 'Full screen' }).click();
+  await expect(filterField(page)).toBeVisible();
+  await page.getByRole('button', { name: 'Exit full screen' }).click().catch(() => null);
+});
+
+live('Name filter: a term that matches nothing says so, keeps the field, and a selected node it hides stays selected with a notice', async (page) => {
+  await page.goto(ARCH());
+  const first = page.locator('.react-flow__node').first();
+  await expect(first).toBeVisible();
+  await first.click();
+  await expect(page).toHaveURL(/node=/);
+  const inspector = page.getByRole('complementary', { name: 'Node details' });
+  await expect(inspector).toBeVisible();
+
+  await filterField(page).fill('zzz-no-such-name');
+  await expect(page.getByRole('heading', { name: /^No classes or interfaces match “zzz-no-such-name”$/ })).toBeVisible();
+  await expect(page.locator('.react-flow__node')).toHaveCount(0);
+  await expect(filterField(page)).toBeVisible();
+  await expect(page).toHaveURL(/node=/); // still selected
+  await expect(inspector.getByText('Hidden by the filter')).toBeVisible();
+
+  await inspector.getByRole('button', { name: 'Clear filter' }).click();
+  await expect(filterField(page)).toHaveValue('');
+  await expect(inspector.getByText('Hidden by the filter')).toHaveCount(0);
+  await expect(page.locator('.react-flow__node').first()).toBeVisible();
+
+  // the empty state has its own Clear filter and a Show all (the scope is Working)
+  await filterField(page).fill('zzz-no-such-name');
+  const empty = page.locator('.graph-empty-overlay');
+  await expect(empty.getByRole('button', { name: 'Clear filter' })).toBeVisible();
+  await expect(empty.getByRole('button', { name: 'Show all' })).toBeVisible();
+  await empty.getByRole('button', { name: 'Clear filter' }).click();
+  await expect(page.locator('.react-flow__node').first()).toBeVisible();
+});
+
+live('Name filter: with the module default a term filters the modules, and moved nodes keep their place', async (page) => {
+  const view = expectedModuleView(await readGraph(page));
+  test.skip(!view.applies, 'the module default does not apply to this analysis');
+  // a fragment of one module's last name segment that matches some, but not all, of the module names
+  let term = '';
+  let matching = 0;
+  for (const module of view.modules) {
+    const segment = module.name.slice(module.name.lastIndexOf('.') + 1).toLowerCase();
+    for (let length = 3; length <= segment.length && !term; length += 1) {
+      const candidate = segment.slice(0, length);
+      const count = view.modules.filter((m) => m.name.toLowerCase().includes(candidate)).length;
+      if (count >= 1 && count < view.modules.length) {
+        term = candidate;
+        matching = count;
+      }
+    }
+    if (term) break;
+  }
+  test.skip(!term, 'no fragment of a module name matches only some of the modules');
+
+  await page.goto(ARCH_BARE());
+  const [a, , idA] = await pickNodes(page);
+  await drag(page, a, 80, 60);
+  const placed = await flowPosition(page.locator(`.react-flow__node[data-id="${idA}"]`));
+
+  await filterField(page).fill(term);
+  await expect.poll(() => shownNodes(page)).toBe(matching);
+  await expect(page.getByTestId('graph-default-caption')).toBeVisible(); // a filter is not a change of the selection
+  await filterField(page).fill('');
+  await expect.poll(() => shownNodes(page)).toBe(view.modules.length);
+  await page.getByRole('button', { name: 'Fit to screen' }).click();
+  await expect.poll(() => flowPosition(page.locator(`.react-flow__node[data-id="${idA}"]`))).toEqual(placed); // hidden nodes keep their positions
 });

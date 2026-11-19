@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import { Link } from 'react-router';
 import { FileCode2, GitBranch, X } from 'lucide-react';
 import { hasCode } from '@/api/errors';
@@ -32,7 +33,7 @@ function Counts({ title, counts }: { title: string; counts: RelationshipCounts }
 }
 
 /** The docked inspector: what the selected node is, where it lives, and how it connects (from GET /nodes/{id}). */
-export function Inspector({ analysisId, nodeId, nodesById, onClose, onSelect }: { analysisId: string; nodeId: string; nodesById: Map<string, GraphNode>; onClose: () => void; onSelect: (id: string) => void }) {
+export function Inspector({ analysisId, nodeId, nodesById, onClose, onSelect, notice }: { analysisId: string; nodeId: string; nodesById: Map<string, GraphNode>; onClose: () => void; onSelect: (id: string) => void; /** A line under the title, e.g. that the node is hidden by the name filter. */ notice?: ReactNode }) {
   const node = useNode(analysisId, nodeId, true);
   const base = nodesById.get(nodeId);
   const style = base ? NODE_STYLES[base.type] : null;
@@ -52,6 +53,8 @@ export function Inspector({ analysisId, nodeId, nodesById, onClose, onSelect }: 
           <X size={18} aria-hidden="true" />
         </button>
       </div>
+
+      {notice}
 
       {node.isPending ? (
         <div className="grid gap-sm" role="status" aria-label="Loading details">

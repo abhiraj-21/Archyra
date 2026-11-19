@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { GraphResponse } from '@/api/types';
-import { classicDefault, defaultFilter, displayName, neighbourhood, nodeSize, visibleGraph } from './adapter';
+import { classicDefault, defaultFilter, displayName, idsKey, matchCounts, matchesQuery, neighbourhood, nodeSize, visibleGraph } from './adapter';
 
 // Small inline inputs for the pure adapter only.
 const graph: GraphResponse = {
@@ -196,5 +196,104 @@ describe('defaultFilter: the module default', () => {
   it('ignores external modules and an edge that reaches one', () => {
     const external: GraphResponse = { nodes: [node('module:app', 'MODULE'), node('external:module:lib', 'MODULE'), node('class:app.A', 'CLASS')], edges: [dep('module:app', 'external:module:lib')] };
     expect(defaultFilter(external, 'working').moduleDefault).toBe(false);
+  });
+});
+
+describe('visibleGraph name filter', () => {
+  const repo: GraphResponse = {
+    nodes: [
+      { id: 'module:com.shop.service', type: 'MODULE', name: 'com.shop.service', test: false },
+      { id: 'module:com.shop.web', type: 'MODULE', name: 'com.shop.web', test: false },
+      { id: 'class:OrderService', type: 'CLASS', name: 'OrderService', file: 'src/main/OrderService.java', test: false },
+      { id: 'class:UserServiceImpl', type: 'CLASS', name: 'UserServiceImpl', file: 'src/main/UserServiceImpl.java', test: false },
+      { id: 'class:OrderController', type: 'CLASS', name: 'OrderController', file: 'src/main/OrderController.java', test: false },
+      { id: 'interface:UserService', type: 'INTERFACE', name: 'UserService', file: 'src/main/UserService.java', test: false },
+      { id: 'class:OrderServiceTest', type: 'CLASS', name: 'OrderServiceTest', file: 'src/test/OrderServiceTest.java', test: true },
+      { id: 'external:class:Service', type: 'CLASS', name: 'Service', test: false },
+    ],
+    edges: [
+      { source: 'class:OrderController', target: 'class:OrderService', type: 'DEPENDS_ON' },
+      { source: 'class:OrderService', target: 'interface:UserService', type: 'DEPENDS_ON' },
+      { source: 'class:UserServiceImpl', target: 'interface:UserService', type: 'IMPLEMENTS' },
+      { source: 'class:OrderServiceTest', target: 'class:OrderService', type: 'DEPENDS_ON' },
+      { source: 'module:com.shop.web', target: 'module:com.shop.service', type: 'DEPENDS_ON' },
+    ],
+  };
+  const classes = { nodeTypes: all(['CLASS', 'INTERFACE']), edgeTypes: all(['DEPENDS_ON', 'IMPLEMENTS']) };
+
+  it('with only a query keeps the nodes whose name contains it, of the selected types and nothing else', () => {
+    const v = visibleGraph(repo, { ...classes, scope: 'all', query: 'service' });
+    expect(v.nodes.map((n) => n.id)).toEqual(['class:OrderService', 'class:UserServiceImpl', 'interface:UserService', 'class:OrderServiceTest']);
+    expect(v.nodes.some((n) => n.id.startsWith('external:'))).toBe(false);
+  });
+
+  it('applies on top of the selected node types: a module that matches is not shown while only classes are selected', () => {
+    const v = visibleGraph(repo, { ...classes, scope: 'all', query: 'service' });
+    expect(v.nodes.some((n) => n.type === 'MODULE')).toBe(false);
+    const interfaces = visibleGraph(repo, { nodeTypes: all(['INTERFACE']), edgeTypes: all(['DEPENDS_ON']), scope: 'all', query: 'service' });
+    expect(interfaces.nodes.map((n) => n.id)).toEqual(['interface:UserService']);
+  });
+
+  it('applies on top of the scope: working hides the matching test class, tests shows only it, all shows both', () => {
+    expect(visibleGraph(repo, { ...classes, scope: 'working', query: 'orderservice' }).nodes.map((n) => n.id)).toEqual(['class:OrderService']);
+    expect(visibleGraph(repo, { ...classes, scope: 'tests', query: 'orderservice' }).nodes.map((n) => n.id)).toEqual(['class:OrderServiceTest']);
+    expect(visibleGraph(repo, { ...classes, scope: 'all', query: 'orderservice' }).nodes.map((n) => n.id)).toEqual(['class:OrderService', 'class:OrderServiceTest']);
+  });
+
+  it('ignores case and surrounding spaces', () => {
+    const lower = visibleGraph(repo, { ...classes, scope: 'working', query: 'service' }).nodes.map((n) => n.id);
+    expect(visibleGraph(repo, { ...classes, scope: 'working', query: 'SERVICE' }).nodes.map((n) => n.id)).toEqual(lower);
+    expect(visibleGraph(repo, { ...classes, scope: 'working', query: '  SeRvIcE  ' }).nodes.map((n) => n.id)).toEqual(lower);
+    expect(matchesQuery({ name: 'OrderService' }, 'ORDERSERVICE')).toBe(true);
+  });
+
+  it('an empty or blank query is no filter', () => {
+    const none = visibleGraph(repo, { ...classes, scope: 'working' });
+    expect(visibleGraph(repo, { ...classes, scope: 'working', query: '' }).nodes).toEqual(none.nodes);
+    expect(visibleGraph(repo, { ...classes, scope: 'working', query: '   ' }).nodes).toEqual(none.nodes);
+  });
+
+  it('drops an edge when either end is filtered out, and never pulls in a neighbour', () => {
+    const v = visibleGraph(repo, { ...classes, scope: 'working', query: 'userservice' });
+    expect(v.nodes.map((n) => n.id)).toEqual(['class:UserServiceImpl', 'interface:UserService']);
+    expect(v.edges.map((e) => e.id)).toEqual(['IMPLEMENTS|class:UserServiceImpl|interface:UserService']);
+    const one = visibleGraph(repo, { ...classes, scope: 'working', query: 'orderservice' });
+    expect(one.nodes.map((n) => n.id)).toEqual(['class:OrderService']); // its neighbours do not match, so they are not shown
+    expect(one.edges).toEqual([]);
+    expect(one.degree.get('class:OrderService')).toBe(0);
+  });
+
+  it('shows nothing when nothing matches', () => {
+    const v = visibleGraph(repo, { ...classes, scope: 'all', query: 'zzz-no-such-name' });
+    expect(v.nodes).toEqual([]);
+    expect(v.edges).toEqual([]);
+  });
+
+  it('matches a module by its full name, not by the label the card shows', () => {
+    const modules = { nodeTypes: all(['MODULE']), edgeTypes: all(['DEPENDS_ON']) };
+    expect(visibleGraph(repo, { ...modules, scope: 'working', query: 'com.shop' }).nodes).toHaveLength(2);
+    expect(visibleGraph(repo, { ...modules, scope: 'working', query: 'shop.web' }).nodes.map((n) => n.id)).toEqual(['module:com.shop.web']);
+    expect(visibleGraph(repo, { ...modules, scope: 'working', query: 'web' }).edges).toEqual([]); // the other end does not match
+  });
+
+  it('matchCounts is "shown of total" over the selected types and scope', () => {
+    expect(matchCounts(repo, { ...classes, scope: 'working', query: 'service' })).toEqual({ shown: 3, total: 4 });
+    expect(matchCounts(repo, { ...classes, scope: 'all', query: 'service' })).toEqual({ shown: 4, total: 5 });
+    expect(matchCounts(repo, { ...classes, scope: 'working' })).toEqual({ shown: 4, total: 4 });
+    expect(matchCounts(repo, { ...classes, scope: 'working', query: 'nope' })).toEqual({ shown: 0, total: 4 });
+  });
+});
+
+describe('idsKey', () => {
+  const n = (...ids: string[]) => ids.map((id) => ({ id }));
+
+  it('differs for two sets of the same size, which is what a name filter produces', () => {
+    expect(idsKey(n('a', 'b'), [])).not.toBe(idsKey(n('a', 'c'), []));
+    expect(idsKey(n('ab'), [])).not.toBe(idsKey(n('a', 'b'), []));
+  });
+
+  it('is the same for the same ids in any order, and differs for edges', () => {
+    expect(idsKey(n('a', 'b', 'c'), n('e1'))).toBe(idsKey(n('c', 'a', 'b'), n('e1')));
+    expect(idsKey(n('a'), n('e1'))).not.toBe(idsKey(n('a'), n('e2')));
   });
 });

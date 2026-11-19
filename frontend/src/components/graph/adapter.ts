@@ -11,6 +11,12 @@ export interface GraphFilter {
   edgeTypes: ReadonlySet<EdgeType>;
   /** Applied before the edge check: `tests` is strict, so an edge survives only when both ends are test nodes. */
   scope: Scope;
+  /**
+   * A name filter, applied on top of the node types and the scope and before the edge check, so an edge shows only when
+   * both ends do. Case-insensitive substring of the node's `name` (a module's full name), trimmed; empty means none.
+   * It never pulls in neighbours.
+   */
+  query?: string;
 }
 
 export interface VisibleGraph {
@@ -26,8 +32,55 @@ export function edgeId(edge: GraphEdge): string {
   return `${edge.type}|${edge.source}|${edge.target}`;
 }
 
+/** Whether a node's name contains the (already trimmed) query, ignoring case. An empty query matches everything. */
+export function matchesQuery(node: Pick<GraphNode, 'name'>, query: string | undefined): boolean {
+  const term = query?.trim().toLowerCase();
+  return !term || node.name.toLowerCase().includes(term);
+}
+
+/**
+ * How many nodes of the selected types and scope there are, and how many of them the name filter keeps: "Showing 12 of 87".
+ * Pure, over the same rules as {@link visibleGraph}.
+ */
+export function matchCounts(graph: GraphResponse, filter: Pick<GraphFilter, 'nodeTypes' | 'scope' | 'query'>): { shown: number; total: number } {
+  let shown = 0;
+  let total = 0;
+  for (const n of graph.nodes) {
+    if (isExternalId(n.id) || !filter.nodeTypes.has(n.type) || !inScope(n, filter.scope)) continue;
+    total += 1;
+    if (matchesQuery(n, filter.query)) shown += 1;
+  }
+  return { shown, total };
+}
+
+/**
+ * A short key for the exact set of visible ids (a 53-bit string hash of the sorted ids), so the layout cache never mixes up
+ * two sets that happen to have the same size, which is what a name filter produces.
+ */
+export function idsKey(nodes: readonly { id: string }[], edges: readonly { id: string }[]): string {
+  const hash = (ids: string[]) => {
+    let h1 = 0xdeadbeef;
+    let h2 = 0x41c6ce57;
+    for (const id of ids.slice().sort()) {
+      for (let i = 0; i < id.length; i += 1) {
+        const c = id.charCodeAt(i);
+        h1 = Math.imul(h1 ^ c, 2654435761);
+        h2 = Math.imul(h2 ^ c, 1597334677);
+      }
+      h1 = Math.imul(h1 ^ 0x2c, 2654435761); // a separator, so ["ab"] and ["a", "b"] differ
+      h2 = Math.imul(h2 ^ 0x2c, 1597334677);
+    }
+    h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909);
+    h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909);
+    return (4294967296 * (2097151 & h2) + (h1 >>> 0)).toString(36);
+  };
+  return `${nodes.length}.${hash(nodes.map((n) => n.id))}|${edges.length}.${hash(edges.map((e) => e.id))}`;
+}
+
 export function visibleGraph(graph: GraphResponse, filter: GraphFilter): VisibleGraph {
-  const nodes = graph.nodes.filter((n) => !isExternalId(n.id) && filter.nodeTypes.has(n.type) && inScope(n, filter.scope));
+  const nodes = graph.nodes.filter(
+    (n) => !isExternalId(n.id) && filter.nodeTypes.has(n.type) && inScope(n, filter.scope) && matchesQuery(n, filter.query),
+  );
   const ids = new Set(nodes.map((n) => n.id));
   const degree = new Map<string, number>(nodes.map((n) => [n.id, 0]));
   const seen = new Set<string>();
