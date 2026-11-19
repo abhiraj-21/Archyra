@@ -14,7 +14,12 @@ export default defineConfig({
   fullyParallel: false,
   workers: 1,
   timeout: 240_000,
-  expect: { timeout: 15_000 },
+  // The light-theme regression baseline (scripts/e2e/visual.spec.ts): one flat folder, no platform suffix, ZERO tolerance.
+  snapshotPathTemplate: '{testDir}/__baseline__/{arg}{ext}',
+  expect: {
+    timeout: 15_000,
+    toHaveScreenshot: { maxDiffPixels: 0, threshold: 0, animations: 'disabled', caret: 'hide' },
+  },
   reporter: [['list']],
   use: { baseURL: env.ARCHYRA_APP_URL, ...devices['Desktop Chrome'], viewport: { width: 1440, height: 900 } },
 });

@@ -1,10 +1,11 @@
 #!/usr/bin/env node
 // Fails when a colour literal or a font name appears anywhere in src/ outside the token file.
 // Colours and fonts are Hallmark tokens (src/styles/tokens.css); everything else refers to them through var(--…)
-// or the Tailwind utilities generated from them.
+// or the Tailwind utilities generated from them. 
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { SNAPSHOT_FILE } from './lib/tokens.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const srcDir = path.join(root, 'src');
@@ -46,7 +47,8 @@ function stripComments(text, ext) {
 
 const findings = [];
 for (const file of walk(srcDir)) {
-  if (file === TOKEN_FILE) continue;
+  // The light snapshot is the token file's own data (every light colour, as a record), not styling.
+  if (file === TOKEN_FILE || file === SNAPSHOT_FILE) continue;
   const ext = path.extname(file);
   const text = stripComments(fs.readFileSync(file, 'utf8'), ext);
   for (const rule of RULES) {

@@ -12,3 +12,4 @@ playwright-report
 scripts/capture/.auth
 .hallmark/shots
 .hallmark/preflight.json
+scripts/e2e/__dark-preview__
