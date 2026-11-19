@@ -65,7 +65,7 @@
 
 ---
 
-- [ ]  **Ask AI** (backend built, see "Ask AI" below; the UI is next)
+- [ ]  **Ask AI** (backend and UI built, see "Ask AI" below; the answers come from a configurable chain of free providers, see "Decision: Ask AI provider chain")
 - [ ]  Repository-aware questions, Relationship explanations, Architecture explanations. For example:
     - "How does authentication work?"
     - "Where does a request to `/users` go?"
