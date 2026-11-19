@@ -40,6 +40,14 @@ class GroundingTest {
 	}
 
 	@Test
+	void fullwidthBracketsAreCitationsToo() {
+		Grounding.Outcome outcome = ground("Uses it\u30103\u3011 and stores it\u30143\u3015, then\uFF3B1\uFF3D and\u30105, 99\u3011.");
+
+		assertThat(outcome.text()).isEqualTo("Uses it[1] and stores it[1], then[2] and[3].");
+		assertThat(ids(outcome)).containsExactly("method:C", "method:A", "method:E");
+	}
+
+	@Test
 	void numbersOutsideTheContextAreDroppedNotGuessed() {
 		Grounding.Outcome outcome = ground("Claim [99]. Another [0] one [6] and [2].");
 

@@ -52,7 +52,8 @@ class AiLiveSmokeTest extends AiIntegrationSupport {
 		System.out.println("LIVE SMOKE TEST: provider=" + provider + ", answer of " + answer.length() + " characters, " + sources.size() + " verified sources");
 		assertThat(answer).isNotBlank();
 		assertThat(provider).isIn("GEMINI", "GROQ");
+		assertThat(sources).as("a real answer to a question about named code cites at least one verified source").isNotEmpty();
 		assertThat(sources).allSatisfy(source -> assertThat((String) source.get("id")).matches("(class|interface|method|function):.+"));
-		assertThat(answer).doesNotContain("<repository_context>");
+		assertThat(answer).doesNotContain("<repository_context>").doesNotContain("\u3010");
 	}
 }

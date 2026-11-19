@@ -13,7 +13,7 @@ import java.util.regex.Pattern;
 import com.abhiraj.archyra.ai.retrieval.ContextItem;
 
 /**
- * Makes an answer's citations trustworthy. The model cites numbered context items; this reads the {@code [n]} markers,
+ * Makes an answer's citations trustworthy. The model cites numbered context items; this reads the {@code [n]} markers (fullwidth brackets included),
  * ignores any number that is not one of the items, renumbers the rest by first appearance ({@code 1..m}) and reports which
  * items were cited, in that order. A node id the model might have invented can never appear, because ids are never shown
  * to the model.
@@ -28,7 +28,12 @@ final class Grounding {
 	}
 
 	private static final Pattern CODE = Pattern.compile("(?s)```.*?(?:```|$)|`[^`\\n]*`");
-	private static final Pattern MARKER = Pattern.compile("\\[(\\d{1,4}(?:\\s*,\\s*\\d{1,4})*)\\](?!\\()");
+	/**
+	 * {@code [n]}, also written with the fullwidth brackets some models use ({@code 【n】}, {@code 〔n〕}, {@code ［n］}); always
+	 * rewritten as {@code [n]}, so the client only ever sees one form.
+	 */
+	private static final Pattern MARKER = Pattern
+			.compile("[\\[\u3010\u3014\uFF3B](\\d{1,4}(?:\\s*[,\uFF0C]\\s*\\d{1,4})*)[\\]\u3011\u3015\uFF3D](?!\\()");
 
 	private Grounding() {
 	}
@@ -75,7 +80,7 @@ final class Grounding {
 		while (marker.find()) {
 			out.append(text, last, marker.start());
 			Set<Integer> refs = new LinkedHashSet<>();
-			for (String number : marker.group(1).split("\\s*,\\s*")) {
+			for (String number : marker.group(1).split("\\s*[,\uFF0C]\\s*")) {
 				int index = Integer.parseInt(number) - 1;
 				if (index >= 0 && index < itemCount && accept.test(index)) {
 					refs.add(refOf.computeIfAbsent(index, key -> refOf.size() + 1));
