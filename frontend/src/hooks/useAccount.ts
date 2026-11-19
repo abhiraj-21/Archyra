@@ -1,12 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useNavigate } from 'react-router';
 import { changePassword } from '@/api/endpoints/auth';
 import { confirmAccountDeletion, deleteAccount, getUsage, requestAccountDeletion, updateMe } from '@/api/endpoints/users';
 import { queryKeys } from '@/api/queryKeys';
 import { useSession } from './sessionContext';
-
-/** Router state the landing page reads to say the account was deleted. */
-export const ACCOUNT_DELETED_STATE = { accountDeleted: true } as const;
 
 export function useUsage() {
   const { status } = useSession();
@@ -41,17 +37,14 @@ export function useUpdateName() {
 }
 
 /**
- * After a successful deletion: end the local session through the session provider (it clears the cache and the token,
- * then every guarded page unmounts) and go to the landing page with a short notice, in the same tick. Nothing refetches
- * on a cleared cache because the observers unmount in that same update (the rule in frontend/CLAUDE.md).
+ * After a successful deletion the session provider ends the local session (it clears the cache and the token) and the route
+ * guard, seeing the end reason `deleted`, sends the visitor to the landing page with a short notice. The guard does the
+ * navigating (not this hook) because a navigate here would race the guard's own redirect for the now anonymous visitor. Nothing
+ * refetches on a cleared cache because the observers unmount in that same update (the rule in frontend/CLAUDE.md).
  */
 function useEndSessionAfterDeletion() {
   const { endAfterDeletion } = useSession();
-  const navigate = useNavigate();
-  return () => {
-    endAfterDeletion();
-    navigate('/', { replace: true, state: ACCOUNT_DELETED_STATE });
-  };
+  return endAfterDeletion;
 }
 
 /** Deletes the account of a user with a password. */

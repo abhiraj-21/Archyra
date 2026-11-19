@@ -1,4 +1,5 @@
 import { Navigate, Outlet, useLocation, useNavigate } from 'react-router';
+import { ACCOUNT_DELETED_STATE } from '@/hooks/accountDeletedState';
 import { useSession } from '@/hooks/sessionContext';
 import { safeNext } from '@/lib/returnTo';
 import { BootScreen } from '@/features/system/BootScreen';
@@ -30,6 +31,8 @@ export function RequireAuth() {
   const location = useLocation();
   if (status !== 'authenticated') {
     if (endReason === 'signed-out') return <Navigate to="/login" replace />;
+    // The account was just deleted: the landing page, with the notice (the page the guard left is gone with the account).
+    if (endReason === 'deleted') return <Navigate to="/" replace state={ACCOUNT_DELETED_STATE} />;
     const next = `${location.pathname}${location.search}`;
     return <Navigate to={`/login?next=${encodeURIComponent(next)}`} replace />;
   }

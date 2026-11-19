@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Trash2 } from 'lucide-react';
 import { ApiError, hasCode } from '@/api/errors';
 import { Button, ButtonLink } from '@/components/ui/Button';
@@ -16,12 +16,11 @@ import { DeletionConsequences } from './DeleteAccount';
  */
 export default function DeleteConfirmPage() {
   useDocumentTitle('Confirm account deletion');
-  const [token] = useState(() => {
-    const value = new URLSearchParams(window.location.search).get('token');
-    // Drop the token from the address bar before anything else happens.
+  // Read in the initializer (a pure read: StrictMode runs it twice), dropped from the address bar in an effect.
+  const [token] = useState(() => new URLSearchParams(window.location.search).get('token'));
+  useEffect(() => {
     if (window.location.search) window.history.replaceState(window.history.state, '', window.location.pathname);
-    return value;
-  });
+  }, []);
   const confirm = useConfirmAccountDeletion();
 
   // A link with no token, or one the server calls expired or used, cannot work again: send the person back to Settings.

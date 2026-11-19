@@ -73,7 +73,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const queryClient = useQueryClient();
   const [status, setStatus] = useState<SessionStatus>('booting');
   const [attempt, setAttempt] = useState(0);
-  const [endReason, setEndReason] = useState<'signed-out' | 'expired' | null>(null);
+  const [endReason, setEndReason] = useState<'signed-out' | 'expired' | 'deleted' | null>(null);
 
   useEffect(() => {
     let alive = true;
@@ -124,7 +124,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const endAfterDeletion = useCallback(() => {
     clearAccessToken();
     queryClient.clear();
-    setEndReason('signed-out');
+    setEndReason('deleted'); // the guard sends the visitor to the landing page with the notice, not to /login
     setStatus('anonymous');
   }, [queryClient]);
 

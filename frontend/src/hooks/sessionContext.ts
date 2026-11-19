@@ -5,8 +5,8 @@ export type SessionStatus = 'booting' | 'anonymous' | 'authenticated' | 'unreach
 
 export interface SessionValue {
   status: SessionStatus;
-  /** Why the last session ended: a deliberate sign-out goes to a plain /login, an expiry remembers the page. */
-  endReason: 'signed-out' | 'expired' | null;
+  /** Why the last session ended: a deliberate sign-out goes to a plain /login, an expiry remembers the page, a deleted account goes to the landing page. */
+  endReason: 'signed-out' | 'expired' | 'deleted' | null;
   /** The current user once /users/me has loaded. */
   me: UserProfile | undefined;
   /** /users/me is loading or failed while the session itself is valid. */

@@ -12,6 +12,28 @@ interface DialogProps {
   describedBy?: string;
 }
 
+const FOCUSABLE = 'a[href], button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex="-1"])';
+
+/**
+ * A native modal dialog makes the page behind it inert, but Tab off its last control still leaves the page (to the browser's own
+ * interface), so the dialog wraps Tab and Shift+Tab itself: focus never leaves it while it is open.
+ */
+function trapTab(event: React.KeyboardEvent<HTMLDialogElement>) {
+  if (event.key !== 'Tab') return;
+  const items = [...event.currentTarget.querySelectorAll<HTMLElement>(FOCUSABLE)].filter((el) => el.getClientRects().length > 0);
+  const first = items[0];
+  const last = items[items.length - 1];
+  if (!first || !last) return;
+  const active = document.activeElement;
+  if (event.shiftKey && (active === first || !event.currentTarget.contains(active))) {
+    event.preventDefault();
+    last.focus();
+  } else if (!event.shiftKey && (active === last || !event.currentTarget.contains(active))) {
+    event.preventDefault();
+    first.focus();
+  }
+}
+
 /** A native modal <dialog>: focus trap, Escape and backdrop come with it. Backdrop click and the close button close it. */
 export function Dialog({ open, onClose, title, children, footer, size = 'normal', describedBy }: DialogProps) {
   const ref = useRef<HTMLDialogElement>(null);
@@ -36,6 +58,7 @@ export function Dialog({ open, onClose, title, children, footer, size = 'normal'
         e.preventDefault();
         onClose();
       }}
+      onKeyDown={trapTab}
       onClick={(e) => {
         if (e.target === ref.current) onClose();
       }}
