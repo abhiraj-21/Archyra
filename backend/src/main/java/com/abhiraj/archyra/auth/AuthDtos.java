@@ -93,6 +93,28 @@ final class AuthDtos {
 		}
 	}
 
+	/** Deleting an account that has a password: the password proves it is the owner, not just a stolen access token. */
+	record DeleteAccountRequest(
+			@NotBlank(message = "password must not be blank")
+			@Size(max = PasswordPolicy.MAX_LENGTH, message = "password must be at most 128 characters") String password) {
+
+		@Override
+		public String toString() {
+			return "DeleteAccountRequest[password=<redacted>]";
+		}
+	}
+
+	/** Deleting an account without a password: the one-time token from the emailed link. */
+	record ConfirmAccountDeletionRequest(
+			@NotBlank(message = "token must not be blank")
+			@Size(max = 200, message = "token must be at most 200 characters") String token) {
+
+		@Override
+		public String toString() {
+			return "ConfirmAccountDeletionRequest[token=<redacted>]";
+		}
+	}
+
 	/** What login and refresh return. The refresh token travels only in its cookie. */
 	record AuthResponse(String accessToken, String tokenType, long expiresIn) {
 

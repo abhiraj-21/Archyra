@@ -2,6 +2,7 @@ package com.abhiraj.archyra.security;
 
 import java.time.Clock;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.List;
 
 import javax.crypto.SecretKey;
@@ -10,7 +11,9 @@ import javax.crypto.spec.SecretKeySpec;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.security.oauth2.core.DelegatingOAuth2TokenValidator;
+import org.springframework.security.oauth2.core.OAuth2Error;
 import org.springframework.security.oauth2.core.OAuth2TokenValidator;
+import org.springframework.security.oauth2.core.OAuth2TokenValidatorResult;
 import org.springframework.security.oauth2.jose.jws.MacAlgorithm;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.oauth2.jwt.JwtDecoder;
@@ -38,8 +41,13 @@ class JwtConfig {
 	}
 
 	@Bean
+	JwtDecoder jwtDecoder(SecurityProperties properties, Clock clock, RevokedSubjects revokedSubjects) {
+		return jwtDecoder(properties, clock, secretKey(properties), revokedSubjects);
+	}
+
+	/** Without a revocation list, for code that only checks signature, expiry and issuer. */
 	JwtDecoder jwtDecoder(SecurityProperties properties, Clock clock) {
-		return jwtDecoder(properties, clock, secretKey(properties));
+		return jwtDecoder(properties, clock, secretKey(properties), null);
 	}
 
 	/** Grants {@code ROLE_<role>} for every entry of the {@code roles} claim, so {@code hasRole("ADMIN")} works. */
@@ -53,13 +61,19 @@ class JwtConfig {
 		return converter;
 	}
 
-	static JwtDecoder jwtDecoder(SecurityProperties properties, Clock clock, SecretKey key) {
+	static JwtDecoder jwtDecoder(SecurityProperties properties, Clock clock, SecretKey key, RevokedSubjects revokedSubjects) {
 		NimbusJwtDecoder decoder = NimbusJwtDecoder.withSecretKey(key).macAlgorithm(MacAlgorithm.HS256).build();
 		JwtTimestampValidator timestamps = new JwtTimestampValidator(CLOCK_SKEW);
 		timestamps.setClock(clock);
 		timestamps.setAllowEmptyExpiryClaim(false); // a token that never expires is not one of ours
-		OAuth2TokenValidator<Jwt> validator = new DelegatingOAuth2TokenValidator<>(
-				List.of(timestamps, new JwtIssuerValidator(properties.jwt().issuer())));
+		List<OAuth2TokenValidator<Jwt>> validators = new ArrayList<>(List.of(timestamps, new JwtIssuerValidator(properties.jwt().issuer())));
+		if (revokedSubjects != null) {
+			// A deleted account's token stops working at once instead of living out its 15 minutes.
+			validators.add(token -> revokedSubjects.isRevoked(token.getSubject())
+					? OAuth2TokenValidatorResult.failure(new OAuth2Error("invalid_token", "The account no longer exists", null))
+					: OAuth2TokenValidatorResult.success());
+		}
+		OAuth2TokenValidator<Jwt> validator = new DelegatingOAuth2TokenValidator<>(validators);
 		decoder.setJwtValidator(validator);
 		return decoder;
 	}

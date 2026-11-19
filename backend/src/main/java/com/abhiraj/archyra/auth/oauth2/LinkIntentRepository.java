@@ -19,6 +19,10 @@ interface LinkIntentRepository extends JpaRepository<LinkIntent, UUID> {
 	int consume(@Param("id") UUID id, @Param("now") Instant now);
 
 	@Modifying
+	@Query("delete from LinkIntent i where i.userId = :userId")
+	int deleteAllOf(@Param("userId") UUID userId);
+
+	@Modifying
 	@Query("delete from LinkIntent i where i.expiresAt < :cutoff or i.consumedAt < :cutoff")
 	int purge(@Param("cutoff") Instant cutoff);
 }

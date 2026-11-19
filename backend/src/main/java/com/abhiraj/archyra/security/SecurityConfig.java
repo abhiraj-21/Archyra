@@ -39,6 +39,7 @@ import lombok.RequiredArgsConstructor;
  * /api/v1/auth/**      public (refresh and logout are guarded by cookie + CSRF, not by the token)
  * /api/v1/admin/**     ADMIN
  * /error               public
+ * /api/v1/users/me/delete, /delete-request, /delete-confirm   authenticated, then the password or the emailed token (auth/)
  * /api/v1/**           authenticated (ownership and premium checks happen in the services)
  * anything else        denied
  * </pre>

@@ -83,6 +83,29 @@ class RateLimitingIntegrationTest {
 	}
 
 	@Test
+	void deletingAnAccountWithAPasswordOrAnEmailedTokenSharesTheLoginBucket() throws Exception {
+		for (int i = 0; i < 3; i++) {
+			assertThat(postJson("/api/v1/users/me/delete", "{\"password\":\"x\"}", "203.0.113.30").getResponse().getStatus()).isEqualTo(401);
+		}
+
+		MvcResult limited = postJson("/api/v1/users/me/delete-confirm", "{\"token\":\"x\"}", "203.0.113.30");
+
+		assertThat(limited.getResponse().getStatus()).isEqualTo(429);
+		assertThat(JsonPath.<String>read(limited.getResponse().getContentAsString(), "$.code")).isEqualTo("RATE_LIMITED");
+		assertThat(limited.getResponse().getHeader("Retry-After")).isNotNull();
+		assertThat(postJson("/api/v1/users/me/delete", "{\"password\":\"x\"}", "203.0.113.31").getResponse().getStatus()).isEqualTo(401);
+	}
+
+	@Test
+	void theDeletionEmailIsLimitedLikeTheOtherEmailRoutes() throws Exception {
+		for (int i = 0; i < 2; i++) {
+			assertThat(postJson("/api/v1/users/me/delete-request", "", "203.0.113.32").getResponse().getStatus()).isEqualTo(401);
+		}
+
+		assertThat(postJson("/api/v1/users/me/delete-request", "", "203.0.113.32").getResponse().getStatus()).isEqualTo(429);
+	}
+
+	@Test
 	void aRefusedLoginDoesNotReachTheAuthenticationCode() throws Exception {
 		for (int i = 0; i < 3; i++) {
 			login("203.0.113.12");

@@ -307,6 +307,22 @@
 - **Rejected:** auto-linking by email in link mode (the person proved control of the provider by completing the login while signed in, so no email match is needed and a different email is allowed), account merging (an identity already linked elsewhere is refused without naming the owner), and a "set password" flow for OAuth-only users (they use Forgot password).
 - **Consequences:** one identity per provider per user (unique `(user_id, provider)`); unlinking never removes the last way to sign in; both actions email the owner after commit. Endpoint behaviour is under User → Linked sign-in methods.
 
+### Decision: Deleting an account keeps a usage ledger (2026-11-19)
+
+Spec: `spec/account-deletion/spec.md`.
+
+- **Problem:** deleting a user used to delete `user_usage`, so someone who had used all their free analyses and AI questions could delete the account, register again and start from zero, repeatedly spending our API keys.
+- **Chosen:** deleting an account removes the person's data and **keeps their consumption** in `usage_ledger` (`identity_key` varchar(64), `usage_type`, `used_count`, `updated_at`; unique `(identity_key, usage_type)`). A key is `HMAC-SHA256(secret, value)` (hex) of the normalised email and of every linked `provider:providerUserId`. The secret is `archyra.usage.ledger-secret` (env `USAGE_LEDGER_SECRET`, required, at least 32 bytes, startup fails otherwise), so a leaked database cannot be matched against guessed emails. No email, name, repository URL or content is stored, and raw values and keys are never logged.
+- **Email normalisation** (`usage/LedgerKeys`, one function for every creation path): trim and lower-case; for `gmail.com` and `googlemail.com` (one mailbox) also drop the dots of the local part and everything from `+`, and treat both domains as `gmail.com`; for every other domain drop only a `+tag`.
+- **Restore.** Whenever a user is created (email registration, a first Google or GitHub sign-in) the maximum remembered `used_count` per usage type over all of the user's keys is written into the new `user_usage` rows, in the same transaction as the user, so there is no window with zero counts. Linking an identity to an existing account (Settings, or a social login that matches an account by email) merges: the account's count becomes the maximum of its own and the ledger's for the new identity's key (this stops "delete, sign up with another email, link the old Google identity"). Counts only go up. The restore is silent: registration is still the generic `202`, and no response, email or log mentions it. `UsageLedgerService` owns this (and not `UsageService`, so `user/` can call it without a bean cycle through the entitlement service); it is the only code besides `UsageService` that writes `user_usage`.
+- **No refunds.** Account deletion removes analyses through `AnalysisPurgeService`, which never returns a credit (a refund would let deleting lower the recorded count); the ordinary `DELETE /analyses/{id}` is unchanged and still refunds a free user. The ledger is written first, before anything is removed.
+- **Plans.** The ledger stores counts, not the plan: a returning user is FREE with the restored counts. PREMIUM is not carried over (the confirm dialog says so).
+- **Retention.** The ledger is kept indefinitely (anti-abuse): a small, non-reversible record, disclosed in the confirm dialog and the README. No admin UI.
+- **Authorisation.** A bearer token alone never deletes an account. An account **with a password** sends it (a wrong one is `401 INVALID_CREDENTIALS` and counts towards the same lockout as a failed login). An account **without** one (Google or GitHub only) asks for an emailed confirmation link (a one-time token of purpose `ACCOUNT_DELETE`, 15 minutes, single use, only for the user who asked). The wrong flow for the account type is `400 DELETE_METHOD_MISMATCH`.
+- **Neo4j is outside the PostgreSQL transaction.** The deletion records the analysis ids in `pending_graph_purges` in its own transaction, and the graphs are dropped **after the commit** (outside any transaction); a graph that could not be dropped stays in the table and a sweep (`archyra.analysis.graph-purge-sweep-interval`, 10 minutes) retries it, so the account deletion never fails because of Neo4j and no graph is left behind. Only ids are logged.
+- **Chosen where the spec left room:** an analysis that is still queued or running makes the deletion `409 ANALYSIS_IN_PROGRESS` (its pipeline would otherwise write into a deleted row); the access token of a deleted account is rejected at once (`security/RevokedSubjects`, in memory like the rate limiter, one hour) because a stateless token would otherwise live out its 15 minutes and let a "deleted" user start analyses and ask questions with fresh counters the ledger never sees; a database from before `ACCOUNT_DELETE` gets its `one_time_tokens.purpose` CHECK widened at startup (`OneTimeTokenSchemaUpgrade`).
+- **Rejected:** keeping the user row as a tombstone (it would keep the email); a per-email cooldown before re-registering (the restore makes it unnecessary and the spec asks for none); storing the plan in the ledger.
+
 ### Decision: Ask AI backend (2026-11-19)
 
 Full design and the decision table: `backend/spec/ask-ai-backend/spec.md`. As built:
@@ -939,6 +955,21 @@ Get current user.
 > - **Notice email** (`EmailService.sendPasswordChangedNotice`: when, "wasn't you? reset your password" link to `/forgot-password`, no token) after the commit; a mail failure is logged and never fails the change. Audit: `PASSWORD_CHANGED`, `PASSWORD_CHANGE_REFUSED`, `ACCOUNT_LOCKED`.
 > - No dedicated rate limit: the lockout bounds guessing. Code: `auth/PasswordController`, `auth/PasswordChangeService`.
 
+### Delete account (Settings → Danger zone)
+
+> **Built:** three bearer-authenticated routes (`auth/AccountDeletionController`). Success is `204` and clears the refresh cookie (every session of the user is gone, and the access token stops working at once). All three are rate limited per client IP with the existing buckets (`/delete` and `/delete-confirm` share the login bucket, `/delete-request` the sensitive-email one).
+>
+> ```
+> POST /api/v1/users/me/delete          { "password": "…" }          → 204   (account with a password)
+> POST /api/v1/users/me/delete-request                              → 202 { "message": … }   (account without a password: emails the link)
+> POST /api/v1/users/me/delete-confirm  { "token": "…" }            → 204   (account without a password)
+> ```
+>
+> - **Errors:** `401 INVALID_CREDENTIALS` (wrong password; counts towards the lockout, and while locked the password is not checked), `400 DELETE_METHOD_MISMATCH` (the wrong route for the account type), `400 INVALID_OR_EXPIRED_TOKEN` (unknown, expired, used, voided by a newer request, or someone else's token, which stays usable for its owner), `409 LAST_ADMIN` (the last enabled administrator), `409 ANALYSIS_IN_PROGRESS` (an analysis is still running), `401` for a repeated call after the account is gone, `403 ACCOUNT_DISABLED`.
+> - **The link** goes to the account's verified address: `{frontend-base-url}/settings/delete-confirm?token=…`; a newer request voids the older link.
+> - **What is deleted:** the user row, linked identities, refresh tokens, one-time tokens, OAuth link intents, `user_usage`, and every analysis with its Neo4j graph, metadata, AI index, chunks, conversations and messages. **What is kept:** the usage ledger (see "Decision: Deleting an account keeps a usage ledger"), only keyed hashes and counts. A "your account was deleted" email goes to the address held before the deletion (after commit; a mail failure never fails the deletion).
+> - Audit: `ACCOUNT_DELETED` (user id, no email), `ACCOUNT_DELETE_REQUESTED`, `ACCOUNT_DELETE_REFUSED`, `ACCOUNT_LOCKED`.
+
 ---
 
 # Analysis history
@@ -1024,6 +1055,7 @@ For a PREMIUM user `limit` and `remaining` are `null` (present, not omitted, not
 > - **Premium.** A PREMIUM user (from `User.effectivePlan`, read from the database, never the token) is never blocked, and the counter is still kept. Premium feature gating (`PREMIUM_FEATURE`) is unchanged.
 > - **Downgrade (intentional).** `used_count` is everything the user ever consumed. A former premium user with 12 analyses who is back on FREE is already over the limit: `used: 12, limit: 5, remaining: 0, limitReached: true`, and blocked until the limit is raised.
 > - **Deleting gives the credit back (FREE users).** When an analysis is deleted (`DELETE /analyses/{id}`, or replaced by a completed re-run), a user who is held to the free limit (FREE, or an expired PREMIUM) gets its credit back: `used` goes from 4 to 3 and they can analyze another repository. It is the same guarded refund as above, in the same transaction as the row delete, so it returns at most one credit per analysis: an analysis that did not consume one (a `FAILED` one, whose credit already came back, one from before usage tracking, or one that was never charged) returns nothing, and neither does deleting it again. A PREMIUM user's delete returns nothing, so their recorded count stays true if they later downgrade. The counter therefore equals the number of kept, charged analyses of a free user. Re-running at the limit is still refused, because the new analysis is charged before the old one is replaced.
+> - **Deleting the account keeps the consumption.** `usage_ledger` remembers the per-type `used_count` under keyed hashes of the email and linked identities, and a user created later (registration, a first social sign-in, or an identity linked to an existing account) gets at least those counts back. A returning user is FREE. See "Decision: Deleting an account keeps a usage ledger" and User → Delete account.
 > - **Refunds.** A unit goes back exactly once when the pipeline ends an analysis as `FAILED` (every failure path), when the executor rejects the submission (`503 SERVICE_BUSY`; the row stays as `FAILED`), and, at startup, for analyses interrupted by a restart or failed with a refund that did not go through. `FAILED` and the refund are written in one transaction, so a client that sees `FAILED` already has its unit back. `analyses.quota_charged` and `quota_refunded` make it idempotent: `UPDATE analyses SET quota_refunded = true WHERE id = ? AND quota_charged AND NOT quota_refunded` lets only the first caller go on to the guarded `used_count - 1` (`used_count > 0`, plus a `used_count >= 0` check constraint). A `COMPLETED` analysis is never refunded by the pipeline. Analyses from before this feature have `quota_charged = false`, so they can never trigger a refund, and users start at `used = 0` (no backfill).
 
 ---
@@ -1608,7 +1640,8 @@ By V3, your API could look roughly like this:
 │
 ├── /users
 │   ├── /me/linked-identities (GET, POST /{provider}/link-intent, DELETE /{provider})
-│   └── /me/password (POST)
+│   ├── /me/password (POST)
+│   └── /me/delete, /me/delete-request, /me/delete-confirm (POST)
 │
 ├── /analyses
 │   ├── POST /

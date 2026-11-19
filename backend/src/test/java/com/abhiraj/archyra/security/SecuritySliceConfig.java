@@ -14,7 +14,7 @@ import org.springframework.context.annotation.Import;
 @TestConfiguration(proxyBeanMethods = false)
 @EnableConfigurationProperties(SecurityProperties.class)
 @Import({ SecurityConfig.class, JwtConfig.class, JwtService.class, RestAuthenticationEntryPoint.class,
-		RestAccessDeniedHandler.class, RateLimiter.class, ClientIpResolver.class, SecurityAuditLogger.class })
+		RestAccessDeniedHandler.class, RateLimiter.class, ClientIpResolver.class, SecurityAuditLogger.class, RevokedSubjects.class })
 public class SecuritySliceConfig {
 
 	@Bean

@@ -3,6 +3,7 @@ package com.abhiraj.archyra.user;
 import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 
 import java.time.Clock;
@@ -12,6 +13,9 @@ import java.time.Instant;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
+
+import com.abhiraj.archyra.usage.UsageLedgerService;
 
 import lombok.RequiredArgsConstructor;
 
@@ -25,6 +29,8 @@ public class UserService {
 
 	private final UserRepository userRepository;
 	private final LinkedIdentityRepository linkedIdentityRepository;
+	private final UsageLedgerService usageLedger;
+	private final TransactionTemplate transactions;
 	private final Clock clock;
 
 	/** Emails are compared trimmed and lower-cased everywhere. */
@@ -67,6 +73,8 @@ public class UserService {
 	/**
 	 * Creates a self-registered account, or returns empty if the email is already taken. Not transactional on
 	 * purpose: a race on the unique email surfaces as an exception that is handled here, not rolled back around it.
+	 * The new account and the usage the ledger remembers for its email are written in one transaction of their own, so
+	 * there is no moment when the account exists with zero counts (see {@link UsageLedgerService}).
 	 */
 	public Optional<User> registerIfAbsent(String email, String name, String passwordHash, Instant now) {
 		String normalized = normalizeEmail(email);
@@ -74,7 +82,11 @@ public class UserService {
 			return Optional.empty();
 		}
 		try {
-			return Optional.of(userRepository.saveAndFlush(User.registered(normalized, name, passwordHash, now)));
+			return Optional.of(transactions.execute(status -> {
+				User saved = userRepository.saveAndFlush(User.registered(normalized, name, passwordHash, now));
+				usageLedger.restoreInto(saved.getId(), Set.of(usageLedger.emailKey(normalized)));
+				return saved;
+			}));
 		}
 		catch (DataIntegrityViolationException ex) {
 			return Optional.empty();
@@ -117,6 +129,30 @@ public class UserService {
 	@Transactional
 	public User createSocialUser(String email, String name) {
 		return userRepository.saveAndFlush(User.fromSocialLogin(normalizeEmail(email), name));
+	}
+
+	/**
+	 * A new account for a first social sign-in, with its identity, and the usage the ledger remembers for the email and
+	 * for that identity. Call inside the caller's transaction (the account resolver's), so account, link and restored
+	 * counts commit together.
+	 */
+	@Transactional(propagation = org.springframework.transaction.annotation.Propagation.MANDATORY)
+	public User createSocialUser(String email, String name, Provider provider, String providerUserId) {
+		User created = userRepository.saveAndFlush(User.fromSocialLogin(normalizeEmail(email), name));
+		linkedIdentityRepository.save(new LinkedIdentity(created.getId(), provider, providerUserId, normalizeEmail(email)));
+		usageLedger.restoreInto(created.getId(), usageLedger.keysFor(created.getEmail(),
+				java.util.List.of(new UsageLedgerService.IdentityRef(provider, providerUserId))));
+		return created;
+	}
+
+	/**
+	 * An identity was attached to an existing account: its usage becomes the larger of the account's and what the ledger
+	 * remembers for that identity (so "delete, register another email, link the old Google" restores the counts). Call
+	 * inside the caller's transaction.
+	 */
+	@Transactional(propagation = org.springframework.transaction.annotation.Propagation.MANDATORY)
+	public void mergeLedgerUsage(UUID userId, Provider provider, String providerUserId) {
+		usageLedger.restoreInto(userId, Set.of(usageLedger.identityKey(provider, providerUserId)));
 	}
 
 	/**

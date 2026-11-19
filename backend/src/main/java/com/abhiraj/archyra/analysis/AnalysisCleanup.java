@@ -40,6 +40,17 @@ class AnalysisCleanup {
 	}
 
 	/**
+	 * Removes an analysis of an account that is being deleted: metadata, the Ask AI data and the row, and <b>no refund</b>
+	 * (see {@link AnalysisRegistrar#purge}). The graph is not touched here: {@link AnalysisPurgeService} drops it after the
+	 * account deletion has committed, because Neo4j is not part of the PostgreSQL transaction.
+	 */
+	void purge(Analysis analysis) {
+		metadataRepository.deleteByAnalysisId(analysis.getId());
+		events.publishEvent(new AnalysisDeleting(analysis.getId()));
+		registrar.purge(analysis);
+	}
+
+	/**
 	 * After a re-run has completed, removes the analysis it replaces. It never throws and never touches anything but a
 	 * finished analysis of the same owner: the new analysis is already COMPLETED and must stay so, and if the old one
 	 * cannot be removed now it simply stays (the user can delete it).

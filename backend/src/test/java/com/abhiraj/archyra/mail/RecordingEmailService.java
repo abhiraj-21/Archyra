@@ -10,7 +10,7 @@ import java.util.regex.Pattern;
 public class RecordingEmailService implements EmailService {
 
 	/**
-	 * @param kind      {@code VERIFY}, {@code RESET}, {@code ACCOUNT_EXISTS}, {@code IDENTITY_LINKED} or {@code IDENTITY_UNLINKED}
+	 * @param kind      {@code VERIFY}, {@code RESET}, {@code ACCOUNT_EXISTS}, {@code IDENTITY_LINKED}, {@code IDENTITY_UNLINKED}, {@code ACCOUNT_DELETE} (the confirmation link) or {@code ACCOUNT_DELETED}
 	 * @param link      the tokened link, or for {@code ACCOUNT_EXISTS} the sign-in page (no token)
 	 * @param resetLink only for {@code ACCOUNT_EXISTS}: the forgot-password page
 	 * @param providers only for {@code ACCOUNT_EXISTS}: the social logins named in the notice; for the identity notices the
@@ -71,6 +71,19 @@ public class RecordingEmailService implements EmailService {
 			throw new IllegalStateException("simulated mail failure");
 		}
 		sent.add(new Sent("PASSWORD_CHANGED", to, name, resetLink, resetLink, List.of()));
+	}
+
+	@Override
+	public void sendAccountDeletionRequest(String to, String name, String link) {
+		sent.add(new Sent("ACCOUNT_DELETE", to, name, link));
+	}
+
+	@Override
+	public void sendAccountDeletedNotice(String to, String name, Instant at) {
+		if (failIdentityNotices) {
+			throw new IllegalStateException("simulated mail failure");
+		}
+		sent.add(new Sent("ACCOUNT_DELETED", to, name, ""));
 	}
 
 	private void identityNotice(String kind, String to, String name, String provider, String resetLink) {

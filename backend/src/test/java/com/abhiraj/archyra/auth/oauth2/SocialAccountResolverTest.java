@@ -64,7 +64,7 @@ class SocialAccountResolverTest {
 	void aNewUserIsCreatedVerifiedAndLinked() {
 		given(userService.findIdentity(Provider.GOOGLE, "sub-1")).willReturn(Optional.empty());
 		given(userService.findByEmail("ada@example.com")).willReturn(Optional.empty());
-		given(userService.createSocialUser("ada@example.com", "Ada Lovelace"))
+		given(userService.createSocialUser("ada@example.com", "Ada Lovelace", Provider.GOOGLE, "sub-1"))
 				.willAnswer(call -> withId(User.fromSocialLogin("ada@example.com", "Ada Lovelace")));
 
 		var resolution = resolver.resolve(google("sub-1", "Ada@Example.com", true));
@@ -72,19 +72,19 @@ class SocialAccountResolverTest {
 		assertThat(resolution.outcome()).isEqualTo(Outcome.CREATED);
 		assertThat(resolution.user().isEmailVerified()).isTrue();
 		assertThat(resolution.user().hasPassword()).isFalse();
-		verify(userService).link(resolution.user(), Provider.GOOGLE, "sub-1", "ada@example.com");
+		verify(userService).createSocialUser("ada@example.com", "Ada Lovelace", Provider.GOOGLE, "sub-1");
 	}
 
 	@Test
 	void theNameFallsBackToTheEmailLocalPart() {
 		given(userService.findIdentity(Provider.GITHUB, "7")).willReturn(Optional.empty());
 		given(userService.findByEmail("octo@example.com")).willReturn(Optional.empty());
-		given(userService.createSocialUser("octo@example.com", "octo"))
+		given(userService.createSocialUser("octo@example.com", "octo", Provider.GITHUB, "7"))
 				.willAnswer(call -> withId(User.fromSocialLogin("octo@example.com", "octo")));
 
 		resolver.resolve(new ProviderIdentity(Provider.GITHUB, "7", "octo@example.com", true, "  "));
 
-		verify(userService).createSocialUser("octo@example.com", "octo");
+		verify(userService).createSocialUser("octo@example.com", "octo", Provider.GITHUB, "7");
 	}
 
 	@Test
@@ -99,7 +99,7 @@ class SocialAccountResolverTest {
 		assertThat(resolution.outcome()).isEqualTo(Outcome.EXISTING_IDENTITY);
 		assertThat(resolution.user()).isSameAs(user);
 		verify(userService, never()).findByEmail(anyString());
-		verify(userService, never()).createSocialUser(anyString(), anyString());
+		verify(userService, never()).createSocialUser(anyString(), anyString(), any(), anyString());
 	}
 
 	@Test
@@ -194,7 +194,7 @@ class SocialAccountResolverTest {
 	void aLongProviderNameIsCutToTheColumnSize() {
 		given(userService.findIdentity(Provider.GOOGLE, "s")).willReturn(Optional.empty());
 		given(userService.findByEmail("ada@example.com")).willReturn(Optional.empty());
-		given(userService.createSocialUser(anyString(), anyString()))
+		given(userService.createSocialUser(anyString(), anyString(), any(), anyString()))
 				.willAnswer(call -> withId(User.fromSocialLogin("ada@example.com", call.getArgument(1))));
 
 		var resolution = resolver.resolve(new ProviderIdentity(Provider.GOOGLE, "s", "ada@example.com", true, "n".repeat(300)));

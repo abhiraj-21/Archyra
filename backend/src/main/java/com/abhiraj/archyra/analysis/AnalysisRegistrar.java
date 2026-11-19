@@ -118,4 +118,14 @@ class AnalysisRegistrar {
 		}
 		analysisRepository.delete(analysis);
 	}
+
+	/**
+	 * Deletes the analysis row <b>without</b> returning its credit, for an account that is being deleted: the user's
+	 * consumption has been recorded in the usage ledger already and must not go down. Never use this for a user who
+	 * stays (that is {@link #deleteAndCredit}).
+	 */
+	@Transactional
+	void purge(Analysis analysis) {
+		analysisRepository.delete(analysis);
+	}
 }

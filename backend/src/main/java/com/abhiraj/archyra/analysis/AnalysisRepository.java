@@ -18,6 +18,8 @@ public interface AnalysisRepository extends JpaRepository<Analysis, UUID> {
 
 	Page<Analysis> findByOwnerId(UUID ownerId, Pageable pageable);
 
+	List<Analysis> findByOwnerId(UUID ownerId);
+
 	/** Rows from before accounts existed. */
 	List<Analysis> findByOwnerIdIsNull();
 

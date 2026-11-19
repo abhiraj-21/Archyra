@@ -75,6 +75,7 @@ class SocialAccountResolver {
 						"user already has a different " + identity.provider() + " identity");
 			}
 			userService.link(user, identity.provider(), identity.providerUserId(), email);
+			userService.mergeLedgerUsage(user.getId(), identity.provider(), identity.providerUserId());
 			if (!user.isEmailVerified()) {
 				userService.takeOverUnverifiedAccount(user.getId(), clock.instant());
 				refreshTokens.revokeAllForUser(user.getId());
@@ -84,8 +85,8 @@ class SocialAccountResolver {
 			return new Resolution(userService.findById(user.getId()).orElse(user), Outcome.LINKED);
 		}
 
-		User created = userService.createSocialUser(email, displayName(identity.name(), email));
-		userService.link(created, identity.provider(), identity.providerUserId(), email);
+		User created = userService.createSocialUser(email, displayName(identity.name(), email), identity.provider(),
+				identity.providerUserId());
 		audit.event("OAUTH_USER_CREATED_" + identity.provider(), created.getId(), null);
 		return new Resolution(created, Outcome.CREATED);
 	}

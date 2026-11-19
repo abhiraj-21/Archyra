@@ -14,7 +14,12 @@ class UsagePropertiesTest {
 	static class Config {
 	}
 
-	private final ApplicationContextRunner runner = new ApplicationContextRunner().withUserConfiguration(Config.class);
+	private static final String SECRET = "archyra-test-only-usage-ledger-secret-0123456789";
+	private static final String LIMITS = "archyra.usage.free-tier.repository-analysis-limit=3";
+	private static final String AI_LIMIT = "archyra.usage.free-tier.ai-query-limit=3";
+
+	private final ApplicationContextRunner runner = new ApplicationContextRunner().withUserConfiguration(Config.class)
+			.withPropertyValues("archyra.usage.ledger-secret=" + SECRET);
 
 	@Test
 	void boundLimitsAreReturnedPerType() {
@@ -57,10 +62,37 @@ class UsagePropertiesTest {
 
 	@Test
 	void everyUsageTypeHasALimit() {
-		UsageProperties properties = new UsageProperties(new UsageProperties.FreeTier(4, 9));
+		UsageProperties properties = new UsageProperties(new UsageProperties.FreeTier(4, 9), SECRET);
 
 		for (UsageType type : UsageType.values()) {
 			assertThat(properties.freeLimit(type)).isNotNegative();
 		}
+	}
+
+	@Test
+	void theLedgerSecretIsRequired() {
+		new ApplicationContextRunner().withUserConfiguration(Config.class).withPropertyValues(LIMITS, AI_LIMIT)
+				.run(context -> assertThat(context).hasFailed());
+		new ApplicationContextRunner().withUserConfiguration(Config.class)
+				.withPropertyValues(LIMITS, AI_LIMIT, "archyra.usage.ledger-secret=   ")
+				.run(context -> assertThat(context).hasFailed());
+	}
+
+	@Test
+	void aShortOrObviouslyWeakLedgerSecretFailsStartup() {
+		for (String weak : new String[] { "too-short", "0123456789012345678901234567890", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" }) {
+			new ApplicationContextRunner().withUserConfiguration(Config.class)
+					.withPropertyValues(LIMITS, AI_LIMIT, "archyra.usage.ledger-secret=" + weak)
+					.run(context -> assertThat(context).hasFailed());
+		}
+	}
+
+	@Test
+	void aLongEnoughLedgerSecretIsAcceptedAndNeverPrinted() {
+		new ApplicationContextRunner().withUserConfiguration(Config.class).withPropertyValues(LIMITS, AI_LIMIT, "archyra.usage.ledger-secret=" + SECRET)
+				.run(context -> {
+					assertThat(context).hasNotFailed();
+					assertThat(context.getBean(UsageProperties.class).toString()).doesNotContain(SECRET);
+				});
 	}
 }

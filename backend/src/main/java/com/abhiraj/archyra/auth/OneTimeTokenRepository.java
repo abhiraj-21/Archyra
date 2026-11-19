@@ -21,6 +21,8 @@ interface OneTimeTokenRepository extends JpaRepository<OneTimeToken, UUID> {
 
 	List<OneTimeToken> findByUserIdAndPurposeAndUsedAtIsNull(UUID userId, OneTimePurpose purpose);
 
+	long deleteByUserId(UUID userId);
+
 	long deleteByExpiresAtBefore(Instant cutoff);
 
 	long deleteByUsedAtBefore(Instant cutoff);

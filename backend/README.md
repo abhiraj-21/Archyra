@@ -41,6 +41,7 @@ Everything is in `src/main/resources/application.properties`; secrets come from 
 | `ADMIN_EMAIL`, `ADMIN_PASSWORD` | no | Creates the first administrator at startup if none exists. Remove `ADMIN_PASSWORD` afterwards |
 | `NATIVE_LIB_DIR` | no | Where the Tree-sitter libraries are (default `native`) |
 | `ANALYSIS_LIMIT`, `AI_LIMIT` | yes | Lifetime allowance of analyses and of Ask AI questions for FREE users (PREMIUM is never capped). Startup fails if missing or negative |
+| `USAGE_LEDGER_SECRET` | yes | HMAC key of the usage ledger: when an account is deleted only keyed hashes of its email and linked identities are kept, with the counts used, so deleting and registering again does not reset the free allowances. At least 32 bytes of random text (`openssl rand -base64 48`); startup fails if missing or weak. Keep it stable (changing it makes existing entries unmatchable) and never commit it |
 | `GEMINI_API_KEY`, `GROQ_API_KEY`, `OPENROUTER_API_KEY`, `CLOUDFLARE_API_TOKEN` + `CLOUDFLARE_ACCOUNT_ID`, `ZAI_API_KEY`, `COHERE_API_KEY`, `LLM7_API_KEY` | no | Ask AI providers (see *Ask AI* below). Chat needs at least one provider in the chain; indexing needs none. A provider without a key is simply not used, and missing keys never fail startup |
 | `OVH_ENABLED` | no | OVHcloud AI Endpoints needs no key (it is used anonymously) and is on by default; `false` leaves it out |
 | `NVIDIA_NIM_ENABLED`, `KILO_ENABLED`, `GONKA_ENABLED` (+ `*_API_KEY`) | no | Opt-in providers, off unless `true` (see *Ask AI*) |
@@ -131,6 +132,14 @@ pointer instead of the model, so the download is always needed.)
   a role allowed to do that (the database owner on most managed services), or run it once as a superuser.
 - **Embedding model files** must be present on the server (`models/` or the `EMBEDDING_*` settings) and the JVM needs about 300 MB for it.
 - **Pre-accounts data.** On startup, analyses created before accounts existed (no owner) are deleted with their graphs.
+
+## Deleting an account and the usage ledger
+
+A signed-in user can delete their account from Settings (`POST /api/v1/users/me/delete` with the password, or `delete-request` then `delete-confirm` with an emailed link for accounts that only use Google or GitHub). Everything the person owns is removed: the account, sessions, linked sign-in methods, every analysis with its graph, Ask AI index and conversations.
+
+**What stays.** So that deleting and registering again does not reset the free allowances, the number of analyses and Ask AI questions already used is kept in a **usage ledger** (`usage_ledger`), indefinitely, for abuse prevention. It holds only counts under **keyed hashes** (HMAC-SHA256) of the normalised email and of each linked Google/GitHub identity, never an email, name, repository URL or content, and it cannot be reversed without `USAGE_LEDGER_SECRET`. When the same email (a `+tag` variant, or for Gmail also a dotted variant) or the same Google/GitHub identity returns, whether by registering, signing in for the first time or linking the identity to another account, those counts are restored (counts only go up), silently. A returning user is always on the FREE plan: Premium is not carried over. This is disclosed in the delete dialog.
+
+Keep `USAGE_LEDGER_SECRET` stable and secret: changing it makes existing ledger entries unmatchable, and losing the database together with the secret would let someone test guessed emails against it. The ledger has no admin UI.
 
 ## For the frontend
 

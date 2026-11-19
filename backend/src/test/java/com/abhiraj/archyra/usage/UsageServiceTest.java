@@ -27,7 +27,7 @@ import com.abhiraj.archyra.user.Plan;
 class UsageServiceTest {
 
 	/** Bound here, the way the application binds it from configuration. */
-	private static final UsageProperties PROPERTIES = new UsageProperties(new UsageProperties.FreeTier(4, 9));
+	private static final UsageProperties PROPERTIES = new UsageProperties(new UsageProperties.FreeTier(4, 9), "archyra-test-only-usage-ledger-secret-0123456789");
 	private static final int LIMIT = PROPERTIES.freeLimit(UsageType.REPOSITORY_ANALYSIS);
 	private static final int AI_LIMIT = PROPERTIES.freeLimit(UsageType.AI_QUERY);
 

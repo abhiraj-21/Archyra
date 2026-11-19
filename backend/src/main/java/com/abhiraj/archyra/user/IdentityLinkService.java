@@ -5,6 +5,7 @@ import java.time.Instant;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 
 import org.springframework.stereotype.Service;
@@ -18,6 +19,7 @@ import com.abhiraj.archyra.common.UserNotFoundException;
 import com.abhiraj.archyra.mail.EmailService;
 import com.abhiraj.archyra.security.SecurityAuditLogger;
 import com.abhiraj.archyra.security.SecurityProperties;
+import com.abhiraj.archyra.usage.UsageLedgerService;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -51,6 +53,7 @@ public class IdentityLinkService {
 
 	private final UserRepository users;
 	private final LinkedIdentityRepository identities;
+	private final UsageLedgerService usageLedger;
 	private final EmailService emailService;
 	private final SecurityProperties properties;
 	private final SecurityAuditLogger audit;
@@ -106,6 +109,8 @@ public class IdentityLinkService {
 		}
 		identities.saveAndFlush(new LinkedIdentity(userId, details.provider(), details.providerUserId(),
 				clean(details.email()), clean(details.login())));
+		// Merge, never lower: a person who deleted an account must not shed their usage by linking the old identity to a new one.
+		usageLedger.restoreInto(userId, Set.of(usageLedger.identityKey(details.provider(), details.providerUserId())));
 		audit.event("IDENTITY_LINKED_" + details.provider(), userId, null);
 		Instant now = clock.instant();
 		afterCommit(() -> emailService.sendIdentityLinkedNotice(user.getEmail(), user.getName(),

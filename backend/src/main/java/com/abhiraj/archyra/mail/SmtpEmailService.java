@@ -115,6 +115,34 @@ class SmtpEmailService implements EmailService {
 				""".formatted(greeting(name), WHEN.format(at), resetLink));
 	}
 
+	@Async(MailConfig.MAIL_EXECUTOR)
+	@Override
+	public void sendAccountDeletionRequest(String to, String name, String link) {
+		send(to, "Confirm deleting your Archyra account", """
+				Hi %s,
+
+				You asked to delete your Archyra account. Open this link to confirm. It permanently deletes your repositories,
+				graphs and Ask AI conversations:
+
+				%s
+
+				The link works once and expires in 15 minutes. If you did not ask for this, ignore this email and
+				your account stays as it is.
+				""".formatted(greeting(name), link));
+	}
+
+	@Async(MailConfig.MAIL_EXECUTOR)
+	@Override
+	public void sendAccountDeletedNotice(String to, String name, Instant at) {
+		send(to, "Your Archyra account was deleted", """
+				Hi %s,
+
+				Your Archyra account was deleted on %s, together with your repositories, graphs and Ask AI conversations.
+
+				If this wasn't you, contact us right away.
+				""".formatted(greeting(name), WHEN.format(at)));
+	}
+
 	private void send(String to, String subject, String text) {
 		try {
 			SimpleMailMessage message = new SimpleMailMessage();

@@ -25,6 +25,8 @@ interface RefreshTokenRepository extends JpaRepository<RefreshToken, UUID> {
 
 	List<RefreshToken> findByUserIdAndRevokedAtIsNull(UUID userId);
 
+	long deleteByUserId(UUID userId);
+
 	long deleteByExpiresAtBefore(Instant cutoff);
 
 	long deleteByRevokedAtBefore(Instant cutoff);

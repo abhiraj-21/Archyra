@@ -34,6 +34,24 @@ interface UserUsageRepository extends JpaRepository<UserUsage, UUID> {
 			""", nativeQuery = true)
 	int insertIfAbsent(@Param("id") UUID id, @Param("userId") UUID userId, @Param("type") String type);
 
+	/**
+	 * Raises the counter to {@code count} (creating the row if needed) and never lowers it. Used only to restore what the
+	 * usage ledger remembers, so it is a plain atomic upsert and does not take the row lock of {@link #findForUpdate}.
+	 */
+	@Modifying(flushAutomatically = true)
+	@Query(value = """
+			insert into user_usage (id, user_id, usage_type, used_count, created_at, updated_at)
+			values (:id, :userId, :type, :count, now(), now())
+			on conflict (user_id, usage_type)
+			do update set used_count = greatest(user_usage.used_count, excluded.used_count), updated_at = now()
+			""", nativeQuery = true)
+	int raiseTo(@Param("id") UUID id, @Param("userId") UUID userId, @Param("type") String type, @Param("count") int count);
+
+	/** Removes every counter of a deleted account (its consumption lives on in the ledger). */
+	@Modifying(flushAutomatically = true)
+	@Query("delete from UserUsage u where u.userId = :userId")
+	int deleteAllOf(@Param("userId") UUID userId);
+
 	/** Returns one unit. The guard keeps the counter at 0 or more even if this is called too often. */
 	@Modifying(flushAutomatically = true)
 	@Query(value = """

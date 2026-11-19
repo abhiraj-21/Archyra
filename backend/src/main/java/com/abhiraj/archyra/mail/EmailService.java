@@ -45,4 +45,16 @@ public interface EmailService {
 	 * carries no token: it is the forgot-password page, for "this wasn't me".
 	 */
 	void sendPasswordChangedNotice(String to, String name, Instant at, String resetLink);
+
+	/**
+	 * Sends the confirmation link for deleting an account that has no password (it signs in with Google or GitHub, so
+	 * there is no password to ask for). The link carries a one-time token that is valid for 15 minutes.
+	 */
+	void sendAccountDeletionRequest(String to, String name, String link);
+
+	/**
+	 * Tells the owner that the account was deleted, to the address held before the deletion. No link and no token. It does
+	 * not mention the usage ledger.
+	 */
+	void sendAccountDeletedNotice(String to, String name, Instant at);
 }

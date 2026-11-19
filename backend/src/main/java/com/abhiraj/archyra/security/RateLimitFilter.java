@@ -15,7 +15,8 @@ import jakarta.servlet.http.HttpServletResponse;
 
 /**
  * Throttles the endpoints an attacker can hammer without an account, per client IP, before any authentication work:
- * login (brute force) and register, forgot-password and resend-verification (email flooding). A refused request is
+ * login (brute force) and register, forgot-password and resend-verification (email flooding), plus the three account
+ * deletion routes (password guessing and the confirmation email). A refused request is
  * answered {@code 429 RATE_LIMITED} with {@code Retry-After}. Not a Spring bean on purpose: it is created inside the
  * security chain, so it is not also registered as a servlet filter.
  *
@@ -24,10 +25,16 @@ import jakarta.servlet.http.HttpServletResponse;
 public class RateLimitFilter extends OncePerRequestFilter {
 
 	private static final RequestMatcher LOGIN = PathPatternRequestMatcher.pathPattern(HttpMethod.POST, "/api/v1/auth/login");
+	/** Deleting the account with the password, or with the emailed token: guessable, so the login bucket. */
+	private static final RequestMatcher DELETE_ACCOUNT = new org.springframework.security.web.util.matcher.OrRequestMatcher(
+			PathPatternRequestMatcher.pathPattern(HttpMethod.POST, "/api/v1/users/me/delete"),
+			PathPatternRequestMatcher.pathPattern(HttpMethod.POST, "/api/v1/users/me/delete-confirm"));
 	private static final RequestMatcher SENSITIVE = new org.springframework.security.web.util.matcher.OrRequestMatcher(
 			PathPatternRequestMatcher.pathPattern(HttpMethod.POST, "/api/v1/auth/register"),
 			PathPatternRequestMatcher.pathPattern(HttpMethod.POST, "/api/v1/auth/forgot-password"),
-			PathPatternRequestMatcher.pathPattern(HttpMethod.POST, "/api/v1/auth/resend-verification"));
+			PathPatternRequestMatcher.pathPattern(HttpMethod.POST, "/api/v1/auth/resend-verification"),
+			// sends an email, like the others
+			PathPatternRequestMatcher.pathPattern(HttpMethod.POST, "/api/v1/users/me/delete-request"));
 
 	private final RateLimiter rateLimiter;
 	private final ClientIpResolver clientIps;
@@ -57,7 +64,7 @@ public class RateLimitFilter extends OncePerRequestFilter {
 	}
 
 	private static RateLimiter.Rule ruleFor(HttpServletRequest request) {
-		if (LOGIN.matches(request)) {
+		if (LOGIN.matches(request) || DELETE_ACCOUNT.matches(request)) {
 			return RateLimiter.Rule.LOGIN;
 		}
 		if (SENSITIVE.matches(request)) {

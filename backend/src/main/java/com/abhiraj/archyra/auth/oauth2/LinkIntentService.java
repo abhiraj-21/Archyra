@@ -74,6 +74,12 @@ public class LinkIntentService {
 				.map(intent -> new Validated(intent.getUserId(), intent.getProvider(), intent.getExpiresAt()));
 	}
 
+	/** An account is being deleted: its pending link intents go with it. */
+	@Transactional
+	public void deleteAllOf(UUID userId) {
+		repository.deleteAllOf(userId);
+	}
+
 	@Scheduled(cron = "${app.security.link-intent-purge-cron:0 41 3 * * *}")
 	@Transactional
 	public void purge() {
