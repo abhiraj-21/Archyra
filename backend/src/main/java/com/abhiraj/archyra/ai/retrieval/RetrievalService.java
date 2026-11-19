@@ -34,7 +34,7 @@ import lombok.RequiredArgsConstructor;
  *       below {@code min-similarity} dropped. A question of fewer than {@value #SHORT_QUESTION_WORDS} words is joined with
  *       the previous question first ("explain that class").</li>
  *   <li><b>Sticky seeds</b>: the nodes the previous answer cited.</li>
- *   <li><b>Graph expansion</b>: one hop through DEPENDS_ON, CALLS, EXTENDS and IMPLEMENTS in both directions from every
+ *   <li><b>Graph expansion</b>: from the named nodes, the best {@code vector-seeds-expanded} vector hits and the sticky nodes, one hop through DEPENDS_ON, CALLS, EXTENDS and IMPLEMENTS in both directions from every
  *       seed (a method also expands from its type). Each edge is a fact that names both ends.</li>
  * </ol>
  *
@@ -71,14 +71,19 @@ public class RetrievalService {
 
 		// 3. seeds: named, then close, then cited before; a seed's type is a seed too
 		Set<String> lookedUp = new LinkedHashSet<>();
-		named.forEach(node -> lookedUp.add(node.id()));
+		Set<String> expandable = new LinkedHashSet<>();
+		named.forEach(node -> expandable.add(node.id()));
 		vectorHits.forEach(hit -> lookedUp.add(hit.nodeId()));
-		lookedUp.addAll(request.stickyNodeIds());
+		vectorHits.stream().map(FoundChunk::nodeId).distinct().limit(settings.vectorSeedsExpanded()).forEach(expandable::add);
+		expandable.addAll(request.stickyNodeIds());
+		lookedUp.addAll(expandable);
 		Map<String, NodeInfo> known = new LinkedHashMap<>(graph.nodesById(key, lookedUp));
 		named.forEach(node -> known.put(node.id(), node));
 
+		// Only the named nodes, the best few vector hits and the cited nodes are expanded into facts; the other hits still
+		// bring their own code. Facts rank above chunks, so expanding every hit could fill a small budget with facts alone.
 		Set<String> seeds = new LinkedHashSet<>();
-		for (String id : lookedUp) {
+		for (String id : expandable) {
 			NodeInfo node = known.get(id);
 			if (node == null) {
 				continue; // a sticky node that is gone, or a hit on a node the graph no longer has

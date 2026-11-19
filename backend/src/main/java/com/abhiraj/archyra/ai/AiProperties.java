@@ -26,7 +26,7 @@ import jakarta.validation.constraints.NotNull;
  * @param answer    limits of one answer
  * @param context   per-provider budget of the context sent with a question, in (estimated) tokens
  * @param history   how much of the conversation goes back to the model
- * @param retrieval hybrid retrieval settings
+ * @param retrieval hybrid retrieval settings (vector-seeds-expanded: how many of the best vector hits are expanded into graph facts)
  * @param chunk     code chunk limits
  * @param embedding the local embedding model and the indexing batches
  * @param cache     answer cache
@@ -103,7 +103,8 @@ public record AiProperties(
 
 	public record Retrieval(
 			@DefaultValue("12") @Min(1) int vectorTopK,
-			@DefaultValue("0.15") @DecimalMin("-1.0") @DecimalMax("1.0") double minSimilarity,
+			@DefaultValue("0.25") @DecimalMin("-1.0") @DecimalMax("1.0") double minSimilarity,
+			@DefaultValue("5") @Min(0) int vectorSeedsExpanded,
 			@DefaultValue("8") @Min(0) int nameLookupMaxNodes,
 			@DefaultValue("6") @Min(0) int neighborsPerNode) {
 	}

@@ -13,7 +13,8 @@ import com.abhiraj.archyra.ai.AiIntegrationSupport;
 import com.abhiraj.archyra.user.User;
 
 /** The retrieval limits are configuration, and a cut relationship list says that it was cut. */
-@TestPropertySource(properties = { "archyra.ai.retrieval.neighbors-per-node=1", "archyra.ai.retrieval.name-lookup-max-nodes=1" })
+@TestPropertySource(properties = { "archyra.ai.retrieval.neighbors-per-node=1", "archyra.ai.retrieval.name-lookup-max-nodes=1",
+		"archyra.ai.retrieval.vector-seeds-expanded=0" })
 class RetrievalLimitsIntegrationTest extends AiIntegrationSupport {
 
 	@Autowired
@@ -32,6 +33,19 @@ class RetrievalLimitsIntegrationTest extends AiIntegrationSupport {
 				.hasSize(1);
 		assertThat(facts).filteredOn(FactItem::isSummary).extracting(FactItem::text)
 				.containsExactly("OrderService has more relationships than are listed here");
+	}
+
+	@Test
+	void vectorHitsAreNotExpandedIntoFactsBeyondTheConfiguredNumber() throws Exception {
+		User owner = newUser();
+		UUID id = analyzeCompleted(owner, SHOP);
+		awaitIndexStatus(owner, id, "READY");
+
+		List<ContextItem> items = retrieval.retrieve(RetrievalRequest.of(id, "How are orders saved and looked up in the repository?")).ranked();
+
+		assertThat(items.stream().filter(CodeItem.class::isInstance).map(CodeItem.class::cast)
+				.filter(item -> item.priority() == Priority.VECTOR)).isNotEmpty(); // the hits still bring their code
+		assertThat(items).noneMatch(FactItem.class::isInstance); // but none of them was expanded
 	}
 
 	@Test
