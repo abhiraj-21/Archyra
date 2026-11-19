@@ -113,10 +113,6 @@
 			<groupId>org.springframework.ai</groupId>
 			<artifactId>spring-ai-google-genai</artifactId>
 		</dependency>
-		<dependency>
-			<groupId>org.springframework.ai</groupId>
-			<artifactId>spring-ai-openai</artifactId>
-		</dependency>
 		<!-- Hibernate's pgvector support: lets the code_chunks entity declare its vector(384) column for ddl-auto=update -->
 		<dependency>
 			<groupId>org.hibernate.orm</groupId>
