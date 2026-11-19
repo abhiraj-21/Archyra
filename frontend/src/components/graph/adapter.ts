@@ -175,6 +175,97 @@ export function visibleGraph(graph: GraphResponse, filter: GraphFilter): Visible
   return { nodes, edges, degree, dependentIds, dependencyIds };
 }
 
+// ---- direction: what the data says, what is drawn, and how the layout ranks ---------------------------------------------
+//
+// The DATA never changes: an edge's `source` is the dependent and its `target` the dependency (`UserController DEPENDS_ON
+// UserService`). Three small functions turn that into pictures, and nothing else in the app decides direction:
+//
+//  - `drawDirection` : which way the arrow is DRAWN. Only DEPENDS_ON is turned around (dependency → dependent, so the
+//    arrowhead lands on the node that depends on it and the picture reads "B feeds A"). Every other type is drawn as stored.
+//  - `rankOrder`     : which end the layout puts ABOVE the other. Foundations go on top: the dependency of a DEPENDS_ON edge,
+//    the parent of EXTENDS, the interface of IMPLEMENTS and the referenced type of REFERENCES. CALLS, IMPORTS and CONTAINS
+//    rank as they always did (caller, importer and container above). Leaving REFERENCES out of the first group would pit it
+//    against DEPENDS_ON on the same pair (a type used in a field is nearly always a dependency too), a contradiction that the
+//    layout would have to break arbitrarily.
+//  - `describeEdge`  : the sentence for screen readers, always in the data's direction ("A depends on B").
+
+export interface Ends {
+  source: string;
+  target: string;
+}
+
+/** The edge types whose target ranks above its source: the thing depended on, extended, implemented or referenced. */
+const FOUNDATION_ON_TOP: ReadonlySet<EdgeType> = new Set<EdgeType>(['DEPENDS_ON', 'EXTENDS', 'IMPLEMENTS', 'REFERENCES']);
+
+/** The ends of the arrow as drawn: DEPENDS_ON runs from the dependency (`target`) to the dependent (`source`); the rest as stored. */
+export function drawDirection(edge: Pick<GraphEdge, 'type' | 'source' | 'target'>): Ends {
+  return edge.type === 'DEPENDS_ON' ? { source: edge.target, target: edge.source } : { source: edge.source, target: edge.target };
+}
+
+/** Which end of the edge sits higher on screen (a lower rank number). The arrow is drawn independently of this. */
+export function rankOrder(edge: Pick<GraphEdge, 'type' | 'source' | 'target'>): { upper: string; lower: string } {
+  return FOUNDATION_ON_TOP.has(edge.type) ? { upper: edge.target, lower: edge.source } : { upper: edge.source, lower: edge.target };
+}
+
+/** The edges as the layout wants them: `source` is the end that goes above `target`. Ids are kept. */
+export function layoutEdges(edges: readonly (Pick<GraphEdge, 'type' | 'source' | 'target'> & { id: string })[]): { id: string; source: string; target: string }[] {
+  return edges.map((e) => {
+    const { upper, lower } = rankOrder(e);
+    return { id: e.id, source: upper, target: lower };
+  });
+}
+
+const EDGE_VERBS: Record<EdgeType, string> = {
+  DEPENDS_ON: 'depends on',
+  CALLS: 'calls',
+  IMPORTS: 'imports',
+  EXTENDS: 'extends',
+  IMPLEMENTS: 'implements',
+  REFERENCES: 'references',
+  CONTAINS: 'contains',
+};
+
+/** "A depends on B": the data's direction (source, verb, target), whichever way the arrow is drawn. */
+export function describeEdge(edge: Pick<GraphEdge, 'type' | 'source' | 'target'>, names: ReadonlyMap<string, string>): string {
+  return `${names.get(edge.source) ?? edge.source} ${EDGE_VERBS[edge.type]} ${names.get(edge.target) ?? edge.target}`;
+}
+
+/** The anchor points a node card offers, so an arrow that runs up the screen leaves from the top and arrives at the bottom. */
+export const HANDLES = { inTop: 'in-top', outBottom: 'out-bottom', outTop: 'out-top', inBottom: 'in-bottom' } as const;
+
+/** One edge as the canvas draws it (a plain object; GraphCanvas adds the look). The input edge is never changed. */
+export interface DrawnEdge {
+  id: string;
+  source: string;
+  target: string;
+  sourceHandle: string;
+  targetHandle: string;
+  ariaLabel: string;
+  data: { edgeType: EdgeType };
+}
+
+/**
+ * The one place a data edge becomes a React Flow edge: the arrow's ends come from {@link drawDirection}, the id stays the
+ * data edge's id, and the anchors follow where the two ends are, so an arrow that runs up the screen (an `EXTENDS` to its
+ * parent, now above) does not loop through the cards. `positions` are the drawn node positions; an end without one gets the
+ * downward anchors.
+ */
+export function toFlowEdge(edge: GraphEdge & { id: string }, names: ReadonlyMap<string, string>, positions: Readonly<Record<string, { y: number }>>): DrawnEdge {
+  const { source, target } = drawDirection(edge);
+  const from = positions[source];
+  const to = positions[target];
+  const up = !!from && !!to && from.y > to.y;
+  return {
+    id: edge.id,
+    source,
+    target,
+    sourceHandle: up ? HANDLES.outTop : HANDLES.outBottom,
+    targetHandle: up ? HANDLES.inBottom : HANDLES.inTop,
+    ariaLabel: describeEdge(edge, names),
+    data: { edgeType: edge.type },
+  };
+}
+
 /** Node ids directly connected to `id` in the visible graph, plus `id`. */
 export function neighbourhood(edges: readonly GraphEdge[], id: string): Set<string> {
   const out = new Set([id]);
@@ -201,7 +292,7 @@ export interface DefaultView {
 
 /**
  * What a URL with an explicit `nodes` or `edges` parameter (and nothing for the other) falls back to: classes and
- * interfaces joined by DEPENDS_ON plus inheritance, reading controller → service → repository; for languages without
+ * interfaces joined by DEPENDS_ON plus inheritance, with repositories on top and controllers below; for languages without
  * classes, files and functions. This is the default view of every release before the module default, kept so that
  * links written then behave exactly as they did.
  */

@@ -1,10 +1,17 @@
 import { useCallback, useEffect, useSyncExternalStore } from 'react';
 import type { Positions } from './layoutCore';
+import { LAYOUT_VERSION } from './layoutVersion';
 
 /**
  * Node positions the user dragged, laid over the automatic (dagre) layout. Kept in memory for the session only:
- * never written to storage or the backend, dropped on reload, and dropped when another analysis is opened.
+ * never written to storage or the backend, dropped on reload, and dropped when another analysis is opened. The store key
+ * also carries the layout version, so positions placed under an older orientation are never laid over a newer layout.
  */
+
+/** The store key of one analysis under one layout version. */
+export function storeKey(analysisId: string, version: number = LAYOUT_VERSION): string {
+  return `v${version}|${analysisId}`;
+}
 
 /**
  * The positions to draw: for every visible node its manual position when it has one, otherwise the automatic one.
@@ -42,7 +49,13 @@ export function applyMoves(manual: Positions, moves: Positions): Positions {
 // ---- the session store: one analysis at a time -------------------------------------------------------------------
 
 const EMPTY: Positions = Object.freeze({}) as Positions;
-let current: { analysisId: string; positions: Positions } | null = null;
+type Entry = { key: string; positions: Positions };
+let current: Entry | null = null;
+
+/** The positions an entry holds for `key`; nothing when it was recorded for another analysis or another layout version. Pure. */
+export function positionsFor(entry: Entry | null, key: string): Positions {
+  return entry?.key === key ? entry.positions : EMPTY;
+}
 const listeners = new Set<() => void>();
 
 const notify = () => listeners.forEach((l) => l());
@@ -53,32 +66,33 @@ const subscribe = (l: () => void) => {
 
 /** Manual positions of one analysis, with `move` (remember the final positions of moved nodes) and `reset`. */
 export function useManualPositions(analysisId: string) {
-  const manual = useSyncExternalStore(subscribe, () => (current?.analysisId === analysisId ? current.positions : EMPTY));
+  const key = storeKey(analysisId);
+  const manual = useSyncExternalStore(subscribe, () => positionsFor(current, key));
 
-  // Opening another analysis forgets the previous one's layout.
+  // Opening another analysis (or finding positions of an older layout version) forgets them.
   useEffect(() => {
-    if (current && current.analysisId !== analysisId) {
+    if (current && current.key !== key) {
       current = null;
       notify();
     }
-  }, [analysisId]);
+  }, [key]);
 
   const move = useCallback(
     (moves: Positions) => {
-      const base = current?.analysisId === analysisId ? current.positions : EMPTY;
+      const base = positionsFor(current, key);
       const positions = applyMoves(base, moves);
-      if (positions === base && current?.analysisId === analysisId) return;
-      current = { analysisId, positions };
+      if (positions === base && current?.key === key) return;
+      current = { key, positions };
       notify();
     },
-    [analysisId],
+    [key],
   );
 
   const reset = useCallback(() => {
-    if (current?.analysisId === analysisId && Object.keys(current.positions).length === 0) return;
+    if (current?.key === key && Object.keys(current.positions).length === 0) return;
     current = null;
     notify();
-  }, [analysisId]);
+  }, [key]);
 
   return { manual, move, reset };
 }

@@ -3,13 +3,14 @@ import { useSearchParams } from 'react-router';
 import { List, Network } from 'lucide-react';
 import { hasCode } from '@/api/errors';
 import type { EdgeType, GraphResponse, NodeType } from '@/api/types';
-import { classicDefault, countByType, defaultFilter, idsKey, isExternalId, matchCounts, matchesQuery, neighbourhood, nodeSize, visibleGraph } from '@/components/graph/adapter';
+import { classicDefault, countByType, defaultFilter, idsKey, isExternalId, layoutEdges, matchCounts, matchesQuery, neighbourhood, nodeSize, visibleGraph } from '@/components/graph/adapter';
 import { GraphCanvas } from '@/components/graph/GraphCanvas';
 import { GraphSearch } from '@/components/graph/GraphSearch';
 import { GRAPH_SEARCH_ID, isTypingTarget } from '@/components/graph/graphSearchKeys';
 import { NODE_STYLES } from '@/components/graph/graphStyles';
 import { Inspector } from '@/components/graph/Inspector';
 import { parseScope, SCOPE_DEFAULTS, scopeCounts, scopeParam, type Scope } from '@/components/graph/scope';
+import { layoutCacheKey } from '@/components/graph/layoutVersion';
 import { movedCount, overlayPositions, useManualPositions } from '@/components/graph/manualPositions';
 import { useLayout } from '@/components/graph/useLayout';
 import { Button } from '@/components/ui/Button';
@@ -119,9 +120,9 @@ function ArchitectureView({ analysisId, graph }: { analysisId: string; graph: Gr
   // The visible set is a function of the graph, the two type filters and the scope, so those key the layout cache:
   // a scope change lays out again, and going back to a set seen before reuses its layout.
   // It also carries the exact visible ids: a name filter produces sets of the same size with different members.
-  const layoutKey = `${analysisId}|${nodeKey}|${edgeKey}|${scope}|${idsKey(visible.nodes, visible.edges)}`;
+  const layoutKey = layoutCacheKey(`${analysisId}|${nodeKey}|${edgeKey}|${scope}|${idsKey(visible.nodes, visible.edges)}`);
   const layoutInput = useMemo(
-    () => ({ nodes: visible.nodes.map((n) => ({ id: n.id, ...nodeSize(n) })), edges: visible.edges.map((e) => ({ id: e.id, source: e.source, target: e.target })) }),
+    () => ({ nodes: visible.nodes.map((n) => ({ id: n.id, ...nodeSize(n) })), edges: layoutEdges(visible.edges) }),
     [visible],
   );
   const layout = useLayout(layoutKey, layoutInput);

@@ -2,7 +2,7 @@ import type { ReactNode } from 'react';
 import { Link } from 'react-router';
 import { FileCode2, GitBranch, X } from 'lucide-react';
 import { hasCode } from '@/api/errors';
-import { EDGE_TYPES, type GraphNode, type RelationshipCounts } from '@/api/types';
+import { EDGE_TYPES, type EdgeType, type GraphNode, type RelationshipCounts } from '@/api/types';
 import { ComingSoon } from '@/components/ui/Locked';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { ErrorState } from '@/components/ui/States';
@@ -11,7 +11,12 @@ import { formatNumber, humanize } from '@/lib/format';
 import { Glyph } from './Glyph';
 import { EDGE_STYLES, NODE_STYLES } from './graphStyles';
 
-function Counts({ title, counts }: { title: string; counts: RelationshipCounts }) {
+/** The row label: a DEPENDS_ON row says which way the dependency runs ("Depends on" outgoing, "Used by" incoming), whichever way the arrow is drawn. */
+function rowLabel(type: EdgeType, direction: 'outgoing' | 'incoming'): string {
+  return type === 'DEPENDS_ON' ? (direction === 'outgoing' ? 'Depends on' : 'Used by') : EDGE_STYLES[type].label;
+}
+
+function Counts({ title, counts, direction }: { title: string; counts: RelationshipCounts; direction: 'outgoing' | 'incoming' }) {
   const rows = EDGE_TYPES.filter((t) => (counts[t] ?? 0) > 0);
   return (
     <div className="grid gap-2xs">
@@ -22,7 +27,7 @@ function Counts({ title, counts }: { title: string; counts: RelationshipCounts }
         <dl className="grid grid-cols-[minmax(0,1fr)_auto] gap-x-md gap-y-2xs text-sm">
           {rows.map((t) => (
             <div key={t} className="contents">
-              <dt className="text-ink-2">{EDGE_STYLES[t].label}</dt>
+              <dt className="text-ink-2">{rowLabel(t, direction)}</dt>
               <dd className="num text-right text-ink">{formatNumber(counts[t] ?? 0)}</dd>
             </div>
           ))}
@@ -111,8 +116,8 @@ export function Inspector({ analysisId, nodeId, nodesById, onClose, onSelect, no
             ) : null}
           </dl>
           <div className="grid gap-md border-t border-rule pt-md">
-            <Counts title="Outgoing" counts={node.data.relationships.outgoing} />
-            <Counts title="Incoming" counts={node.data.relationships.incoming} />
+            <Counts title="Outgoing" direction="outgoing" counts={node.data.relationships.outgoing} />
+            <Counts title="Incoming" direction="incoming" counts={node.data.relationships.incoming} />
           </div>
           <div className="flex flex-wrap gap-xs border-t border-rule pt-md">
             {node.data.file ? (

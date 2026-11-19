@@ -380,6 +380,81 @@ live('Dragging: fullscreen keeps the moved positions', async (page) => {
   await expect.poll(() => flowPosition(page.locator(`.react-flow__node[data-id="${idA}"]`))).toEqual(placed);
 });
 
+// ---------------------------------------------------------------------------------------------------------------
+// Direction: DEPENDS_ON is drawn dependency → dependent, foundations on top
+// ---------------------------------------------------------------------------------------------------------------
+
+/**
+ * A pair from the API where `source` has an edge of `type` to `target`, both are working classes or interfaces, and no
+ * edge of any shown type runs back, so no cycle can bend the ranking. The caller then narrows the canvas with the name
+ * filter (a match plus what it directly depends on), so the pair is on screen whatever the size of the repository.
+ */
+async function directionPair(page: Page, type: 'DEPENDS_ON' | 'IMPLEMENTS' | 'EXTENDS') {
+  const graph = await readGraph(page);
+  const byId = new Map(graph.nodes.map((n) => [n.id, n]));
+  const shown = new Set(['DEPENDS_ON', 'EXTENDS', 'IMPLEMENTS']);
+  const classLike = (id: string) => {
+    const n = byId.get(id);
+    return !!n && !n.test && (n.type === 'CLASS' || n.type === 'INTERFACE') && !id.startsWith('external:');
+  };
+  const reverse = new Set(graph.edges.filter((e) => shown.has(e.type)).map((e) => `${e.target}>${e.source}`));
+  const found = graph.edges.find((e) => e.type === type && e.source !== e.target && classLike(e.source) && classLike(e.target) && !reverse.has(`${e.source}>${e.target}`));
+  if (!found) return null;
+  return { source: byId.get(found.source)!, target: byId.get(found.target)!, edgeId: `${found.type}|${found.source}|${found.target}` };
+}
+
+/** Screen position of the first or last point of an edge's path. */
+const pathEnd = (edge: Locator, which: 'start' | 'end') =>
+  edge.locator('path.react-flow__edge-path').evaluate((path, w) => {
+    const p = path as SVGPathElement;
+    const pt = p.getPointAtLength(w === 'end' ? p.getTotalLength() : 0);
+    const m = p.getScreenCTM() as DOMMatrix;
+    return { x: m.a * pt.x + m.c * pt.y + m.e, y: m.b * pt.x + m.d * pt.y + m.f };
+  }, which);
+
+/** Distance from a point to a rectangle (0 inside it). */
+const distanceTo = (pt: { x: number; y: number }, box: { x: number; y: number; width: number; height: number }) =>
+  Math.hypot(Math.max(box.x - pt.x, 0, pt.x - (box.x + box.width)), Math.max(box.y - pt.y, 0, pt.y - (box.y + box.height)));
+
+live('Direction: for A depends on B the depended-on node B is above A and the arrowhead is at A', async (page) => {
+  const pair = await directionPair(page, 'DEPENDS_ON');
+  test.skip(!pair, 'no DEPENDS_ON pair between two working classes without an edge back (nothing to check the direction on)');
+  const { source: a, target: b, edgeId } = pair!;
+  await page.goto(`${ARCH()}&q=${encodeURIComponent(a.name)}`);
+  const nodeA = page.locator(`.react-flow__node[data-id=${JSON.stringify(a.id)}]`);
+  const nodeB = page.locator(`.react-flow__node[data-id=${JSON.stringify(b.id)}]`);
+  await expect(nodeA).toBeVisible();
+  await expect(nodeB).toBeVisible();
+  const boxA = (await nodeA.boundingBox()) as { x: number; y: number; width: number; height: number };
+  const boxB = (await nodeB.boundingBox()) as { x: number; y: number; width: number; height: number };
+  expect(boxB.y + boxB.height).toBeLessThanOrEqual(boxA.y); // B (the dependency) sits above A (the dependent)
+
+  const edge = page.locator(`.react-flow__edge[data-id=${JSON.stringify(edgeId)}]`);
+  await expect(edge).toHaveCount(1); // the id is still the data edge's: DEPENDS_ON|A|B
+  await expect(edge).toHaveAttribute('aria-label', `${a.name} depends on ${b.name}`);
+  expect(distanceTo(await pathEnd(edge, 'end'), boxA)).toBeLessThanOrEqual(4); // the arrowhead end is at the dependent
+  expect(distanceTo(await pathEnd(edge, 'start'), boxB)).toBeLessThanOrEqual(4); // and the other end leaves the dependency
+  await expect(edge.locator('path.react-flow__edge-path')).toHaveAttribute('marker-end', /archyra-end-depends_on/);
+});
+
+live('Direction: an interface is above its implementation and a parent above its child', async (page) => {
+  for (const type of ['IMPLEMENTS', 'EXTENDS'] as const) {
+    const pair = await directionPair(page, type);
+    if (!pair) continue;
+    const { source: child, target: parent } = pair;
+    await page.goto(`${ARCH()}&q=${encodeURIComponent(child.name)}`);
+    const nodeChild = page.locator(`.react-flow__node[data-id=${JSON.stringify(child.id)}]`);
+    const nodeParent = page.locator(`.react-flow__node[data-id=${JSON.stringify(parent.id)}]`);
+    await expect(nodeChild).toBeVisible();
+    await expect(nodeParent).toBeVisible();
+    const boxChild = (await nodeChild.boundingBox()) as { y: number };
+    const boxParent = (await nodeParent.boundingBox()) as { y: number; height: number };
+    expect(boxParent.y + boxParent.height).toBeLessThanOrEqual(boxChild.y);
+    return;
+  }
+  test.skip(true, 'no IMPLEMENTS or EXTENDS pair between two working classes without an edge back');
+});
+
 test('Dragging: one finger drags a node and the page does not scroll', async ({ browser }) => {
   test.skip(!!skipReason, skipReason ?? '');
   const context = await browser.newContext({ baseURL: env.ARCHYRA_APP_URL, viewport: { width: 820, height: 900 }, hasTouch: true, isMobile: true });

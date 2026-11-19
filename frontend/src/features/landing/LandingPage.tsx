@@ -22,7 +22,7 @@ const ANALYSED = ['Java', 'Kotlin', 'Python', 'JavaScript and JSX', 'TypeScript 
 const COUNTED = ['Swift', 'Dart', 'C', 'C++', 'Scala', 'R', 'Julia', 'Shell', 'SQL', 'HCL', 'Dockerfile', 'HTML', 'CSS'];
 
 const TOUR = [
-  { title: 'Read the layers', text: 'Classes sit above what they depend on, so controllers lead down to services and repositories.', src: graphLayered, alt: 'The Architecture tab: spring-petclinic’s classes laid out in layers and joined by their dependencies.', tall: false },
+  { title: 'Read the layers', text: 'Foundations sit on top and what is built on them below, so repositories lead down to services and controllers.', src: graphLayered, alt: 'The Architecture tab: spring-petclinic’s classes laid out in layers and joined by their dependencies.', tall: false },
   { title: 'Inspect any node', text: 'Its file and line, what contains it, and its relationships counted by type.', src: inspectorPanel, alt: 'The node inspector for OwnerController: qualified name, file and line, and outgoing and incoming relationship counts.', tall: true },
   { title: 'Browse the files', text: 'Filter by language or folder, then open a file to see its classes, methods and imports.', src: filesTable, alt: 'The Files tab listing spring-petclinic’s Java files, with OwnerController.java open in the detail drawer.', tall: false },
   { title: 'Follow relationships', text: 'What a class extends, implements and depends on, and what depends on it.', src: relationshipsBrowser, alt: 'The class browser with OwnerController selected, showing the classes it depends on and its methods.', tall: false },

@@ -1,8 +1,9 @@
 import { useMemo } from 'react';
 import { ArrowRight } from 'lucide-react';
 import type { GraphResponse } from '@/api/types';
-import { defaultFilter, nodeSize, visibleGraph } from '@/components/graph/adapter';
+import { defaultFilter, layoutEdges, nodeSize, visibleGraph } from '@/components/graph/adapter';
 import { GraphCanvas } from '@/components/graph/GraphCanvas';
+import { layoutCacheKey } from '@/components/graph/layoutVersion';
 import { SCOPE_DEFAULTS } from '@/components/graph/scope';
 import { useLayout } from '@/components/graph/useLayout';
 import { ButtonLink } from '@/components/ui/Button';
@@ -31,8 +32,8 @@ function Preview({ analysisId, graph }: { analysisId: string; graph: GraphRespon
     const nodes = full.nodes.filter((n) => linked.has(n.id));
     return { nodes, edges, total: full.nodes.length };
   }, [graph]);
-  const key = `preview|${analysisId}|${view.nodes.length}|${view.edges.length}`;
-  const input = useMemo(() => ({ nodes: view.nodes.map((n) => ({ id: n.id, ...nodeSize(n) })), edges: view.edges.map((e) => ({ id: e.id, source: e.source, target: e.target })) }), [view]);
+  const key = layoutCacheKey(`preview|${analysisId}|${view.nodes.length}|${view.edges.length}`);
+  const input = useMemo(() => ({ nodes: view.nodes.map((n) => ({ id: n.id, ...nodeSize(n) })), edges: layoutEdges(view.edges) }), [view]);
   const layout = useLayout(key, input);
 
   if (view.nodes.length === 0) return <p className="p-lg text-muted">This repository has no classes or modules to draw.</p>;

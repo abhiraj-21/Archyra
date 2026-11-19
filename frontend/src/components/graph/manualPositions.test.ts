@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { applyMoves, movedCount, overlayPositions } from './manualPositions';
+import { LAYOUT_VERSION } from './layoutVersion';
+import { applyMoves, movedCount, overlayPositions, positionsFor, storeKey } from './manualPositions';
 
 // Small inline inputs for the pure overlay logic.
 const auto = { a: { x: 0, y: 0 }, b: { x: 100, y: 0 }, c: { x: 200, y: 0 } };
@@ -43,5 +44,19 @@ describe('applyMoves and movedCount', () => {
     const manual = { a: { x: 1, y: 1 }, hidden: { x: 2, y: 2 } };
     expect(movedCount(manual, ['a', 'b'])).toBe(1);
     expect(movedCount({}, ['a', 'b'])).toBe(0);
+  });
+});
+
+describe('the store key carries the layout version', () => {
+  it('positions recorded under an older layout version are ignored', () => {
+    const old = { key: storeKey('analysis-1', LAYOUT_VERSION - 1), positions: { a: { x: 1, y: 2 } } };
+    expect(positionsFor(old, storeKey('analysis-1'))).toEqual({});
+    const current = { key: storeKey('analysis-1'), positions: { a: { x: 1, y: 2 } } };
+    expect(positionsFor(current, storeKey('analysis-1'))).toEqual({ a: { x: 1, y: 2 } });
+  });
+
+  it('positions of another analysis are ignored, and an empty store has none', () => {
+    expect(positionsFor({ key: storeKey('analysis-1'), positions: { a: { x: 1, y: 2 } } }, storeKey('analysis-2'))).toEqual({});
+    expect(positionsFor(null, storeKey('analysis-1'))).toEqual({});
   });
 });

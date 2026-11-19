@@ -2,7 +2,7 @@ import { memo } from 'react';
 import { Handle, Position, type Node, type NodeProps } from '@xyflow/react';
 import { CornerDownRight, CornerUpRight } from 'lucide-react';
 import type { GraphNode } from '@/api/types';
-import { displayName, splitMatch, type NodeRole } from './adapter';
+import { displayName, HANDLES, splitMatch, type NodeRole } from './adapter';
 import { Glyph } from './Glyph';
 import { NODE_STYLES } from './graphStyles';
 
@@ -24,7 +24,9 @@ export const ArchNode = memo(function ArchNode({ data }: NodeProps<ArchFlowNode>
       style={{ '--node-ink': style.color, '--node-soft': style.soft } as React.CSSProperties}
       title={`${data.node.file ? `${data.node.name}\n${data.node.file}` : data.node.name}${data.role === 'dependent' ? '\nDepends on a match' : data.role === 'dependency' ? '\nA match depends on it' : ''}`}
     >
-      <Handle type="target" position={Position.Top} isConnectable={false} className="arch-handle" />
+      {/* Anchors on both sides: an arrow that runs up the screen leaves from the top and arrives at the bottom. */}
+      <Handle id={HANDLES.inTop} type="target" position={Position.Top} isConnectable={false} className="arch-handle" />
+      <Handle id={HANDLES.outTop} type="source" position={Position.Top} isConnectable={false} className="arch-handle" />
       <span className="arch-node-glyph">
         <Glyph glyph={style.glyph} />
       </span>
@@ -47,7 +49,8 @@ export const ArchNode = memo(function ArchNode({ data }: NodeProps<ArchFlowNode>
           {data.role === 'dependent' ? <CornerUpRight size={11} /> : <CornerDownRight size={11} />}
         </span>
       ) : null}
-      <Handle type="source" position={Position.Bottom} isConnectable={false} className="arch-handle" />
+      <Handle id={HANDLES.inBottom} type="target" position={Position.Bottom} isConnectable={false} className="arch-handle" />
+      <Handle id={HANDLES.outBottom} type="source" position={Position.Bottom} isConnectable={false} className="arch-handle" />
     </div>
   );
 });

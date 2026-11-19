@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { GraphResponse } from '@/api/types';
-import { classicDefault, defaultFilter, displayName, idsKey, matchCounts, matchesQuery, neighbourhood, nodeRole, nodeSize, splitMatch, visibleGraph } from './adapter';
+import { classicDefault, defaultFilter, describeEdge, displayName, drawDirection, HANDLES, idsKey, layoutEdges, matchCounts, matchesQuery, neighbourhood, nodeRole, nodeSize, rankOrder, splitMatch, toFlowEdge, visibleGraph } from './adapter';
 
 // Small inline inputs for the pure adapter only.
 const graph: GraphResponse = {
@@ -547,5 +547,70 @@ describe('idsKey', () => {
   it('is the same for the same ids in any order, and differs for edges', () => {
     expect(idsKey(n('a', 'b', 'c'), n('e1'))).toBe(idsKey(n('c', 'a', 'b'), n('e1')));
     expect(idsKey(n('a'), n('e1'))).not.toBe(idsKey(n('a'), n('e2')));
+  });
+});
+
+describe('drawDirection and toFlowEdge (DEPENDS_ON is drawn dependency → dependent)', () => {
+  // A depends on B: the data edge is source A, target B.
+  const dep = { id: 'DEPENDS_ON|A|B', type: 'DEPENDS_ON' as const, source: 'A', target: 'B' };
+  const names = new Map([['A', 'UserController'], ['B', 'UserService']]);
+
+  it('draws A depends on B from B to A, so the arrowhead lands on the dependent', () => {
+    expect(drawDirection(dep)).toEqual({ source: 'B', target: 'A' });
+    const drawn = toFlowEdge(dep, names, { A: { y: 200 }, B: { y: 0 } });
+    expect([drawn.source, drawn.target, drawn.data.edgeType]).toEqual(['B', 'A', 'DEPENDS_ON']);
+    expect(drawn.id).toBe(dep.id); // the id stays the data edge's id
+  });
+
+  it('leaves every other edge type exactly as stored', () => {
+    for (const type of ['CALLS', 'IMPORTS', 'EXTENDS', 'IMPLEMENTS', 'REFERENCES', 'CONTAINS'] as const) {
+      const e = { id: `${type}|A|B`, type, source: 'A', target: 'B' };
+      expect(drawDirection(e)).toEqual({ source: 'A', target: 'B' });
+      const drawn = toFlowEdge(e, names, {});
+      expect([drawn.source, drawn.target, drawn.data.edgeType]).toEqual(['A', 'B', type]);
+    }
+  });
+
+  it('never mutates the data edge, and leaves source as the dependent', () => {
+    const frozen = Object.freeze({ ...dep });
+    toFlowEdge(frozen, names, {});
+    layoutEdges([frozen]);
+    expect(frozen).toEqual({ id: 'DEPENDS_ON|A|B', type: 'DEPENDS_ON', source: 'A', target: 'B' });
+  });
+
+  it('the visible graph still carries the data direction (the dependent is the source)', () => {
+    const v = visibleGraph(graph, { scope: 'all', nodeTypes: all(['CLASS', 'INTERFACE']), edgeTypes: all(['DEPENDS_ON']) });
+    expect(v.edges.map((e) => [e.source, e.target])).toContainEqual(['class:com.demo.UserController', 'class:com.demo.UserService']);
+  });
+
+  it('describes an edge in the data direction, whichever way it is drawn', () => {
+    expect(describeEdge(dep, names)).toBe('UserController depends on UserService');
+    expect(toFlowEdge(dep, names, {}).ariaLabel).toBe('UserController depends on UserService');
+    expect(describeEdge({ type: 'EXTENDS', source: 'A', target: 'B' }, names)).toBe('UserController extends UserService');
+  });
+
+  it('anchors an arrow that runs up the screen at the top of its source and the bottom of its target', () => {
+    const extendsEdge = { id: 'EXTENDS|child|parent', type: 'EXTENDS' as const, source: 'child', target: 'parent' };
+    const up = toFlowEdge(extendsEdge, names, { child: { y: 200 }, parent: { y: 0 } });
+    expect([up.sourceHandle, up.targetHandle]).toEqual([HANDLES.outTop, HANDLES.inBottom]);
+    const down = toFlowEdge(dep, names, { A: { y: 200 }, B: { y: 0 } }); // drawn B (top) → A (below)
+    expect([down.sourceHandle, down.targetHandle]).toEqual([HANDLES.outBottom, HANDLES.inTop]);
+  });
+});
+
+describe('rankOrder (foundations on top)', () => {
+  const at = (type: Parameters<typeof rankOrder>[0]['type']) => rankOrder({ type, source: 'A', target: 'B' });
+
+  it('puts what is depended on, extended, implemented or referenced above the node that uses it', () => {
+    for (const type of ['DEPENDS_ON', 'EXTENDS', 'IMPLEMENTS', 'REFERENCES'] as const) expect(at(type)).toEqual({ upper: 'B', lower: 'A' });
+  });
+
+  it('ranks CALLS, IMPORTS and CONTAINS as they always did (source above target)', () => {
+    for (const type of ['CALLS', 'IMPORTS', 'CONTAINS'] as const) expect(at(type)).toEqual({ upper: 'A', lower: 'B' });
+  });
+
+  it('a DEPENDS_ON pair is drawn top-down: the drawn source is the upper node', () => {
+    const e = { type: 'DEPENDS_ON' as const, source: 'A', target: 'B' };
+    expect(drawDirection(e).source).toBe(rankOrder(e).upper);
   });
 });

@@ -26,9 +26,12 @@ export function Legend({ nodeTypes = NODE_TYPES.filter((t) => t !== 'REPOSITORY'
               <svg width="40" height="12" viewBox="0 0 40 12" aria-hidden="true" focusable="false" className="shrink-0">
                 <line x1="4" y1="6" x2="32" y2="6" style={{ stroke: s.color, strokeWidth: s.width, strokeDasharray: s.dash }} markerEnd={s.markerEnd !== 'none' ? `url(#${markerId(t, 'end')})` : undefined} markerStart={s.markerStart !== 'none' ? `url(#${markerId(t, 'start')})` : undefined} />
               </svg>
-              <span>
-                {s.label}
-                <span className="sr-only">: {s.meaning}</span>
+              <span className="grid gap-3xs">
+                <span>
+                  {s.label}
+                  <span className="sr-only">: {s.meaning}</span>
+                </span>
+                {s.note ? <span className="max-w-[16rem] text-muted">{s.note}</span> : null}
               </span>
             </li>
           );

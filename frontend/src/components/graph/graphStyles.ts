@@ -31,6 +31,8 @@ export interface EdgeStyle {
   label: string;
   /** What the edge means, for the legend and screen readers. */
   meaning: string;
+  /** An extra line under the legend entry, where the drawing needs a word of explanation. */
+  note?: string;
   color: string;
   dash: string | undefined;
   width: number;
@@ -39,7 +41,7 @@ export interface EdgeStyle {
 }
 
 export const EDGE_STYLES: Record<EdgeType, EdgeStyle> = {
-  DEPENDS_ON: { label: 'Depends on', meaning: 'uses another class or module', color: 'var(--color-edge-depends)', dash: undefined, width: 1.75, markerEnd: 'arrow', markerStart: 'none' },
+  DEPENDS_ON: { label: 'Depends on', meaning: 'uses another class or module', note: 'Arrow points at the node that depends on it. Foundations are on top.', color: 'var(--color-edge-depends)', dash: undefined, width: 1.75, markerEnd: 'arrow', markerStart: 'none' },
   CALLS: { label: 'Calls', meaning: 'a method calls another method', color: 'var(--color-edge-calls)', dash: '6 4', width: 1.5, markerEnd: 'arrow', markerStart: 'none' },
   IMPORTS: { label: 'Imports', meaning: 'a file imports another file', color: 'var(--color-edge-imports)', dash: '2 4', width: 1.5, markerEnd: 'open', markerStart: 'none' },
   EXTENDS: { label: 'Extends', meaning: 'inherits from a class', color: 'var(--color-edge-extends)', dash: undefined, width: 1.5, markerEnd: 'triangle', markerStart: 'none' },

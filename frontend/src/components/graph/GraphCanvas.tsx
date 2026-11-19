@@ -4,7 +4,7 @@ import { CircleHelp, Expand, Map as MapIcon, Maximize, Minimize, Minus, Plus, Ro
 import type { GraphEdge, GraphNode } from '@/api/types';
 import { ArchNode, type ArchFlowNode } from './ArchNode';
 import { EdgeMarkers } from './EdgeMarkers';
-import { nodeRole, nodeSize } from './adapter';
+import { nodeRole, nodeSize, toFlowEdge } from './adapter';
 import { EDGE_STYLES, markerId } from './graphStyles';
 import { Legend } from './Legend';
 import type { Positions } from './layoutCore';
@@ -200,8 +200,9 @@ function Canvas({ nodes, edges, positions, layoutKey, selectedId = null, highlig
     }));
   }
 
-  const names = useRef(new Map<string, string>());
-  names.current = useMemo(() => new Map(nodes.map((n) => [n.id, n.name])), [nodes]);
+  const nameById = useMemo(() => new Map(nodes.map((n) => [n.id, n.name])), [nodes]);
+  const names = useRef(nameById);
+  names.current = nameById;
 
   /** One polite message once a burst of arrow presses ends, so a held key does not read out every step. */
   const announce = useCallback((ids: string[]) => {
@@ -236,11 +237,10 @@ function Canvas({ nodes, edges, positions, layoutKey, selectedId = null, highlig
     () =>
       edges.map((e) => {
         const s = EDGE_STYLES[e.type];
+        // Highlighting reads the data edge (both ends and the selection are symmetric in it); only the drawing is turned around.
         const dim = !!highlight && !(highlight.has(e.source) && highlight.has(e.target) && (e.source === selectedId || e.target === selectedId));
         return {
-          id: e.id,
-          source: e.source,
-          target: e.target,
+          ...toFlowEdge(e, nameById, positions),
           type: 'default',
           focusable: false,
           selectable: false,
@@ -250,7 +250,7 @@ function Canvas({ nodes, edges, positions, layoutKey, selectedId = null, highlig
           style: { stroke: s.color, strokeWidth: s.width, strokeDasharray: s.dash },
         };
       }),
-    [edges, highlight, selectedId],
+    [edges, highlight, selectedId, positions, nameById],
   );
 
   const focusIds = useMemo(() => {

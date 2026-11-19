@@ -12,9 +12,12 @@ export interface LayoutResult {
 const GAP = 28;
 
 /**
- * Layered top-to-bottom layout (dagre, Sugiyama): a dependency's source sits above its target, so the graph reads
- * controller → service → repository. Nodes with no visible edge are packed in rows under the layered part instead
- * of stretching its first rank across the screen.
+ * Layered top-to-bottom layout (dagre, Sugiyama). Each input edge runs from the node that goes ABOVE to the node that goes
+ * below it; which end that is for an edge type is decided once, in `layoutEdges` / `rankOrder` (adapter.ts): foundations
+ * (what is depended on, extended, implemented or referenced) on top, so repository → service → controller reads top-down.
+ * This is the rank only: the arrow is drawn by `drawDirection`. A dependency cycle is broken by dagre's acyclic step, which
+ * only changes the ranking. Nodes with no visible edge are packed in rows under the layered part instead of stretching its
+ * first rank across the screen.
  */
 export function computeLayout({ nodes, edges }: LayoutInput): LayoutResult {
   const connected = new Set<string>();
