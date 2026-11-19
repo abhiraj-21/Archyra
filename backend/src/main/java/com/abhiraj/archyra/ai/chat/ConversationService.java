@@ -15,6 +15,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.abhiraj.archyra.ai.AiProperties;
+import com.abhiraj.archyra.ai.llm.ProviderRegistry;
 import com.abhiraj.archyra.analysis.AnalysisService;
 import com.abhiraj.archyra.common.AiRuleException;
 import com.abhiraj.archyra.common.InvalidRequestException;
@@ -39,6 +40,7 @@ public class ConversationService {
 	private final ChatMessageRepository messages;
 	private final ChatTransactions transactions;
 	private final ChatInFlight inFlight;
+	private final ProviderRegistry providers;
 	private final AiProperties properties;
 	private final Clock clock;
 
@@ -85,7 +87,7 @@ public class ConversationService {
 		checkPaging(page, size);
 		Conversation conversation = owned(conversationIdText);
 		Page<ChatMessage> found = messages.findVisible(conversation.getId(), PageRequest.of(page, size));
-		return new PageOf<>(found.getContent().stream().map(ConversationService::response).toList(), page, size, found.getTotalElements(),
+		return new PageOf<>(found.getContent().stream().map(this::response).toList(), page, size, found.getTotalElements(),
 				found.getTotalPages());
 	}
 
@@ -134,10 +136,11 @@ public class ConversationService {
 				conversation.getUpdatedAt(), messageCount);
 	}
 
-	private static MessageResponse response(ChatMessage message) {
+	private MessageResponse response(ChatMessage message) {
 		boolean assistant = message.getRole() == MessageRole.ASSISTANT;
 		return new MessageResponse(message.getId().toString(), message.getRole(), message.getContent(),
 				assistant ? SourcesJson.read(message.getSourcesJson()) : null, assistant ? message.getProvider() : null,
+				assistant ? providers.displayName(message.getProvider()) : null,
 				message.isCached(), message.getCreatedAt());
 	}
 }

@@ -27,7 +27,7 @@ class EmbeddingServiceTest {
 	static EmbeddingService service;
 
 	static AiProperties properties(String modelUri) {
-		return new AiProperties(null, null, null, null, null, null, null, null, null,
+		return new AiProperties(null, null, null, null, null, null,
 				new AiProperties.Embedding(32, modelUri, TOKENIZER_URI, "models", false), null, null);
 	}
 

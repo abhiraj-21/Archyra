@@ -6,8 +6,6 @@ import java.util.UUID;
 import org.hibernate.annotations.ColumnTransformer;
 import org.hibernate.annotations.DynamicUpdate;
 
-import com.abhiraj.archyra.ai.llm.ProviderId;
-
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
@@ -48,9 +46,9 @@ class ChatMessage {
 	@ColumnTransformer(read = "sources::text", write = "cast(? as jsonb)")
 	private String sourcesJson;
 
-	@Enumerated(EnumType.STRING)
-	@Column(length = 10, updatable = false)
-	private ProviderId provider;
+	/** The id of the provider that answered, free-form (a provider is a configuration block, not an enum). */
+	@Column(length = 40, updatable = false)
+	private String provider;
 
 	@Column(nullable = false, updatable = false, columnDefinition = "boolean not null default false")
 	private boolean cached;
@@ -82,7 +80,7 @@ class ChatMessage {
 		return message;
 	}
 
-	static ChatMessage assistant(UUID conversationId, String content, String sourcesJson, ProviderId provider, boolean cached, Instant now) {
+	static ChatMessage assistant(UUID conversationId, String content, String sourcesJson, String provider, boolean cached, Instant now) {
 		ChatMessage message = new ChatMessage();
 		message.id = UUID.randomUUID();
 		message.conversationId = conversationId;

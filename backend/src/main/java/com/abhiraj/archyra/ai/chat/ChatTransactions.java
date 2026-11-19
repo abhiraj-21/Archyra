@@ -10,7 +10,6 @@ import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.abhiraj.archyra.ai.AiProperties;
-import com.abhiraj.archyra.ai.llm.ProviderId;
 import com.abhiraj.archyra.common.AiRuleException;
 import com.abhiraj.archyra.usage.UsageService;
 import com.abhiraj.archyra.usage.UsageType;
@@ -62,7 +61,7 @@ class ChatTransactions {
 	}
 
 	@Transactional
-	Saved complete(Reservation reservation, String answer, String sourcesJson, ProviderId provider) {
+	Saved complete(Reservation reservation, String answer, String sourcesJson, String provider) {
 		if (messages.markAnswered(reservation.userMessageId()) == 0) {
 			throw new IllegalStateException("The question disappeared before its answer was stored");
 		}
@@ -76,7 +75,7 @@ class ChatTransactions {
 
 	/** A cache hit: both messages are stored, nothing is charged. */
 	@Transactional
-	Saved storeCached(UUID userId, UUID analysisId, UUID conversationId, String message, String answer, String sourcesJson, ProviderId provider) {
+	Saved storeCached(UUID userId, UUID analysisId, UUID conversationId, String message, String answer, String sourcesJson, String provider) {
 		Instant now = clock.instant();
 		Conversation conversation = conversationFor(userId, analysisId, conversationId, message, now);
 		messages.save(ChatMessage.user(conversation.getId(), message, MessageStatus.ANSWERED, false, now));

@@ -10,7 +10,6 @@ import org.junit.jupiter.api.Test;
 
 import com.abhiraj.archyra.ai.AiProperties;
 import com.abhiraj.archyra.ai.llm.ChatTurn;
-import com.abhiraj.archyra.ai.llm.ProviderId;
 
 class ChatAnswerCacheTest {
 
@@ -53,10 +52,10 @@ class ChatAnswerCacheTest {
 
 	@Test
 	void entriesAreStoredAndExpire() throws Exception {
-		AiProperties properties = new AiProperties(null, null, null, null, null, null, null, null, null, null,
+		AiProperties properties = new AiProperties(null, null, null, null, null, null, null,
 				new AiProperties.Cache(Duration.ofMillis(150), 10), null);
 		ChatAnswerCache cache = new ChatAnswerCache(properties);
-		cache.put("k", new ChatAnswerCache.Entry("answer", List.of(), ProviderId.GEMINI));
+		cache.put("k", new ChatAnswerCache.Entry("answer", List.of(), "gemini"));
 
 		assertThat(cache.get("k")).isPresent().get().extracting(ChatAnswerCache.Entry::answer).isEqualTo("answer");
 		assertThat(cache.get("other")).isEmpty();

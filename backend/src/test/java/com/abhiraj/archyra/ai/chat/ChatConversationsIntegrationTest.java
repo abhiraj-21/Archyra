@@ -123,9 +123,10 @@ class ChatConversationsIntegrationTest extends ChatIntegrationSupport {
 		assertThat((List<String>) JsonPath.read(body, "$.items[*].role")).containsExactly("USER", "ASSISTANT", "USER", "ASSISTANT");
 		assertThat((String) JsonPath.read(body, "$.items[0].content")).isEqualTo(PLACE_QUESTION);
 		assertThat((String) JsonPath.read(body, "$.items[1].content")).isEqualTo("See [1].");
-		assertThat((String) JsonPath.read(body, "$.items[1].provider")).isEqualTo("GEMINI");
+		assertThat((String) JsonPath.read(body, "$.items[1].provider")).isEqualTo("gemini");
+		assertThat((String) JsonPath.read(body, "$.items[1].providerName")).isEqualTo("Gemini");
 		assertThat((List<Map<String, Object>>) JsonPath.read(body, "$.items[1].sources")).hasSize(1);
-		assertThat(JsonPath.<Map<String, Object>>read(body, "$.items[0]")).doesNotContainKeys("sources", "provider"); // only on answers
+		assertThat(JsonPath.<Map<String, Object>>read(body, "$.items[0]")).doesNotContainKeys("sources", "provider", "providerName"); // only on answers
 		assertThat((boolean) JsonPath.read(body, "$.items[1].cached")).isFalse();
 		assertThat((int) JsonPath.read(body, "$.totalElements")).isEqualTo(4);
 		MvcResult page = getAs(shop.user(), messagesPath(id) + "?page=1&size=3");

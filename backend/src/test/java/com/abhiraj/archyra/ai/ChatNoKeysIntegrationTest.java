@@ -7,7 +7,7 @@ import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.servlet.MvcResult;
 
 /** Without any provider key the application starts, indexes and refuses chat cleanly, without charging. */
-@TestPropertySource(properties = { "archyra.ai.gemini.api-key=", "archyra.ai.groq.api-key=" })
+@TestPropertySource(properties = { "archyra.ai.providers.gemini.api-key=", "archyra.ai.providers.groq.api-key=" })
 class ChatNoKeysIntegrationTest extends ChatIntegrationSupport {
 
 	@Test

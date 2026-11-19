@@ -2,19 +2,19 @@ package com.abhiraj.archyra.ai.llm;
 
 /**
  * One chat provider behind the gateway. Nothing else in the application talks to a provider: questions go through
- * {@link ProviderGateway}.
+ * {@link ProviderGateway}. Only active providers (enabled, configured) are ever instantiated.
  */
 public interface ChatProvider {
 
-	ProviderId id();
+	/** The configured id, for example {@code groq}. */
+	String id();
 
-	/** False without an API key; such a provider is never called. */
-	boolean configured();
+	String displayName();
 
 	/** The most context, in estimated tokens, that fits this provider's limits. */
 	int contextBudgetTokens();
 
-	/** Builds the SDK client now (no network), so the first question does not pay for it. A no-op without a key. */
+	/** Builds the client now (no network), so the first question does not pay for it. */
 	void warmUp();
 
 	/** One call, no retries. @throws ProviderException when there is no answer */

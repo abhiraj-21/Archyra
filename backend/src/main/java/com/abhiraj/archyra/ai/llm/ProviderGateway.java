@@ -3,7 +3,6 @@ package com.abhiraj.archyra.ai.llm;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
-import java.util.Comparator;
 import java.util.List;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
@@ -19,17 +18,22 @@ import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Component;
 
 import com.abhiraj.archyra.ai.AiProperties;
+import com.abhiraj.archyra.ai.llm.ProviderRegistry.Slot;
 
 import lombok.extern.slf4j.Slf4j;
 
 /**
- * The only way to a chat model. Tries the configured providers in order (Gemini, then Groq) within
- * {@code archyra.ai.timeout.total}, and goes on to the next one on a 429, a 5xx, a timeout or connection error, an empty
- * or blocked answer and a bad key (logged loudly). The same provider is never tried twice for one question. A 429 starts
- * that provider's cool-down, and a provider that is cooling down is skipped.
+ * The only way to a chat model. Tries the providers of the chain in their configured order within
+ * {@code archyra.ai.timeout.total}, calling at most {@code providers.max-attempts} of them. It goes on to the next one on a
+ * 429, a 5xx, a timeout or connection error, an empty or blocked answer, a bad key or an unknown model (the last two logged
+ * loudly). The same provider is never tried twice for one question. A provider that is cooling down, or whose local limits
+ * (requests per minute, calls in flight, requests per day or month) are used up, is skipped without counting as an attempt.
  *
- * <p>The prompt is built <em>per provider</em> (a fallback has a smaller context budget), so the caller passes a function
- * that prepares the request for the provider about to be called. Nothing here logs a prompt, an answer or a key.
+ * <p>Each attempt gets an equal share of the time left among the providers that could still be tried, never less than
+ * {@code min-attempt-timeout} and never more than connect + read, so one stuck provider cannot eat the whole budget.
+ *
+ * <p>The prompt is built <em>per provider</em> (each has its own context budget), so the caller passes a function that
+ * prepares the request for the provider about to be called. Nothing here logs a prompt, an answer or a key.
  */
 @Slf4j
 @Component
@@ -43,14 +47,14 @@ public class ProviderGateway implements DisposableBean {
 	public record Result<T>(LlmAnswer answer, T attachment) {
 	}
 
-	private final List<ChatProvider> providers;
+	private final ProviderRegistry registry;
 	private final ProviderCooldowns cooldowns;
 	private final AiProperties properties;
 	private final Clock clock;
 	private final ExecutorService calls = Executors.newVirtualThreadPerTaskExecutor();
 
-	ProviderGateway(List<ChatProvider> providers, ProviderCooldowns cooldowns, AiProperties properties, Clock clock) {
-		this.providers = providers.stream().sorted(Comparator.comparing(ChatProvider::id)).toList();
+	ProviderGateway(ProviderRegistry registry, ProviderCooldowns cooldowns, AiProperties properties, Clock clock) {
+		this.registry = registry;
 		this.cooldowns = cooldowns;
 		this.properties = properties;
 		this.clock = clock;
@@ -59,23 +63,23 @@ public class ProviderGateway implements DisposableBean {
 	/** Builds the provider clients once the application is up, so the first question is not slowed by it. */
 	@EventListener(ApplicationReadyEvent.class)
 	void warmUp() {
-		for (ChatProvider provider : providers) {
+		for (Slot slot : registry.chain()) {
 			try {
-				provider.warmUp();
+				slot.provider().warmUp();
 			}
 			catch (RuntimeException ex) {
-				log.warn("Could not prepare provider {} ({}); it will be built on first use", provider.id(), ex.getClass().getSimpleName());
+				log.warn("Could not prepare provider {} ({}); it will be built on first use", slot.settings().id(), ex.getClass().getSimpleName());
 			}
 		}
 	}
 
-	/** Whether any provider is configured and not cooling down: the pre-flight check, before anything is charged. */
+	/** Whether any provider could be called now: in the chain, not cooling down, within its local limits. The pre-flight check, before anything is charged. */
 	public boolean anyUsable() {
-		return providers.stream().anyMatch(this::usable);
+		return registry.chain().stream().anyMatch(this::usable);
 	}
 
-	private boolean usable(ChatProvider provider) {
-		return provider.configured() && !cooldowns.isCoolingDown(provider.id());
+	private boolean usable(Slot slot) {
+		return !cooldowns.isCoolingDown(slot.settings().id()) && slot.guard().wouldRefuse() == null;
 	}
 
 	/**
@@ -83,20 +87,40 @@ public class ProviderGateway implements DisposableBean {
 	 */
 	public <T> Result<T> ask(Function<ChatProvider, Prepared<T>> prepare) {
 		Instant deadline = clock.instant().plus(properties.timeout().total());
+		List<Slot> chain = registry.chain();
+		int maxAttempts = properties.providers().maxAttempts();
+		int attempts = 0;
 		RuntimeException last = null;
-		for (ChatProvider provider : providers) {
-			if (!usable(provider)) {
+		for (int i = 0; i < chain.size() && attempts < maxAttempts; i++) {
+			Slot slot = chain.get(i);
+			String id = slot.settings().id();
+			if (cooldowns.isCoolingDown(id)) {
 				continue;
 			}
 			Duration remaining = Duration.between(clock.instant(), deadline);
 			if (remaining.isNegative() || remaining.isZero()) {
 				break;
 			}
-			Prepared<T> prepared = prepare.apply(provider);
+			ProviderGuard.Acquired acquired = slot.guard().tryAcquire();
+			if (!acquired.granted()) {
+				log.info("Provider {} skipped: local limit reached ({})", id, acquired.refusal());
+				continue;
+			}
+			attempts++;
+			Duration limit = attemptLimit(remaining, shareOf(chain, i, maxAttempts - attempts + 1));
 			long started = System.nanoTime();
+			Prepared<T> prepared;
 			try {
-				LlmAnswer answer = call(provider, prepared.request(), shorter(remaining, attemptLimit()));
-				log.info("Provider {} answered in {} ms", provider.id(), millisSince(started));
+				prepared = prepare.apply(slot.provider());
+			}
+			catch (RuntimeException ex) {
+				acquired.permit().release();
+				throw ex;
+			}
+			try {
+				LlmAnswer answer = call(slot.provider(), prepared.request(), limit, acquired.permit());
+				cooldowns.succeeded(id);
+				log.info("Provider {} answered in {} ms", id, millisSince(started));
 				return new Result<>(answer, prepared.attachment());
 			}
 			catch (ProviderException ex) {
@@ -107,22 +131,54 @@ public class ProviderGateway implements DisposableBean {
 		throw new AllProvidersFailedException(last);
 	}
 
+	/** How many providers share the time left: this one and the ones after it that could still be called, within the attempts left. */
+	private int shareOf(List<Slot> chain, int index, int attemptsLeft) {
+		int candidates = 1;
+		for (int i = index + 1; i < chain.size(); i++) {
+			if (usable(chain.get(i))) {
+				candidates++;
+			}
+		}
+		return Math.max(1, Math.min(candidates, attemptsLeft));
+	}
+
 	/**
-	 * What one provider may take: connect plus read timeout. The SDKs' own timeouts are set too, but the gateway does not
-	 * depend on them (the Gemini SDK, for one, did not cut a slow call), so a stuck provider cannot eat the whole budget.
+	 * What one provider may take: its share of the time left, at least {@code min-attempt-timeout} and at most connect plus
+	 * read, and never more than what is left. The HTTP timeouts are set too, but the gateway does not depend on them (a slow
+	 * provider must not be able to eat the whole budget).
 	 */
-	private Duration attemptLimit() {
-		return properties.timeout().connect().plus(properties.timeout().read());
+	private Duration attemptLimit(Duration remaining, int share) {
+		Duration cap = properties.timeout().connect().plus(properties.timeout().read());
+		Duration limit = remaining.dividedBy(share);
+		Duration floor = properties.providers().minAttemptTimeout();
+		if (limit.compareTo(floor) < 0) {
+			limit = floor;
+		}
+		if (limit.compareTo(cap) > 0) {
+			limit = cap;
+		}
+		return limit.compareTo(remaining) > 0 ? remaining : limit;
 	}
 
-	private static Duration shorter(Duration a, Duration b) {
-		return a.compareTo(b) <= 0 ? a : b;
-	}
-
-	private LlmAnswer call(ChatProvider provider, LlmRequest request, Duration remaining) {
-		Future<LlmAnswer> future = calls.submit(() -> provider.chat(request));
+	/** The permit is released when the call really ends, so a call the gateway gave up on still counts as in flight until it stops. */
+	private LlmAnswer call(ChatProvider provider, LlmRequest request, Duration limit, ProviderGuard.Permit permit) {
+		Future<LlmAnswer> future;
 		try {
-			return future.get(remaining.toMillis(), TimeUnit.MILLISECONDS);
+			future = calls.submit(() -> {
+				try {
+					return provider.chat(request);
+				}
+				finally {
+					permit.release();
+				}
+			});
+		}
+		catch (RuntimeException ex) {
+			permit.release();
+			throw ex;
+		}
+		try {
+			return future.get(limit.toMillis(), TimeUnit.MILLISECONDS);
 		}
 		catch (TimeoutException ex) {
 			future.cancel(true);
@@ -139,13 +195,21 @@ public class ProviderGateway implements DisposableBean {
 	}
 
 	private void onFailure(ProviderException failure, long millis) {
+		String id = failure.provider();
 		switch (failure.kind()) {
 			case RATE_LIMITED -> {
-				cooldowns.start(failure.provider(), failure.retryAfter());
-				log.warn("Provider {} is rate limited after {} ms; cooling down", failure.provider(), millis);
+				Duration wait = cooldowns.rateLimited(id, failure.retryAfter());
+				log.warn("Provider {} is rate limited after {} ms; cooling down for {} s", id, millis, wait.toSeconds());
 			}
-			case BAD_KEY -> log.error("Provider {} refused its API key (401 or 403): check the key", failure.provider());
-			default -> log.warn("Provider {} failed ({}) after {} ms; trying the next one", failure.provider(), failure.kind(), millis);
+			case BAD_KEY -> {
+				Duration wait = cooldowns.misconfigured(id);
+				log.error("Provider {} refused its API key or account (401, 402 or 403): check the key. Not asked again for {} min", id, wait.toMinutes());
+			}
+			case NOT_FOUND -> {
+				Duration wait = cooldowns.misconfigured(id);
+				log.error("Provider {} answered 404: check its base URL and model id. Not asked again for {} min", id, wait.toMinutes());
+			}
+			default -> log.warn("Provider {} failed ({}) after {} ms; trying the next one", id, failure.kind(), millis);
 		}
 	}
 

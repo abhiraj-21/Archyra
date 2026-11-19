@@ -14,26 +14,29 @@ public class ProviderException extends RuntimeException {
 		/** 5xx or no connection. */
 		UNAVAILABLE,
 		TIMEOUT,
-		/** 401 or 403: the key is wrong or revoked. Logged loudly. */
+		/** 401, 402 or 403: the key is wrong, revoked or the account cannot pay. Logged loudly, long cool-down. */
 		BAD_KEY,
+		/** 404: the model (or the endpoint) does not exist. Logged loudly, long cool-down. */
+		NOT_FOUND,
 		/** No text came back (blocked, or the whole output went into thinking). */
 		EMPTY,
 		/** Anything else, for example a 400. */
 		OTHER
 	}
 
-	private final ProviderId provider;
+	private final String provider;
 	private final Kind kind;
 	private final Duration retryAfter;
 
-	public ProviderException(ProviderId provider, Kind kind, Duration retryAfter, Throwable cause) {
+	public ProviderException(String provider, Kind kind, Duration retryAfter, Throwable cause) {
 		super(provider + " " + kind, cause);
 		this.provider = provider;
 		this.kind = kind;
 		this.retryAfter = retryAfter;
 	}
 
-	public ProviderId provider() {
+	/** The id of the provider, as configured. */
+	public String provider() {
 		return provider;
 	}
 

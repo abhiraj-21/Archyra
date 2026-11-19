@@ -13,7 +13,6 @@ import org.springframework.stereotype.Component;
 
 import com.abhiraj.archyra.ai.AiProperties;
 import com.abhiraj.archyra.ai.llm.ChatTurn;
-import com.abhiraj.archyra.ai.llm.ProviderId;
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
 
@@ -26,7 +25,7 @@ import com.github.benmanes.caffeine.cache.Caffeine;
 @Component
 class ChatAnswerCache {
 
-	record Entry(String answer, List<ChatSource> sources, ProviderId provider) {
+	record Entry(String answer, List<ChatSource> sources, String provider) {
 	}
 
 	private final Cache<String, Entry> entries;

@@ -13,7 +13,6 @@ import org.springframework.ai.google.genai.GoogleGenAiChatModel;
 import org.springframework.ai.google.genai.GoogleGenAiChatOptions;
 import org.springframework.core.retry.RetryPolicy;
 import org.springframework.core.retry.RetryTemplate;
-import org.springframework.stereotype.Component;
 
 import com.abhiraj.archyra.ai.AiProperties;
 import com.abhiraj.archyra.ai.llm.ProviderException.Kind;
@@ -21,64 +20,61 @@ import com.google.genai.Client;
 import com.google.genai.types.HttpOptions;
 import com.google.genai.types.HttpRetryOptions;
 
-import lombok.extern.slf4j.Slf4j;
-
 /**
  * Gemini (Google AI Studio), the primary provider, through Spring AI's Google GenAI model built here explicitly (no
  * auto-configuration, so no default {@code ChatModel} exists for other code to pick up). The base URL, model and key come
- * from {@code archyra.ai.gemini.*}; there are no retries at any layer, because the gateway decides about the fallback.
+ * from the provider's block {@code archyra.ai.providers.gemini.*}; there are no retries at any layer, because the gateway
+ * decides about the fallback.
  */
-@Slf4j
-@Component
-class GeminiChatProvider implements ChatProvider {
+final class GeminiChatProvider implements ChatProvider {
 
 	private static final double TEMPERATURE = 0.2;
 
+	private final ProviderSettings settings;
 	private final AiProperties properties;
 	private volatile GoogleGenAiChatModel model;
 
-	GeminiChatProvider(AiProperties properties) {
+	GeminiChatProvider(ProviderSettings settings, AiProperties properties) {
+		this.settings = settings;
 		this.properties = properties;
 	}
 
 	@Override
-	public ProviderId id() {
-		return ProviderId.GEMINI;
+	public String id() {
+		return settings.id();
 	}
 
 	@Override
-	public boolean configured() {
-		return properties.gemini().configured();
+	public String displayName() {
+		return settings.displayName();
 	}
 
 	@Override
 	public int contextBudgetTokens() {
-		return properties.context().geminiMaxTokens();
+		return settings.maxContextTokens();
 	}
 
 	@Override
 	public void warmUp() {
-		if (configured()) {
-			model();
-		}
+		model();
 	}
 
 	@Override
 	public LlmAnswer chat(LlmRequest request) {
 		try {
 			ChatResponse response = model().call(new Prompt(messages(request)));
-			String text = response == null || response.getResult() == null || response.getResult().getOutput() == null
-					? null : response.getResult().getOutput().getText();
-			if (text == null || text.isBlank()) {
-				throw new ProviderException(ProviderId.GEMINI, Kind.EMPTY, null, null);
+			String text = AnswerText.clean(response == null || response.getResult() == null || response.getResult().getOutput() == null
+					? null : response.getResult().getOutput().getText());
+			if (text.isEmpty()) {
+				throw new ProviderException(settings.id(), Kind.EMPTY, null, null);
 			}
-			return new LlmAnswer(text, ProviderId.GEMINI);
+			return new LlmAnswer(text, settings.id());
 		}
 		catch (ProviderException ex) {
 			throw ex;
 		}
 		catch (RuntimeException ex) {
-			throw ProviderErrors.classify(ProviderId.GEMINI, ex);
+			throw ProviderErrors.classify(settings.id(), ex);
 		}
 	}
 
@@ -107,15 +103,14 @@ class GeminiChatProvider implements ChatProvider {
 	}
 
 	private GoogleGenAiChatModel build() {
-		AiProperties.Gemini gemini = properties.gemini();
 		HttpOptions http = HttpOptions.builder()
-				.baseUrl(gemini.baseUrl())
+				.baseUrl(settings.baseUrl())
 				.timeout((int) properties.timeout().read().toMillis())
 				.retryOptions(HttpRetryOptions.builder().attempts(1).build()) // one attempt: the gateway owns fallback
 				.build();
-		Client client = Client.builder().apiKey(gemini.apiKey()).httpOptions(http).build();
+		Client client = Client.builder().apiKey(settings.apiKey()).httpOptions(http).build();
 		GoogleGenAiChatOptions options = GoogleGenAiChatOptions.builder()
-				.model(gemini.model())
+				.model(settings.model())
 				.temperature(TEMPERATURE)
 				.maxOutputTokens(properties.answer().maxOutputTokens())
 				.build();

@@ -16,7 +16,7 @@ import com.jayway.jsonpath.JsonPath;
 
 /** Asking a question end to end against the fake providers: grounding, fallback, cache, history, privacy. */
 @org.springframework.test.context.TestPropertySource(properties = { "archyra.ai.timeout.connect=1s", "archyra.ai.timeout.read=3s", "archyra.ai.timeout.total=30s",
-		"archyra.ai.context.groq-max-tokens=500" })
+		"archyra.ai.providers.groq.max-context-tokens=500" })
 class ChatFlowIntegrationTest extends ChatIntegrationSupport {
 
 	@Test
@@ -29,7 +29,7 @@ class ChatFlowIntegrationTest extends ChatIntegrationSupport {
 		String body = ask(shop.user(), shop.analysisId(), PLACE_QUESTION, null);
 
 		assertThat((String) read(body, "$.answer")).isEqualTo("The implementation is at [1] and its contract at [2].");
-		assertThat((String) read(body, "$.provider")).isEqualTo("GEMINI");
+		assertThat((String) read(body, "$.provider")).isEqualTo("gemini");
 		assertThat((boolean) read(body, "$.cached")).isFalse();
 		assertThat((String) read(body, "$.conversationId")).isNotBlank();
 		assertThat((String) read(body, "$.messageId")).isNotBlank();
@@ -111,7 +111,8 @@ class ChatFlowIntegrationTest extends ChatIntegrationSupport {
 
 		String body = ask(shop.user(), shop.analysisId(), PLACE_QUESTION, null);
 
-		assertThat((String) read(body, "$.provider")).isEqualTo("GROQ");
+		assertThat((String) read(body, "$.provider")).isEqualTo("groq");
+		assertThat((String) read(body, "$.providerName")).isEqualTo("Groq");
 		assertThat((String) read(body, "$.answer")).isEqualTo("From groq [1].");
 		assertThat(GEMINI.requestCount()).isEqualTo(1);
 		assertThat(GROQ.requestCount()).isEqualTo(1);
@@ -125,14 +126,14 @@ class ChatFlowIntegrationTest extends ChatIntegrationSupport {
 			GEMINI.reset();
 			GROQ.reset();
 			GEMINI.failWith(status);
-			assertThat((String) read(ask(shop.user(), shop.analysisId(), PLACE_QUESTION + " " + status, null), "$.provider")).isEqualTo("GROQ");
+			assertThat((String) read(ask(shop.user(), shop.analysisId(), PLACE_QUESTION + " " + status, null), "$.provider")).isEqualTo("groq");
 		}
 		GEMINI.reset();
 		GEMINI.answerWith(""); // an empty or blocked answer
-		assertThat((String) read(ask(shop.user(), shop.analysisId(), PLACE_QUESTION + " empty", null), "$.provider")).isEqualTo("GROQ");
+		assertThat((String) read(ask(shop.user(), shop.analysisId(), PLACE_QUESTION + " empty", null), "$.provider")).isEqualTo("groq");
 		GEMINI.reset();
 		GEMINI.failWith(403); // a bad key
-		assertThat((String) read(ask(shop.user(), shop.analysisId(), PLACE_QUESTION + " key", null), "$.provider")).isEqualTo("GROQ");
+		assertThat((String) read(ask(shop.user(), shop.analysisId(), PLACE_QUESTION + " key", null), "$.provider")).isEqualTo("groq");
 	}
 
 	@Test
@@ -167,7 +168,7 @@ class ChatFlowIntegrationTest extends ChatIntegrationSupport {
 
 		String body = ask(shop.user(), shop.analysisId(), PLACE_QUESTION, null);
 
-		assertThat((String) read(body, "$.provider")).isEqualTo("GROQ");
+		assertThat((String) read(body, "$.provider")).isEqualTo("groq");
 		assertThat((System.nanoTime() - started) / 1_000_000).isLessThan(9000);
 	}
 
@@ -191,7 +192,7 @@ class ChatFlowIntegrationTest extends ChatIntegrationSupport {
 		assertThat(GROQ.requestCount()).isEqualTo(groqCalls);
 		assertThat(used(shop.user(), "AI_QUERY")).isEqualTo(usedBefore);
 		// the cool-down is capped at cooldown-max, so the providers come back
-		org.awaitility.Awaitility.await().atMost(java.time.Duration.ofSeconds(8)).until(() -> !cooldowns.isCoolingDown(com.abhiraj.archyra.ai.llm.ProviderId.GROQ));
+		org.awaitility.Awaitility.await().atMost(java.time.Duration.ofSeconds(8)).until(() -> !cooldowns.isCoolingDown("groq"));
 		GEMINI.reset();
 		GROQ.reset();
 		assertThat(chat(shop.user(), shop.analysisId(), "Back again", null).getResponse().getStatus()).isEqualTo(200);
@@ -226,7 +227,7 @@ class ChatFlowIntegrationTest extends ChatIntegrationSupport {
 		assertThat((boolean) read(second, "$.cached")).isTrue();
 		assertThat((String) read(second, "$.answer")).isEqualTo((String) read(first, "$.answer"));
 		assertThat((Object) read(second, "$.sources")).isEqualTo(read(first, "$.sources"));
-		assertThat((String) read(second, "$.provider")).isEqualTo("GEMINI");
+		assertThat((String) read(second, "$.provider")).isEqualTo("gemini");
 		assertThat((String) read(second, "$.conversationId")).isNotEqualTo((String) read(first, "$.conversationId"));
 		assertThat(GEMINI.requestCount()).isEqualTo(calls); // no model call
 		assertThat(used(shop.user(), "AI_QUERY")).isEqualTo(usedAfterFirst); // no charge

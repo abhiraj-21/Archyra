@@ -19,7 +19,7 @@ import com.abhiraj.archyra.ai.index.AiIndexService;
 import com.abhiraj.archyra.ai.llm.AllProvidersFailedException;
 import com.abhiraj.archyra.ai.llm.ChatTurn;
 import com.abhiraj.archyra.ai.llm.ProviderGateway;
-import com.abhiraj.archyra.ai.llm.ProviderId;
+import com.abhiraj.archyra.ai.llm.ProviderRegistry;
 import com.abhiraj.archyra.ai.retrieval.CodeItem;
 import com.abhiraj.archyra.ai.retrieval.ContextItem;
 import com.abhiraj.archyra.ai.retrieval.RetrievalRequest;
@@ -68,6 +68,7 @@ public class ChatService {
 	private final ChatInFlight inFlight;
 	private final ChatAnswerCache cache;
 	private final ProviderGateway gateway;
+	private final ProviderRegistry providers;
 	private final RetrievalService retrieval;
 	private final RetrievalGraphService graph;
 	private final PromptBuilder prompts;
@@ -80,7 +81,7 @@ public class ChatService {
 		UUID analysisId = null;
 		String outcome = "ERROR";
 		boolean cached = false;
-		ProviderId provider = null;
+		String provider = null;
 		try {
 			// 1. validate: nothing here has a side effect
 			String message = validMessage(question.message());
@@ -115,7 +116,7 @@ public class ChatService {
 					cached = true;
 					provider = entry.provider();
 					return new ChatAnswer(saved.conversationId().toString(), saved.assistantMessageId().toString(), entry.answer(),
-							entry.sources(), true, entry.provider());
+							entry.sources(), true, entry.provider(), providers.displayName(entry.provider()));
 				}
 
 				// 3. reserve
@@ -129,7 +130,7 @@ public class ChatService {
 					ChatTransactions.Saved saved = transactions.complete(reservation, generated.text(),
 							SourcesJson.write(generated.sources()), generated.provider());
 					answer = new ChatAnswer(saved.conversationId().toString(), saved.assistantMessageId().toString(), generated.text(),
-							generated.sources(), false, generated.provider());
+							generated.sources(), false, generated.provider(), providers.displayName(generated.provider()));
 				}
 				catch (Throwable failure) {
 					// 6. refund once, drop the PENDING question
@@ -161,7 +162,7 @@ public class ChatService {
 
 	// ---- steps ---------------------------------------------------------------------------------
 
-	private record Generated(String text, List<ChatSource> sources, ProviderId provider) {
+	private record Generated(String text, List<ChatSource> sources, String provider) {
 	}
 
 	private Generated generate(UUID analysisId, String message, List<ChatMessage> newest, List<ChatTurn> history) {

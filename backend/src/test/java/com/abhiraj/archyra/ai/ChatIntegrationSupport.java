@@ -19,20 +19,20 @@ import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.servlet.MvcResult;
 
 import com.abhiraj.archyra.ai.llm.ProviderCooldowns;
-import com.abhiraj.archyra.ai.llm.ProviderId;
 import com.abhiraj.archyra.user.User;
 import com.jayway.jsonpath.JsonPath;
 
 import tools.jackson.databind.json.JsonMapper;
 
 /**
- * Chat tests: {@link AiIntegrationSupport} plus the fake Gemini and Groq servers, with both keys set. A subclass overrides
+ * Chat tests: {@link AiIntegrationSupport} plus the fake provider servers, with the Gemini and Groq keys set (the other providers have no key, so they are not in the chain unless a test gives them one). A subclass overrides
  * what it needs with its own {@code @TestPropertySource}. Cool-downs are a few seconds here, and every test waits for them
  * to end first, so one test's 429 cannot refuse the next test's question.
  */
 @TestPropertySource(properties = {
-		"archyra.ai.gemini.api-key=test-gemini-key", "archyra.ai.groq.api-key=test-groq-key",
-		"archyra.ai.provider.cooldown-default=2s", "archyra.ai.provider.cooldown-max=3s" })
+		"archyra.ai.providers.gemini.api-key=test-gemini-key", "archyra.ai.providers.groq.api-key=test-groq-key",
+		"archyra.ai.providers.cooldown-default=2s", "archyra.ai.providers.cooldown-max=3s",
+		"archyra.ai.providers.cooldown-misconfigured=3s" })
 public abstract class ChatIntegrationSupport extends AiIntegrationSupport {
 
 	protected static final String PLACE = "method:com.example.shop.service.DefaultOrderService#place(OrderRequest)";
@@ -47,16 +47,21 @@ public abstract class ChatIntegrationSupport extends AiIntegrationSupport {
 
 	@DynamicPropertySource
 	static void fakeProviders(DynamicPropertyRegistry registry) {
-		registry.add("archyra.ai.gemini.base-url", FakeProviders.GEMINI::baseUrl);
-		registry.add("archyra.ai.groq.base-url", FakeProviders.GROQ::baseUrl);
+		registry.add("archyra.ai.providers.gemini.base-url", FakeProviders.GEMINI::baseUrl);
+		registry.add("archyra.ai.providers.groq.base-url", FakeProviders.GROQ::baseUrl);
+		// the other providers have no key in the tests (so they are not in the chain); a test that gives one a key reaches a fake
+		registry.add("archyra.ai.providers.openrouter.base-url", FakeProviders.OPENROUTER::baseUrl);
+		registry.add("archyra.ai.providers.zai.base-url", FakeProviders.ZAI::baseUrl);
+		registry.add("archyra.ai.providers.ovh.base-url", FakeProviders.OVH::baseUrl);
+		registry.add("archyra.ai.providers.cohere.base-url", FakeProviders.COHERE::baseUrl);
+		registry.add("archyra.ai.providers.nvidia-nim.base-url", FakeProviders.NVIDIA::baseUrl);
 	}
 
 	@BeforeEach
 	void freshFakeProviders() {
-		FakeProviders.GEMINI.reset();
-		FakeProviders.GROQ.reset();
-		await().atMost(Duration.ofSeconds(10)).until(
-				() -> !cooldowns.isCoolingDown(ProviderId.GEMINI) && !cooldowns.isCoolingDown(ProviderId.GROQ));
+		FakeProviders.resetAll();
+		await().atMost(Duration.ofSeconds(10)).until(() -> !cooldowns.isCoolingDown("gemini") && !cooldowns.isCoolingDown("groq")
+				&& !cooldowns.isCoolingDown("openrouter") && !cooldowns.isCoolingDown("zai"));
 	}
 
 	protected static String chatPath(UUID analysisId) {

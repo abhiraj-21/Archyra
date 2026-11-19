@@ -9,7 +9,7 @@ import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.servlet.MvcResult;
 
 /** With only one key there is no fallback: Groq alone answers, and when it is throttled there is nothing to fall back to. */
-@TestPropertySource(properties = "archyra.ai.gemini.api-key=")
+@TestPropertySource(properties = "archyra.ai.providers.gemini.api-key=")
 class ChatSingleProviderIntegrationTest extends ChatIntegrationSupport {
 
 	@Test
@@ -19,7 +19,7 @@ class ChatSingleProviderIntegrationTest extends ChatIntegrationSupport {
 
 		String body = ask(shop.user(), shop.analysisId(), PLACE_QUESTION, null);
 
-		assertThat((String) read(body, "$.provider")).isEqualTo("GROQ");
+		assertThat((String) read(body, "$.provider")).isEqualTo("groq");
 		assertThat(GEMINI.requestCount()).isZero();
 	}
 

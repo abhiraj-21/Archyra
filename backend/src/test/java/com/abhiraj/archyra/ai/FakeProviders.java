@@ -6,6 +6,7 @@ import static com.github.tomakehurst.wiremock.client.WireMock.urlPathMatching;
 import static com.github.tomakehurst.wiremock.core.WireMockConfiguration.wireMockConfig;
 
 import java.util.List;
+import java.util.concurrent.CountDownLatch;
 import java.util.function.Function;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -20,7 +21,8 @@ import com.github.tomakehurst.wiremock.verification.LoggedRequest;
 import tools.jackson.databind.json.JsonMapper;
 
 /**
- * WireMock as the fake Gemini and Groq HTTP servers. The fake model computes its answer from the request it receives (the
+ * WireMock as the fake provider HTTP servers (Gemini, and any number of OpenAI-compatible ones: Groq, OpenRouter, Z AI, OVH,
+ * Cohere ...). The fake model computes its answer from the request it receives (the
  * prompt), so a test can cite the number a context item really got. Both speak the real wire formats: Gemini's
  * {@code generateContent} and the OpenAI-compatible {@code chat/completions} that Groq serves.
  */
@@ -39,6 +41,9 @@ public final class FakeProviders {
 		private final Shape shape;
 		private final WireMockServer wireMock;
 		private volatile Function<String, String> answer = prompt -> "default answer";
+		private volatile Runnable beforeAnswer = () -> {
+		};
+		private volatile String rawBody;
 
 		Server(Shape shape) {
 			this.shape = shape;
@@ -55,6 +60,9 @@ public final class FakeProviders {
 		public void reset() {
 			wireMock.resetAll();
 			answer = prompt -> "default answer";
+			beforeAnswer = () -> {
+			};
+			rawBody = null;
 			wireMock.stubFor(WireMock.post(urlPathMatching(".*")).willReturn(aResponse().withTransformers("fake-model")));
 		}
 
@@ -65,6 +73,27 @@ public final class FakeProviders {
 
 		public void answerWith(String text) {
 			this.answer = prompt -> text;
+		}
+
+		/** The next answers are exactly this JSON body with a 200 (to test shapes the normal answer never has). */
+		public void answerWithRawBody(String json) {
+			this.rawBody = json;
+		}
+
+		/**
+		 * Every request announces itself on {@code entered}, then waits for {@code release} before it is answered: a call that
+		 * is deterministically "in flight", without sleeps.
+		 */
+		public void holdRequests(CountDownLatch entered, CountDownLatch release) {
+			this.beforeAnswer = () -> {
+				entered.countDown();
+				try {
+					release.await();
+				}
+				catch (InterruptedException ex) {
+					Thread.currentThread().interrupt();
+				}
+			};
 		}
 
 		/** Every request now gets this status, with a body that must never reach a client. */
@@ -101,7 +130,12 @@ public final class FakeProviders {
 		}
 
 		String answerFor(String requestBody) {
+			beforeAnswer.run();
 			return answer.apply(requestBody);
+		}
+
+		String rawBody() {
+			return rawBody;
 		}
 
 		String json(String text) {
@@ -131,9 +165,10 @@ public final class FakeProviders {
 		@Override
 		public ResponseDefinition transform(ServeEvent event) {
 			String text = server.answerFor(event.getRequest().getBodyAsString());
+			String raw = server.rawBody();
 			Integer delay = event.getResponseDefinition().getFixedDelayMilliseconds(); // a transformed response keeps its delay
 			return new com.github.tomakehurst.wiremock.client.ResponseDefinitionBuilder().withStatus(200).withFixedDelay(delay)
-					.withHeader("Content-Type", "application/json").withBody(server.json(text)).build();
+					.withHeader("Content-Type", "application/json").withBody(raw != null ? raw : server.json(text)).build();
 		}
 
 		@Override
@@ -149,8 +184,20 @@ public final class FakeProviders {
 
 	public static final Server GEMINI = new Server(Shape.GEMINI);
 	public static final Server GROQ = new Server(Shape.OPENAI);
+	public static final Server OPENROUTER = new Server(Shape.OPENAI);
+	public static final Server ZAI = new Server(Shape.OPENAI);
+	public static final Server OVH = new Server(Shape.OPENAI);
+	public static final Server COHERE = new Server(Shape.OPENAI);
+	public static final Server NVIDIA = new Server(Shape.OPENAI);
 
 	private FakeProviders() {
+	}
+
+	/** Every fake server back to "answers with the default text". */
+	public static void resetAll() {
+		for (Server server : List.of(GEMINI, GROQ, OPENROUTER, ZAI, OVH, COHERE, NVIDIA)) {
+			server.reset();
+		}
 	}
 
 	/** The number a context item got in a prompt: the {@code n} of {@code [n] METHOD <qualified name that contains the fragment>}. */

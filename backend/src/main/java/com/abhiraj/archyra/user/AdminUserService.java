@@ -103,7 +103,13 @@ public class AdminUserService {
 		return toResponse(target);
 	}
 
-	private UUID requireActiveAdmin() {
+	/**
+	 * The database check behind every admin route (the token's role is not trusted on its own): the caller must be an enabled
+	 * administrator. Public so other features' admin endpoints re-check the same way.
+	 *
+	 * @throws AccessDeniedException if the caller is not an enabled administrator
+	 */
+	public UUID requireActiveAdmin() {
 		UUID caller = CurrentUser.id().orElseThrow(() -> new AccessDeniedException("Not signed in"));
 		boolean active = userRepository.findById(caller).filter(User::isEnabled).filter(user -> user.getRole() == Role.ADMIN).isPresent();
 		if (!active) {

@@ -21,7 +21,7 @@ class ChunkExtractorTest {
 	private static final Path FIXTURES = Path.of("src/test/resources/fixtures");
 
 	private static ChunkExtractor extractor(int maxChars, int maxPerAnalysis) {
-		return new ChunkExtractor(new AiProperties(null, null, null, null, null, null, null, null,
+		return new ChunkExtractor(new AiProperties(null, null, null, null, null,
 				new AiProperties.Chunk(maxChars, maxPerAnalysis), null, null, null));
 	}
 

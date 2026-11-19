@@ -1,6 +1,7 @@
 package com.abhiraj.archyra.ai;
 
 import java.time.Duration;
+import java.util.List;
 
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.boot.context.properties.bind.DefaultValue;
@@ -19,12 +20,10 @@ import jakarta.validation.constraints.NotNull;
  * come from the environment and may be empty (a missing key must not fail startup: that provider is simply not
  * configured). Neither this record nor its parts ever print a key.
  *
- * @param gemini    the primary chat provider (Google AI Studio)
- * @param groq      the fallback chat provider (Groq, OpenAI-compatible)
+ * @param providers the chain of chat providers: order, attempts, cool-downs. The providers themselves are the blocks
+ *                  {@code archyra.ai.providers.<id>.*}, read by {@code ProviderRegistry} (see {@code ProviderConfig})
  * @param timeout   HTTP timeouts of a provider call and the budget of one whole question
- * @param provider  cool-down after a provider answered 429
  * @param answer    limits of one answer
- * @param context   per-provider budget of the context sent with a question, in (estimated) tokens
  * @param history   how much of the conversation goes back to the model
  * @param retrieval hybrid retrieval settings (vector-seeds-expanded: how many of the best vector hits are expanded into graph facts)
  * @param chunk     code chunk limits
@@ -35,12 +34,9 @@ import jakarta.validation.constraints.NotNull;
 @Validated
 @ConfigurationProperties(prefix = "archyra.ai")
 public record AiProperties(
-		@Valid @DefaultValue Gemini gemini,
-		@Valid @DefaultValue Groq groq,
+		@Valid @DefaultValue Providers providers,
 		@Valid @DefaultValue Timeout timeout,
-		@Valid @DefaultValue Provider provider,
 		@Valid @DefaultValue Answer answer,
-		@Valid @DefaultValue Context context,
 		@Valid @DefaultValue History history,
 		@Valid @DefaultValue Retrieval retrieval,
 		@Valid @DefaultValue Chunk chunk,
@@ -48,36 +44,26 @@ public record AiProperties(
 		@Valid @DefaultValue Cache cache,
 		@Valid @DefaultValue Limits limits) {
 
-	/** Connection details of one chat provider. The key is redacted in {@code toString}. */
-	public interface ProviderSettings {
-
-		String apiKey();
-
-		String model();
-
-		String baseUrl();
-
-		/** A provider without a key is not configured and is never called. */
-		default boolean configured() {
-			return apiKey() != null && !apiKey().isBlank();
-		}
-	}
-
-	public record Gemini(String apiKey, @NotBlank String model, @NotBlank String baseUrl) implements ProviderSettings {
-
-		@Override
-		public String toString() {
-			return "Gemini[model=" + model + ", baseUrl=" + baseUrl + ", apiKey=" + (configured() ? "***" : "unset") + "]";
-		}
-	}
-
-	/** @param reasoningEffort sent as {@code reasoning_effort} when not blank (reasoning models spend output tokens on thinking; leave blank for other models) */
-	public record Groq(String apiKey, @NotBlank String model, @NotBlank String baseUrl, String reasoningEffort) implements ProviderSettings {
-
-		@Override
-		public String toString() {
-			return "Groq[model=" + model + ", baseUrl=" + baseUrl + ", apiKey=" + (configured() ? "***" : "unset") + "]";
-		}
+	/**
+	 * The chain. {@code order} is the order providers are tried in; a provider without a key (or one that is disabled) is
+	 * simply not in the chain. A provider that is {@code enabled} but not listed (the opt-in ones) is appended.
+	 *
+	 * @param order                  provider ids, in the order they are tried
+	 * @param maxAttempts            the most providers one question calls (a local refusal is not an attempt)
+	 * @param defaultMaxContextTokens context budget of a provider that sets none
+	 * @param cooldownDefault        cool-down after a 429 without {@code Retry-After}; repeated 429s double it
+	 * @param cooldownMax            cap of every 429 cool-down
+	 * @param cooldownMisconfigured  cool-down after a bad key or an unknown model (401, 402, 403, 404)
+	 * @param minAttemptTimeout      the least time one attempt gets, however many providers remain
+	 */
+	public record Providers(
+			@DefaultValue List<String> order,
+			@DefaultValue("4") @Min(1) int maxAttempts,
+			@DefaultValue("4000") @Min(500) int defaultMaxContextTokens,
+			@DefaultValue("30s") @NotNull Duration cooldownDefault,
+			@DefaultValue("1h") @NotNull Duration cooldownMax,
+			@DefaultValue("30m") @NotNull Duration cooldownMisconfigured,
+			@DefaultValue("10s") @NotNull Duration minAttemptTimeout) {
 	}
 
 	public record Timeout(
@@ -86,17 +72,7 @@ public record AiProperties(
 			@DefaultValue("60s") @NotNull Duration total) {
 	}
 
-	public record Provider(
-			@DefaultValue("30s") @NotNull Duration cooldownDefault,
-			@DefaultValue("60s") @NotNull Duration cooldownMax) {
-	}
-
 	public record Answer(@DefaultValue("1024") @Min(1) int maxOutputTokens) {
-	}
-
-	public record Context(
-			@DefaultValue("12000") @Min(500) int geminiMaxTokens,
-			@DefaultValue("4500") @Min(500) int groqMaxTokens) {
 	}
 
 	/**

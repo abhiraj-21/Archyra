@@ -23,6 +23,11 @@ import com.abhiraj.archyra.user.User;
  */
 class RetrievalIntegrationTest extends AiIntegrationSupport {
 
+	/** The context budgets of a small provider (Groq's free plan) and a large one (Gemini): the budgets are per provider. */
+	private static final int SMALL_BUDGET = 4500;
+	private static final int LARGE_BUDGET = 12000;
+
+
 	private static final String SERVICE = "interface:com.example.shop.service.OrderService";
 	private static final String CONTROLLER = "class:com.example.shop.web.OrderController";
 	private static final String BASE_ENTITY = "class:com.example.shop.model.BaseEntity";
@@ -173,10 +178,10 @@ class RetrievalIntegrationTest extends AiIntegrationSupport {
 	void theBudgetBoundsTheContextAndASmallerOneGivesLess() throws Exception {
 		RetrievedContext context = retrieval.retrieve(RetrievalRequest.of(indexedShop(), "How are orders placed and stored?"));
 
-		int groq = RetrievedContext.tokensOf(context.within(properties.context().groqMaxTokens()));
-		int gemini = RetrievedContext.tokensOf(context.within(properties.context().geminiMaxTokens()));
-		assertThat(groq).isLessThanOrEqualTo(properties.context().groqMaxTokens());
-		assertThat(gemini).isLessThanOrEqualTo(properties.context().geminiMaxTokens());
+		int groq = RetrievedContext.tokensOf(context.within(SMALL_BUDGET));
+		int gemini = RetrievedContext.tokensOf(context.within(LARGE_BUDGET));
+		assertThat(groq).isLessThanOrEqualTo(SMALL_BUDGET);
+		assertThat(gemini).isLessThanOrEqualTo(LARGE_BUDGET);
 		assertThat(groq).isLessThanOrEqualTo(gemini);
 		int tight = RetrievedContext.tokensOf(context.within(600));
 		assertThat(tight).isLessThanOrEqualTo(600).isLessThan(RetrievedContext.tokensOf(context.ranked()));
@@ -225,8 +230,8 @@ class RetrievalIntegrationTest extends AiIntegrationSupport {
 				.append("min-similarity=").append(properties.retrieval().minSimilarity())
 				.append(" vector-top-k=").append(properties.retrieval().vectorTopK())
 				.append(" neighbors-per-node=").append(properties.retrieval().neighborsPerNode())
-				.append(" budgets: gemini=").append(properties.context().geminiMaxTokens())
-				.append(" groq=").append(properties.context().groqMaxTokens()).append("\n");
+				.append(" budgets: gemini=").append(LARGE_BUDGET)
+				.append(" groq=").append(SMALL_BUDGET).append("\n");
 		UUID id = indexedShop();
 		record Q(String text, String previous, List<String> sticky) {
 		}
@@ -256,8 +261,8 @@ class RetrievalIntegrationTest extends AiIntegrationSupport {
 				}
 			}
 			report.append(String.format(Locale.ROOT, "  total %d items, ~%d tokens; fits gemini: %d items / groq: %d items%n", context.ranked().size(),
-					RetrievedContext.tokensOf(context.ranked()), context.within(properties.context().geminiMaxTokens()).size(),
-					context.within(properties.context().groqMaxTokens()).size()));
+					RetrievedContext.tokensOf(context.ranked()), context.within(LARGE_BUDGET).size(),
+					context.within(SMALL_BUDGET).size()));
 		}
 		Path file = Path.of("target/retrieval-checkpoint.txt");
 		Files.writeString(file, report.toString());
