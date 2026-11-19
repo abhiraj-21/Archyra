@@ -501,12 +501,15 @@ function pickTerm(graph: ApiGraph): { term: string; matching: number; total: num
   return null;
 }
 
+// The name-filter tests below that count matches use this URL: "Include dependents" is on by default and would add nodes.
+const ARCH_MATCHES_ONLY = () => `${ARCH()}&dependents=0&dependencies=0`;
+
 live('Name filter: typing narrows the class view to the matching names, updates ?q=, and a reload restores it', async (page) => {
   const picked = pickTerm(await readGraph(page));
   test.skip(!picked, 'no class-name fragment matches only some of the classes in this analysis');
   const { term, matching } = picked as NonNullable<typeof picked>;
 
-  await page.goto(ARCH());
+  await page.goto(ARCH_MATCHES_ONLY());
   await expect(page.locator('.react-flow__node').first()).toBeVisible();
   expect(page.url()).not.toContain('q=');
   const historyBefore = await page.evaluate(() => history.length);
@@ -608,7 +611,7 @@ live('Name filter: with the module default a term filters the modules, and moved
   }
   test.skip(!term, 'no fragment of a module name matches only some of the modules');
 
-  await page.goto(ARCH_BARE());
+  await page.goto(`${ARCH_BARE()}?dependents=0&dependencies=0`);
   const [a, , idA] = await pickNodes(page);
   await drag(page, a, 80, 60);
   const placed = await flowPosition(page.locator(`.react-flow__node[data-id="${idA}"]`));
@@ -620,4 +623,188 @@ live('Name filter: with the module default a term filters the modules, and moved
   await expect.poll(() => shownNodes(page)).toBe(view.modules.length);
   await page.getByRole('button', { name: 'Fit to screen' }).click();
   await expect.poll(() => flowPosition(page.locator(`.react-flow__node[data-id="${idA}"]`))).toEqual(placed); // hidden nodes keep their positions
+});
+
+// ---------------------------------------------------------------------------------------------------------------
+// "Include dependents" and "Include dependencies" on the name filter (spec/graph-default-and-name-filter, amended)
+// ---------------------------------------------------------------------------------------------------------------
+
+/**
+ * A name (taken from a working class or interface) whose matches have direct dependents and/or direct dependencies among the
+ * working classes and interfaces, computed from the API the way the classic edges (DEPENDS_ON, EXTENDS, IMPLEMENTS) draw them:
+ * a dependent is the source of an edge into a match, a dependency is the target of an edge out of a match, neither matches
+ * itself, and a node that is both counts as a dependent. A term with both groups wins, then the smallest view, so every card
+ * fits on screen.
+ */
+function pickTermWithRelated(graph: ApiGraph): { term: string; matches: number; dependents: Set<string>; dependencies: Set<string> } | null {
+  const classic = new Set(['DEPENDS_ON', 'EXTENDS', 'IMPLEMENTS']);
+  const types = graph.nodes.filter((n) => (n.type === 'CLASS' || n.type === 'INTERFACE') && !n.test && !n.id.startsWith('external:'));
+  const byId = new Map(types.map((n) => [n.id, n]));
+  let best: { term: string; matches: number; dependents: Set<string>; dependencies: Set<string> } | null = null;
+  const rank = (c: NonNullable<typeof best>) => (c.dependents.size > 0 && c.dependencies.size > 0 ? 0 : 1_000_000) + c.matches + c.dependents.size + c.dependencies.size;
+  for (const sample of types) {
+    const term = sample.name.toLowerCase();
+    const matched = new Set(types.filter((n) => n.name.toLowerCase().includes(term)).map((n) => n.id));
+    const dependents = new Set<string>();
+    const dependencies = new Set<string>();
+    for (const e of graph.edges) {
+      if (!classic.has(e.type)) continue;
+      if (matched.has(e.target) && byId.has(e.source) && !matched.has(e.source)) dependents.add(e.source);
+      if (matched.has(e.source) && byId.has(e.target) && !matched.has(e.target)) dependencies.add(e.target);
+    }
+    for (const id of dependents) dependencies.delete(id);
+    if (dependents.size + dependencies.size === 0) continue;
+    const named = (ids: Set<string>) => new Set([...ids].map((id) => (byId.get(id) as { name: string }).name));
+    const candidate = { term, matches: matched.size, dependents: named(dependents), dependencies: named(dependencies) };
+    if (!best || rank(candidate) < rank(best)) best = candidate;
+  }
+  return best;
+}
+
+const dependentsToggle = (page: Page) => page.getByRole('checkbox', { name: 'Include dependents' });
+const dependenciesToggle = (page: Page) => page.getByRole('checkbox', { name: 'Include dependencies' });
+const depCards = (page: Page) => page.locator('.arch-node[data-role="dependent"]');
+const dependencyCards = (page: Page) => page.locator('.arch-node[data-role="dependency"]');
+const relatedCards = (page: Page) => page.locator('.arch-node[data-role="dependent"], .arch-node[data-role="dependency"]');
+const matchCards = (page: Page) => page.locator('.arch-node[data-role="match"]');
+const dependentsIn = (url: string) => new URL(url).searchParams.get('dependents');
+const dependenciesIn = (url: string) => new URL(url).searchParams.get('dependencies');
+
+live('Name filter: dependents and dependencies appear next to the matches, each checkbox removes its own group, and ?q=, dependents=0 and dependencies=0 survive a reload', async (page) => {
+  const picked = pickTermWithRelated(await readGraph(page));
+  test.skip(!picked, 'no working class or interface has a direct dependent or dependency among the working classes and interfaces in this analysis');
+  const { term, matches, dependents, dependencies } = picked as NonNullable<typeof picked>;
+
+  await page.goto(ARCH());
+  await expect(page.locator('.react-flow__node').first()).toBeVisible();
+  await expect(dependentsToggle(page)).toBeChecked(); // both are on by default
+  await expect(dependenciesToggle(page)).toBeChecked();
+  expect(page.url()).not.toMatch(/dependen(ts|cies)=/);
+  await expect(relatedCards(page)).toHaveCount(0); // no filter, so nothing is a match or a dependent
+
+  // typing the name: the matches plus the nodes that depend on them, and the count says so
+  await filterField(page).fill(term);
+  const summary = new RegExp(
+    `Showing ${matches} ${matches === 1 ? 'match' : 'matches'}, ${dependents.size} that ${dependents.size === 1 ? 'depends' : 'depend'} on ${matches === 1 ? 'it' : 'them'} and ${dependencies.size} that ${matches === 1 ? 'it depends' : 'they depend'} on`,
+  );
+  await expect(page.getByText(summary)).toBeVisible();
+  expect(page.url()).not.toMatch(/dependen(ts|cies)=/); // on is the default, so the URL stays clean
+  await expect.poll(() => relatedCards(page).count()).toBeGreaterThan(0);
+  const cardNames = async (cards: Locator) => (await cards.evaluateAll((els) => els.map((el) => el.closest('.react-flow__node')?.getAttribute('aria-label') ?? ''))).map((l) => l.replace(/, (class|interface),.*$/, ''));
+  const dependencyNames = await cardNames(dependencyCards(page));
+  expect(dependencyNames.length).toBeLessThanOrEqual(dependencies.size);
+  expect(dependencyNames.every((name) => dependencies.has(name))).toBe(true); // only what a match really depends on
+  expect(dependencyNames.every((name) => !name.toLowerCase().includes(term))).toBe(true);
+  if (dependencies.size > 0) await expect.poll(() => dependencyCards(page).count()).toBeGreaterThan(0);
+  const dependentNames = (await depCards(page).evaluateAll((els) => els.map((el) => el.closest('.react-flow__node')?.getAttribute('aria-label') ?? ''))).map((l) => l.replace(/, (class|interface),.*$/, ''));
+  expect(dependentNames.length).toBeLessThanOrEqual(dependents.size);
+  expect(dependentNames.every((name) => dependents.has(name))).toBe(true); // only real direct dependents
+  expect(dependentNames.every((name) => !name.toLowerCase().includes(term))).toBe(true); // a dependent is not itself a match
+  const matchNames = (await matchCards(page).evaluateAll((els) => els.map((el) => el.closest('.react-flow__node')?.getAttribute('aria-label') ?? ''))).map((l) => l.replace(/, (class|interface),.*$/, ''));
+  expect(matchNames.length).toBeGreaterThan(0);
+  expect(matchNames.every((name) => name.toLowerCase().includes(term))).toBe(true);
+  await expect(matchCards(page).first().locator('.arch-node-hit')).not.toHaveText(''); // the matched part of the name is emphasised
+  expect(await page.locator('.react-flow__edge').count()).toBeGreaterThan(0); // the edges from the dependents to the matches are drawn
+  // the caption names only the kinds of card that are drawn
+  const caption = page.getByTestId('graph-dependents-caption');
+  await expect(caption).toContainText('Solid cards match the name');
+  if (dependents.size > 0) await expect(caption).toContainText('Dashed cards');
+  else await expect(caption).not.toContainText('Dashed cards');
+  if (dependencies.size > 0) await expect(caption).toContainText('Dotted cards');
+  else await expect(caption).not.toContainText('Dotted cards');
+
+  // a dependent or a dependency can be selected: it is drawn, so the inspector does not say "Hidden by the filter"
+  await relatedCards(page).first().click();
+  await expect(page).toHaveURL(/node=/);
+  const inspector = page.getByRole('complementary', { name: 'Node details' });
+  await expect(inspector).toBeVisible();
+  await expect(inspector.getByText('Hidden by the filter')).toHaveCount(0);
+  await inspector.getByRole('button', { name: /close/i }).click().catch(() => null);
+
+  // each checkbox removes only its own group; click, then wait for the URL (the checkbox is driven by the address,
+  // which the router commits a moment after the click)
+  const summaryOf = (withDependents: boolean, withDependencies: boolean) => {
+    const parts = [
+      ...(withDependents ? [`${dependents.size} that ${dependents.size === 1 ? 'depends' : 'depend'} on ${matches === 1 ? 'it' : 'them'}`] : []),
+      ...(withDependencies ? [`${dependencies.size} that ${matches === 1 ? 'it depends' : 'they depend'} on`] : []),
+    ];
+    return new RegExp(`Showing ${matches} ${matches === 1 ? 'match' : 'matches'}${parts.length === 1 ? ` and ${parts[0]}` : `, ${parts[0]} and ${parts[1]}`}`);
+  };
+  await dependentsToggle(page).click();
+  await expect.poll(() => dependentsIn(page.url())).toBe('0');
+  await expect(dependentsToggle(page)).not.toBeChecked();
+  await expect(dependenciesToggle(page)).toBeChecked();
+  expect(dependenciesIn(page.url())).toBeNull();
+  await expect(depCards(page)).toHaveCount(0);
+  await expect(page.getByText(summaryOf(false, true))).toBeVisible();
+  if (dependencies.size > 0) await expect.poll(() => dependencyCards(page).count()).toBeGreaterThan(0);
+
+  await dependentsToggle(page).click(); // back on, and now the other one off
+  await expect.poll(() => dependentsIn(page.url())).toBeNull();
+  await dependenciesToggle(page).click();
+  await expect.poll(() => dependenciesIn(page.url())).toBe('0');
+  await expect(dependenciesToggle(page)).not.toBeChecked();
+  await expect(dependentsToggle(page)).toBeChecked();
+  await expect(dependencyCards(page)).toHaveCount(0);
+  await expect(page.getByText(summaryOf(true, false))).toBeVisible();
+  if (dependents.size > 0) await expect.poll(() => depCards(page).count()).toBeGreaterThan(0);
+
+  // both off: matches only, as before, and the count goes back to "of"
+  await dependentsToggle(page).click();
+  await expect.poll(() => dependentsIn(page.url())).toBe('0');
+  await expect(relatedCards(page)).toHaveCount(0);
+  await expect(page.getByText(new RegExp(`Showing ${matches} of \\d+ nodes`))).toBeVisible();
+  const onlyMatches = (await nodeLabels(page)).map((l) => l.replace(/, (class|interface),.*$/, '').toLowerCase());
+  expect(onlyMatches.every((name) => name.includes(term))).toBe(true);
+
+  // a reload restores the term and both checkboxes
+  await page.reload();
+  await expect(filterField(page)).toHaveValue(term);
+  await expect(dependentsToggle(page)).not.toBeChecked();
+  await expect(dependenciesToggle(page)).not.toBeChecked();
+  expect(queryIn(page.url())).toBe(term);
+  expect(dependentsIn(page.url())).toBe('0');
+  expect(dependenciesIn(page.url())).toBe('0');
+  await expect(page.getByText(new RegExp(`Showing ${matches} of \\d+ nodes`))).toBeVisible();
+  await expect(relatedCards(page)).toHaveCount(0);
+
+  // both on again: the parameters leave the URL and both groups come back
+  await dependentsToggle(page).click();
+  await dependenciesToggle(page).click();
+  await expect.poll(() => dependentsIn(page.url())).toBeNull();
+  await expect.poll(() => dependenciesIn(page.url())).toBeNull();
+  await expect(dependentsToggle(page)).toBeChecked();
+  await expect(dependenciesToggle(page)).toBeChecked();
+  await expect(page.getByText(summary)).toBeVisible();
+  await expect.poll(() => relatedCards(page).count()).toBeGreaterThan(0);
+
+  // a term that matches nothing still gives the empty state, never a dependent-only view
+  await filterField(page).fill('zzz-no-such-name');
+  await expect(page.getByRole('heading', { name: /^No classes or interfaces match “zzz-no-such-name”$/ })).toBeVisible();
+  await expect(page.locator('.react-flow__node')).toHaveCount(0);
+});
+
+live('Name filter: the Include dependents and Include dependencies checkboxes are next to the field, keyboard operable, and in the full-screen toolbar', async (page) => {
+  await page.goto(ARCH());
+  await expect(page.locator('.react-flow__node').first()).toBeVisible();
+  await filterField(page).focus();
+  await page.keyboard.press('Tab'); // the clear button is absent while the field is empty, so the next stop is the first checkbox
+  await expect(dependentsToggle(page)).toBeFocused();
+  await page.keyboard.press('Space');
+  await expect(dependentsToggle(page)).not.toBeChecked();
+  await expect.poll(() => dependentsIn(page.url())).toBe('0');
+  await page.keyboard.press('Space');
+  await expect.poll(() => dependentsIn(page.url())).toBeNull();
+  await page.keyboard.press('Tab');
+  await expect(dependenciesToggle(page)).toBeFocused();
+  await page.keyboard.press('Space');
+  await expect(dependenciesToggle(page)).not.toBeChecked();
+  await expect.poll(() => dependenciesIn(page.url())).toBe('0');
+  await page.keyboard.press('Space');
+  await expect.poll(() => dependenciesIn(page.url())).toBeNull();
+
+  await page.getByRole('button', { name: 'Full screen' }).click();
+  await expect(dependentsToggle(page)).toBeVisible();
+  await expect(dependenciesToggle(page)).toBeVisible();
+  await page.getByRole('button', { name: 'Exit full screen' }).click().catch(() => null);
 });

@@ -29,3 +29,21 @@ export function queryParam(term: string): string | null {
   const clean = parseQuery(term);
   return clean === '' ? null : clean;
 }
+
+/**
+ * `?dependents=0` is "Include dependents" turned off and `?dependencies=0` is "Include dependencies" turned off; each toggle
+ * is **on by default**, so any other value, or none, is on. Only the exact `0` switches one off, so a hand-edited or garbled
+ * value never hides nodes by surprise.
+ */
+export function parseDependents(value: string | null): boolean {
+  return value !== '0';
+}
+
+export const parseDependencies = parseDependents;
+
+/** What goes in the URL: `0` only when turned off, nothing when on, so default URLs stay clean. */
+export function dependentsParam(on: boolean): string | null {
+  return on ? null : '0';
+}
+
+export const dependenciesParam = dependentsParam;

@@ -21,7 +21,7 @@ import { useGraph } from '@/hooks/useWorkspace';
 import { formatNumber, plural } from '@/lib/format';
 import { useWorkspace } from '../workspaceContext';
 import { GraphFilters, GraphUpcoming } from './GraphFilters';
-import { parseEdgeTypes, parseNodeTypes, parseQuery, queryParam } from './graphParams';
+import { dependenciesParam, dependentsParam, parseDependencies, parseDependents, parseEdgeTypes, parseNodeTypes, parseQuery, queryParam } from './graphParams';
 import { NodeList } from './NodeList';
 
 export default function ArchitecturePage() {
@@ -71,6 +71,9 @@ function ArchitectureView({ analysisId, graph }: { analysisId: string; graph: Gr
   const moduleCaption = defaults.moduleDefault && !explicit;
   const scope = parseScope(params.get('scope'), SCOPE_DEFAULTS.architecture);
   const query = parseQuery(params.get('q'));
+  // Each is on by default and written as `dependents=0` / `dependencies=0` only when off; they matter only while a name filter is set.
+  const includeDependents = parseDependents(params.get('dependents'));
+  const includeDependencies = parseDependencies(params.get('dependencies'));
   const selectedId = params.get('node');
   const listView = params.get('view') === 'list';
   const counts = useMemo(() => countByType(graph), [graph]);
@@ -96,8 +99,8 @@ function ArchitectureView({ analysisId, graph }: { analysisId: string; graph: Gr
   const nodeKey = nodeTypes.slice().sort().join(',');
   const edgeKey = edgeTypes.slice().sort().join(',');
   const visible = useMemo(
-    () => visibleGraph(graph, { scope, query, nodeTypes: new Set(nodeKey ? (nodeKey.split(',') as NodeType[]) : []), edgeTypes: new Set(edgeKey ? (edgeKey.split(',') as EdgeType[]) : []) }),
-    [graph, nodeKey, edgeKey, scope, query],
+    () => visibleGraph(graph, { scope, query, includeDependents, includeDependencies, nodeTypes: new Set(nodeKey ? (nodeKey.split(',') as NodeType[]) : []), edgeTypes: new Set(edgeKey ? (edgeKey.split(',') as EdgeType[]) : []) }),
+    [graph, nodeKey, edgeKey, scope, query, includeDependents, includeDependencies],
   );
   // "Showing 12 of 87": the nodes of the selected types and scope, and how many of them the name filter keeps.
   const matches = useMemo(
@@ -110,7 +113,7 @@ function ArchitectureView({ analysisId, graph }: { analysisId: string; graph: Gr
   const selected = selectedId && visible.nodes.some((n) => n.id === selectedId) ? selectedId : selectedId && nodesById.has(selectedId) ? selectedId : null;
   // A selected node the name filter hides stays selected (the inspector says so), but must not dim everything that is shown.
   const selectedIsDrawn = selected !== null && visible.nodes.some((n) => n.id === selected);
-  const hiddenByFilter = selected !== null && query !== '' && !matchesQuery(nodesById.get(selected) ?? { name: '' }, query);
+  const hiddenByFilter = selected !== null && query !== '' && !selectedIsDrawn && !matchesQuery(nodesById.get(selected) ?? { name: '' }, query);
   const highlight = useMemo(() => (selected && selectedIsDrawn ? neighbourhood(visible.edges, selected) : null), [selected, selectedIsDrawn, visible.edges]);
 
   // The visible set is a function of the graph, the two type filters and the scope, so those key the layout cache:
@@ -133,9 +136,36 @@ function ArchitectureView({ analysisId, graph }: { analysisId: string; graph: Gr
   const moved = useMemo(() => movedCount(manual, visible.nodes.map((n) => n.id)) > 0, [manual, visible.nodes]);
 
   const select = useCallback((id: string | null) => update({ node: id }), [update]);
-  const reset = () => update({ nodes: null, edges: null, node: null, scope: null, q: null });
+  const reset = () => update({ nodes: null, edges: null, node: null, scope: null, q: null, dependents: null, dependencies: null });
   const setQuery = useCallback((term: string) => update({ q: queryParam(term) }), [update]);
+  const setDependents = useCallback((on: boolean) => update({ dependents: dependentsParam(on) }), [update]);
+  const setDependencies = useCallback((on: boolean) => update({ dependencies: dependenciesParam(on) }), [update]);
   const clearQuery = () => setQuery('');
+
+  // "Showing 3 matches, 5 that depend on them and 2 that they depend on": every drawn node is a match except the other two groups.
+  // Only the groups that are switched on are named; with both off it is the plain "Showing 12 of 87 nodes".
+  const dependentCount = visible.dependentIds.size;
+  const dependencyCount = visible.dependencyIds.size;
+  const matchedCount = visible.nodes.length - dependentCount - dependencyCount;
+  const extras = [
+    ...(includeDependents ? [`${formatNumber(dependentCount)} that ${dependentCount === 1 ? 'depends' : 'depend'} on ${matchedCount === 1 ? 'it' : 'them'}`] : []),
+    ...(includeDependencies ? [`${formatNumber(dependencyCount)} that ${matchedCount === 1 ? 'it depends' : 'they depend'} on`] : []),
+  ];
+  const countText = !query
+    ? `${plural(visible.nodes.length, 'node')}, `
+    : extras.length > 0
+      ? `Showing ${plural(matchedCount, 'match', 'matches')}${extras.length === 1 ? ` and ${extras[0]}` : `, ${extras[0]} and ${extras[1]}`}, `
+      : `Showing ${formatNumber(matches.shown)} of ${formatNumber(matches.total)} nodes, `;
+  const searchField = (
+    <GraphSearch
+      value={query}
+      onCommit={setQuery}
+      includeDependents={includeDependents}
+      onIncludeDependents={setDependents}
+      includeDependencies={includeDependencies}
+      onIncludeDependencies={setDependencies}
+    />
+  );
 
   // `/` jumps to the name filter, unless the person is typing somewhere (this tab only: the listener goes with the page).
   useEffect(() => {
@@ -184,11 +214,20 @@ function ArchitectureView({ analysisId, graph }: { analysisId: string; graph: Gr
         />
       </div>
       <div className="flex flex-wrap items-center justify-between gap-x-lg gap-y-xs border-b border-rule bg-paper px-md py-2xs sm:px-lg">
-        <p className="text-sm text-muted" aria-live="polite" aria-atomic="true">
-          {query ? `Showing ${formatNumber(matches.shown)} of ${formatNumber(matches.total)} nodes, ` : `${plural(visible.nodes.length, 'node')}, `}
-          {plural(visible.edges.length, 'relationship')}
-        </p>
-        {listView ? <GraphSearch value={query} onCommit={setQuery} /> : null}
+        <div>
+          <p className="text-sm text-muted" aria-live="polite" aria-atomic="true">
+            {countText}
+            {plural(visible.edges.length, 'relationship')}
+          </p>
+          {dependentCount + dependencyCount > 0 ? (
+            <p className="text-xs text-muted" data-testid="graph-dependents-caption">
+              {listView
+                ? `${dependentCount > 0 ? 'Rows marked “Depends on a match” depend directly on a node whose name matches. ' : ''}${dependencyCount > 0 ? 'Rows marked “A match depends on it” are what a match depends on directly.' : ''}`.trim()
+                : `Solid cards match the name.${dependentCount > 0 ? ' Dashed cards depend directly on a match.' : ''}${dependencyCount > 0 ? ' Dotted cards are what a match depends on directly.' : ''} Each has an arrow badge.`}
+            </p>
+          ) : null}
+        </div>
+        {listView ? searchField : null}
         <GraphUpcoming onReset={reset} />
         <div className="flex gap-2xs" role="group" aria-label="View">
           <button type="button" className="btn btn-quiet btn-sm" aria-pressed={!listView} onClick={() => update({ view: null })}>
@@ -219,7 +258,7 @@ function ArchitectureView({ analysisId, graph }: { analysisId: string; graph: Gr
               )}
             </div>
           ) : listView ? (
-            visible.nodes.length === 0 ? <div className="grid h-full place-items-center bg-canvas px-md">{noMatch}</div> : <NodeList nodes={visible.nodes} degree={visible.degree} selectedId={selected} onSelect={select} />
+            visible.nodes.length === 0 ? <div className="grid h-full place-items-center bg-canvas px-md">{noMatch}</div> : <NodeList nodes={visible.nodes} degree={visible.degree} selectedId={selected} onSelect={select} dependentIds={visible.dependentIds} dependencyIds={visible.dependencyIds} />
           ) : layout.error ? (
             <div className="grid h-full place-items-center px-md">
               <ErrorState error={null} />
@@ -236,7 +275,10 @@ function ArchitectureView({ analysisId, graph }: { analysisId: string; graph: Gr
               onMove={move}
               onResetLayout={resetLayout}
               moved={moved}
-              toolbarExtra={<GraphSearch value={query} onCommit={setQuery} />}
+              toolbarExtra={searchField}
+              query={query}
+              dependentIds={visible.dependentIds}
+              dependencyIds={visible.dependencyIds}
               emptyOverlay={visible.nodes.length === 0 ? noMatch : null}
               label={`Architecture graph: ${plural(visible.nodes.length, 'node')}. Use Tab to move between nodes and Enter to inspect one.`}
             />

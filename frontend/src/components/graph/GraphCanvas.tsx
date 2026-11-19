@@ -4,7 +4,7 @@ import { CircleHelp, Expand, Map as MapIcon, Maximize, Minimize, Minus, Plus, Ro
 import type { GraphEdge, GraphNode } from '@/api/types';
 import { ArchNode, type ArchFlowNode } from './ArchNode';
 import { EdgeMarkers } from './EdgeMarkers';
-import { nodeSize } from './adapter';
+import { nodeRole, nodeSize } from './adapter';
 import { EDGE_STYLES, markerId } from './graphStyles';
 import { Legend } from './Legend';
 import type { Positions } from './layoutCore';
@@ -30,6 +30,10 @@ export interface GraphCanvasProps {
   interactive?: boolean;
   /** Extra controls in the toolbar (the name filter), so they are there in full screen too. */
   toolbarExtra?: ReactNode;
+  /** The active name filter and the visible nodes that are only there because they depend on a match, or because a match depends on them (see `visibleGraph`). */
+  query?: string;
+  dependentIds?: ReadonlySet<string>;
+  dependencyIds?: ReadonlySet<string>;
   /** Shown over the canvas when there is nothing to draw (for example when a name filter matches nothing). */
   emptyOverlay?: ReactNode;
   label: string;
@@ -138,7 +142,9 @@ function FitAndReveal({ layoutKey, fitToken, focusIds, minZoom, selectedId, posi
   return null;
 }
 
-function Canvas({ nodes, edges, positions, layoutKey, selectedId = null, highlight = null, onSelect, onMove, onResetLayout, moved = false, interactive = true, toolbarExtra, emptyOverlay, label }: GraphCanvasProps) {
+const NO_IDS: ReadonlySet<string> = new Set();
+
+function Canvas({ nodes, edges, positions, layoutKey, selectedId = null, highlight = null, onSelect, onMove, onResetLayout, moved = false, interactive = true, toolbarExtra, emptyOverlay, query, dependentIds = NO_IDS, dependencyIds = NO_IDS, label }: GraphCanvasProps) {
   const wrapper = useRef<HTMLDivElement>(null);
   const [fullscreen, setFullscreen] = useState(false);
   const [legend, setLegend] = useState(false);
@@ -162,18 +168,22 @@ function Canvas({ nodes, edges, positions, layoutKey, selectedId = null, highlig
 
   const baseNodes = useMemo<ArchFlowNode[]>(
     () =>
-      nodes.map((n) => ({
-        id: n.id,
-        type: 'arch',
-        ...nodeSize(n),
-        position: positions[n.id] ?? { x: 0, y: 0 },
-        data: { node: n, dim: !!highlight && !highlight.has(n.id), selected: n.id === selectedId },
-        ariaLabel: `${n.name}, ${n.type.toLowerCase()}${n.id === selectedId ? ', selected' : ''}`,
-        draggable: interactive,
-        selectable: interactive,
-        connectable: false,
-      })),
-    [nodes, positions, highlight, selectedId, interactive],
+      nodes.map((n) => {
+        const role = nodeRole(n.id, { dependentIds, dependencyIds }, query);
+        return {
+          id: n.id,
+          type: 'arch',
+          ...nodeSize(n),
+          position: positions[n.id] ?? { x: 0, y: 0 },
+          data: { node: n, dim: !!highlight && !highlight.has(n.id), selected: n.id === selectedId, role, query },
+          // The role is in words too, so a screen reader hears what the dashed outline and the badge show.
+          ariaLabel: `${n.name}, ${n.type.toLowerCase()}${role === 'match' ? ', matches the filter' : role === 'dependent' ? ', depends on a match' : role === 'dependency' ? ', a match depends on it' : ''}${n.id === selectedId ? ', selected' : ''}`,
+          draggable: interactive,
+          selectable: interactive,
+          connectable: false,
+        };
+      }),
+    [nodes, positions, highlight, selectedId, interactive, dependentIds, dependencyIds, query],
   );
 
   // React Flow works on its own copy of the nodes, so a drag updates only the moved nodes' state: the layout worker

@@ -40,6 +40,7 @@ function pairs() {
   out.push(['ink on canvas', 'ink', 'canvas', TEXT]);
   out.push(['muted on canvas', 'muted', 'canvas', TEXT]);
   out.push(['accent-2 on canvas (selection outline)', 'accent-2', 'canvas', NON_TEXT]);
+  out.push(['ink-2 on canvas (dashed dependent card, badge)', 'ink-2', 'canvas', NON_TEXT]);
   return out;
 }
 

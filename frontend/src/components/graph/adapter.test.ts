@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { GraphResponse } from '@/api/types';
-import { classicDefault, defaultFilter, displayName, idsKey, matchCounts, matchesQuery, neighbourhood, nodeSize, visibleGraph } from './adapter';
+import { classicDefault, defaultFilter, displayName, idsKey, matchCounts, matchesQuery, neighbourhood, nodeRole, nodeSize, splitMatch, visibleGraph } from './adapter';
 
 // Small inline inputs for the pure adapter only.
 const graph: GraphResponse = {
@@ -281,6 +281,258 @@ describe('visibleGraph name filter', () => {
     expect(matchCounts(repo, { ...classes, scope: 'all', query: 'service' })).toEqual({ shown: 4, total: 5 });
     expect(matchCounts(repo, { ...classes, scope: 'working' })).toEqual({ shown: 4, total: 4 });
     expect(matchCounts(repo, { ...classes, scope: 'working', query: 'nope' })).toEqual({ shown: 0, total: 4 });
+  });
+});
+
+describe('visibleGraph dependents and dependencies of a name match (two independent switches)', () => {
+  // `X -> Y` below is an edge with source X and target Y: "X depends on Y" (the direction `UserController DEPENDS_ON UserService`
+  // has in Architecture.md and in the API's { source, target } edges). A *dependent* of a match is the source of an edge into it;
+  // a *dependency* of a match is the target of an edge out of it.
+  const repo: GraphResponse = {
+    nodes: [
+      { id: 'module:auth', type: 'MODULE', name: 'com.app.auth', test: false },
+      { id: 'module:security', type: 'MODULE', name: 'com.app.security', test: false },
+      { id: 'module:web', type: 'MODULE', name: 'com.app.web', test: false },
+      { id: 'module:reports', type: 'MODULE', name: 'com.app.reports', test: false },
+      { id: 'module:authz', type: 'MODULE', name: 'com.app.authz', test: false },
+      { id: 'module:billing', type: 'MODULE', name: 'com.app.billing', test: false },
+      { id: 'module:auth.tests', type: 'MODULE', name: 'com.app.auth.tests', test: true },
+      { id: 'module:checks', type: 'MODULE', name: 'com.app.checks', test: true },
+      { id: 'class:AuthService', type: 'CLASS', name: 'AuthService', file: 'src/AuthService.java', test: false },
+      { id: 'class:LoginController', type: 'CLASS', name: 'LoginController', file: 'src/LoginController.java', test: false },
+      { id: 'external:module:authlib', type: 'MODULE', name: 'authlib', test: false },
+    ],
+    edges: [
+      { source: 'module:security', target: 'module:auth', type: 'DEPENDS_ON' },
+      { source: 'module:web', target: 'module:security', type: 'DEPENDS_ON' }, // two hops from auth
+      { source: 'module:reports', target: 'module:auth', type: 'IMPORTS' },
+      { source: 'module:authz', target: 'module:auth', type: 'DEPENDS_ON' }, // matches "auth" itself and depends on a match
+      { source: 'module:billing', target: 'module:web', type: 'DEPENDS_ON' },
+      { source: 'module:auth', target: 'module:billing', type: 'DEPENDS_ON' }, // auth depends on billing
+      { source: 'module:checks', target: 'module:auth', type: 'DEPENDS_ON' },
+      { source: 'module:checks', target: 'module:auth.tests', type: 'DEPENDS_ON' },
+      { source: 'module:security', target: 'external:module:authlib', type: 'DEPENDS_ON' },
+      { source: 'class:LoginController', target: 'class:AuthService', type: 'DEPENDS_ON' },
+      { source: 'module:web', target: 'class:LoginController', type: 'DEPENDS_ON' },
+    ],
+  };
+  const modules = { nodeTypes: all(['MODULE']), edgeTypes: all(['DEPENDS_ON']) };
+  const ids = (v: { nodes: { id: string }[] }) => v.nodes.map((n) => n.id);
+  const sorted = (set: ReadonlySet<string>) => [...set].sort();
+  const view = (query: string, over: Record<string, unknown> = {}) => visibleGraph(repo, { ...modules, scope: 'working', query, includeDependents: true, includeDependencies: true, ...over } as never);
+
+  it('direction: searching "auth" shows security as a dependent (security -> auth), and searching "security" shows auth as a dependency, never the other way round', () => {
+    const byAuth = view('auth');
+    expect(byAuth.dependentIds.has('module:security')).toBe(true);
+    expect(byAuth.dependencyIds.has('module:security')).toBe(false);
+    const bySecurity = view('security');
+    expect(sorted(bySecurity.dependentIds)).toEqual(['module:web']); // web -> security
+    expect(sorted(bySecurity.dependencyIds)).toEqual(['module:auth']); // security -> auth; authlib is external and never shows
+    expect(bySecurity.dependentIds.has('module:auth')).toBe(false);
+    expect(ids(bySecurity).sort()).toEqual(['module:auth', 'module:security', 'module:web']);
+    expect(ids(bySecurity)).not.toContain('module:billing'); // two hops
+  });
+
+  it('marks which visible nodes are dependents and which are dependencies; every other visible node is a match', () => {
+    const v = view('auth');
+    expect(sorted(v.dependentIds)).toEqual(['module:security']); // reports is IMPORTS, authz matches itself, web is two hops away
+    expect(sorted(v.dependencyIds)).toEqual(['module:billing']); // auth -> billing
+    expect(ids(v).filter((id) => !v.dependentIds.has(id) && !v.dependencyIds.has(id)).sort()).toEqual(['module:auth', 'module:authz']);
+    expect(nodeRole('module:security', v, 'auth')).toBe('dependent');
+    expect(nodeRole('module:billing', v, 'auth')).toBe('dependency');
+    expect(nodeRole('module:auth', v, 'auth')).toBe('match');
+    expect(nodeRole('module:authz', v, 'auth')).toBe('match'); // matches AND depends on a match: it is a match
+    expect(nodeRole('module:auth', v, '')).toBeNull();
+    expect(nodeRole('module:auth', v, '   ')).toBeNull();
+    expect(nodeRole('module:auth', v, undefined)).toBeNull();
+  });
+
+  it('a node that is both a dependent and a dependency of the matches is shown once, as a dependent', () => {
+    const cycle: GraphResponse = {
+      nodes: [
+        { id: 'a', type: 'MODULE', name: 'auth', test: false },
+        { id: 'b', type: 'MODULE', name: 'bridge', test: false },
+      ],
+      edges: [
+        { source: 'a', target: 'b', type: 'DEPENDS_ON' },
+        { source: 'b', target: 'a', type: 'DEPENDS_ON' },
+      ],
+    };
+    const v = visibleGraph(cycle, { ...modules, scope: 'all', query: 'auth', includeDependents: true, includeDependencies: true } as never);
+    expect(ids(v)).toEqual(['a', 'b']);
+    expect(sorted(v.dependentIds)).toEqual(['b']);
+    expect(v.dependencyIds.size).toBe(0);
+  });
+
+  it('one hop only, in both directions: neither a dependent of a dependent nor a dependency of a dependency is shown', () => {
+    const v = view('auth');
+    expect(ids(v)).not.toContain('module:web'); // web -> security -> auth, and auth -> billing -> web
+    expect(ids(v)).toContain('module:billing'); // but billing is one hop away: auth -> billing
+    expect(ids(view('billing')).sort()).toEqual(['module:auth', 'module:billing', 'module:web']); // auth -> billing, billing -> web
+    expect(ids(view('billing'))).not.toContain('module:security'); // web <- security is one hop further
+  });
+
+  it('never shows an external node, even as a dependency', () => {
+    expect(ids(view('security'))).not.toContain('external:module:authlib');
+    expect(ids(view('authlib'))).toEqual([]); // an external node is not even a match
+  });
+
+  it('uses only the selected edge types to find dependents and dependencies', () => {
+    expect(ids(view('auth'))).not.toContain('module:reports'); // reports -> auth is IMPORTS, which is not selected
+    const withImports = view('auth', { edgeTypes: all(['DEPENDS_ON', 'IMPORTS']) });
+    expect(withImports.dependentIds.has('module:reports')).toBe(true);
+    expect(withImports.dependentIds.has('module:security')).toBe(true);
+    const importsOnly = view('auth', { edgeTypes: all(['IMPORTS']) });
+    expect(sorted(importsOnly.dependentIds)).toEqual(['module:reports']);
+    expect(importsOnly.dependencyIds.size).toBe(0); // auth -> billing is DEPENDS_ON, which is not selected
+    const none = view('auth', { edgeTypes: all([]) });
+    expect(none.dependentIds.size + none.dependencyIds.size).toBe(0);
+    expect(ids(none)).toEqual(['module:auth', 'module:authz']); // matches only, as with the filter alone
+  });
+
+  it('respects the selected node types: a dependent or a dependency of a type that is not selected stays hidden', () => {
+    expect(ids(view('auth', { nodeTypes: all(['MODULE']) }))).not.toContain('class:LoginController');
+    const both = view('auth', { nodeTypes: all(['MODULE', 'CLASS']) });
+    expect(both.dependentIds.has('class:LoginController')).toBe(true); // depends on AuthService, a match of a selected type
+    // a dependency: web -> LoginController
+    expect(sorted(view('web').dependencyIds)).toEqual(['module:security']); // LoginController is a class, and only modules are selected
+    expect(sorted(view('web', { nodeTypes: all(['MODULE', 'CLASS']) }).dependencyIds)).toEqual(['class:LoginController', 'module:security']);
+    // the matches themselves are filtered by the selected types, as before: no class matches while only modules are selected
+    expect(ids(view('authservice', { nodeTypes: all(['MODULE']) }))).toEqual([]);
+    // what a match of a selected type relates to is found, a match of an unselected type pulls nothing in
+    const classes = view('logincontroller', { nodeTypes: all(['CLASS']) });
+    expect(ids(classes)).toEqual(['class:AuthService', 'class:LoginController']);
+    expect(sorted(classes.dependencyIds)).toEqual(['class:AuthService']); // LoginController -> AuthService
+  });
+
+  it('respects all three scopes', () => {
+    // working: tests are out of scope, so the test module checks -> auth is not a dependent
+    const working = view('auth');
+    expect(ids(working)).not.toContain('module:checks');
+    expect(ids(working)).not.toContain('module:auth.tests');
+    // all: the test module is in scope, depends on auth and shows as a dependent
+    const everything = view('auth', { scope: 'all' });
+    expect(everything.dependentIds.has('module:checks')).toBe(true);
+    expect(ids(everything)).toContain('module:auth.tests'); // a match in scope
+    expect(ids(everything)).toContain('module:security');
+    expect(everything.dependencyIds.has('module:billing')).toBe(true);
+    // tests is strict: only test matches, and only test dependents of them; security (a working node) stays out
+    const tests = view('auth', { scope: 'tests' });
+    expect(ids(tests).sort()).toEqual(['module:auth.tests', 'module:checks']);
+    expect(sorted(tests.dependentIds)).toEqual(['module:checks']);
+    expect(tests.edges.map((e) => e.id)).toEqual(['DEPENDS_ON|module:checks|module:auth.tests']); // checks -> auth crosses the boundary
+    // dependencies follow the scope as well: checks -> auth and checks -> auth.tests
+    expect(sorted(view('checks', { scope: 'all' }).dependencyIds)).toEqual(['module:auth', 'module:auth.tests']);
+    expect(sorted(view('checks', { scope: 'tests' }).dependencyIds)).toEqual(['module:auth.tests']);
+    expect(view('checks', { scope: 'working' }).nodes).toEqual([]); // checks is test code, so nothing matches under working
+  });
+
+  it('the two switches are independent: dependents only, dependencies only, both, or neither', () => {
+    const onlyDependents = view('auth', { includeDependencies: false });
+    expect(sorted(onlyDependents.dependentIds)).toEqual(['module:security']);
+    expect(onlyDependents.dependencyIds.size).toBe(0);
+    expect(ids(onlyDependents)).not.toContain('module:billing'); // auth -> billing is a dependency, which is switched off
+    const onlyDependencies = view('auth', { includeDependents: false });
+    expect(onlyDependencies.dependentIds.size).toBe(0);
+    expect(sorted(onlyDependencies.dependencyIds)).toEqual(['module:billing']);
+    expect(ids(onlyDependencies)).not.toContain('module:security'); // security -> auth is a dependent, which is switched off
+    const both = view('auth');
+    expect(ids(both).sort()).toEqual([...new Set([...ids(onlyDependents), ...ids(onlyDependencies)])].sort());
+    const neither = view('auth', { includeDependents: false, includeDependencies: false });
+    expect(ids(neither)).toEqual(['module:auth', 'module:authz']);
+    expect(neither.dependentIds.size + neither.dependencyIds.size).toBe(0);
+  });
+
+  it('a node that is both a dependent and a dependency is a dependency when only dependencies are switched on', () => {
+    const cycle: GraphResponse = {
+      nodes: [
+        { id: 'a', type: 'MODULE', name: 'auth', test: false },
+        { id: 'b', type: 'MODULE', name: 'bridge', test: false },
+      ],
+      edges: [
+        { source: 'a', target: 'b', type: 'DEPENDS_ON' },
+        { source: 'b', target: 'a', type: 'DEPENDS_ON' },
+      ],
+    };
+    const only = (flags: Record<string, boolean>) => visibleGraph(cycle, { ...modules, scope: 'all', query: 'auth', ...flags } as never);
+    expect(sorted(only({ includeDependencies: true }).dependencyIds)).toEqual(['b']);
+    expect(sorted(only({ includeDependents: true }).dependentIds)).toEqual(['b']);
+    expect(sorted(only({ includeDependents: true, includeDependencies: true }).dependentIds)).toEqual(['b']);
+    expect(only({ includeDependents: true, includeDependencies: true }).dependencyIds.size).toBe(0);
+  });
+
+  it('turning it off is exactly the old behaviour (matches only)', () => {
+    const query = 'auth';
+    const old = visibleGraph(repo, { ...modules, scope: 'working', query });
+    for (const includeDependents of [false, undefined]) {
+      const v = visibleGraph(repo, { ...modules, scope: 'working', query, includeDependents, includeDependencies: includeDependents });
+      expect(v.nodes).toEqual(old.nodes);
+      expect(v.edges).toEqual(old.edges);
+      expect([...v.degree]).toEqual([...old.degree]);
+      expect(v.dependentIds.size + v.dependencyIds.size).toBe(0);
+    }
+    expect(ids(old)).toEqual(['module:auth', 'module:authz']);
+  });
+
+  it('an empty or blank query has no dependents or dependencies, whatever the toggle says', () => {
+    const none = visibleGraph(repo, { ...modules, scope: 'working' });
+    for (const query of ['', '   ', undefined]) {
+      const v = visibleGraph(repo, { ...modules, scope: 'working', query, includeDependents: true, includeDependencies: true });
+      expect(v.nodes).toEqual(none.nodes);
+      expect(v.dependentIds.size + v.dependencyIds.size).toBe(0);
+    }
+  });
+
+  it('draws an edge only when both ends are visible, so the edges between the matches, dependents and dependencies are drawn', () => {
+    const v = view('auth');
+    const visible = new Set(ids(v));
+    for (const e of v.edges) {
+      expect(visible.has(e.source)).toBe(true);
+      expect(visible.has(e.target)).toBe(true);
+    }
+    expect(v.edges.map((e) => e.id).sort()).toEqual(['DEPENDS_ON|module:auth|module:billing', 'DEPENDS_ON|module:authz|module:auth', 'DEPENDS_ON|module:security|module:auth'].sort());
+    expect(v.edges.some((e) => e.source === 'module:web' || e.target === 'module:web')).toBe(false); // web is hidden, so its edges are too
+    expect(v.degree.get('module:auth')).toBe(3);
+    expect(v.degree.get('module:security')).toBe(1);
+    expect(v.degree.get('module:billing')).toBe(1);
+  });
+
+  it('matches case-insensitively and ignores surrounding spaces, like the filter itself', () => {
+    const lower = view('auth');
+    for (const query of ['AUTH', '  Auth  ', 'aUtH']) {
+      const v = view(query);
+      expect(ids(v)).toEqual(ids(lower));
+      expect(sorted(v.dependentIds)).toEqual(sorted(lower.dependentIds));
+      expect(sorted(v.dependencyIds)).toEqual(sorted(lower.dependencyIds));
+    }
+    expect(ids(view('SECURITY'))).toContain('module:web');
+    expect(ids(view('SECURITY'))).toContain('module:auth');
+  });
+
+  it('a match with no relations shows alone, and no match shows nothing', () => {
+    expect(ids(view('reports'))).toEqual(['module:reports']); // reports -> auth is IMPORTS, not selected
+    const nothing = view('zzz-no-such-name');
+    expect(nothing.nodes).toEqual([]);
+    expect(nothing.edges).toEqual([]);
+  });
+
+  it('the filter does not change matchCounts (the total of the selected types and scope)', () => {
+    expect(matchCounts(repo, { ...modules, scope: 'working', query: 'auth' })).toEqual({ shown: 2, total: 6 });
+  });
+});
+
+describe('splitMatch', () => {
+  it('splits a label around the first case-insensitive hit, keeping the label spelling', () => {
+    expect(splitMatch('UserService', 'service')).toEqual(['User', 'Service', '']);
+    expect(splitMatch('AuthServiceAuth', '  AUTH ')).toEqual(['', 'Auth', 'ServiceAuth']);
+    expect(splitMatch('web', 'web')).toEqual(['', 'web', '']);
+  });
+
+  it('is null with no query or no hit (a module card shows only its last segment)', () => {
+    expect(splitMatch('UserService', '')).toBeNull();
+    expect(splitMatch('UserService', undefined)).toBeNull();
+    expect(splitMatch('UserService', 'zzz')).toBeNull();
+    expect(splitMatch(displayName({ name: 'com.shop.web', type: 'MODULE' }), 'shop')).toBeNull();
   });
 });
 
