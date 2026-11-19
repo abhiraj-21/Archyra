@@ -112,7 +112,7 @@ live('shows the panel for the index state the analysis is in', async (page) => {
       await expect(page.getByRole('navigation', { name: 'Conversations' })).toBeVisible();
       await expect(composer(page)).toBeEnabled();
       await expect(page.getByText(/can be wrong/i)).toBeVisible();
-      await expect(page.getByText(/Gemini or Groq/i)).toBeVisible();
+      await expect(page.getByText(/third-party free-tier AI providers/i)).toBeVisible();
       break;
   }
   await expect(page.getByText(/coming soon/i)).toHaveCount(0);
@@ -220,7 +220,7 @@ test.describe('a real question (spends provider quota and one AI_QUERY unit)', (
     await askButton(page).click();
     const answer = page.getByRole('article', { name: 'Answer' }).last();
     await expect(answer).toBeVisible({ timeout: 90_000 });
-    await expect(page.getByText(/Answered by (Gemini|Groq)/)).toBeVisible();
+    await expect(page.getByText(/Answered by \S+/)).toBeVisible();
     const chips = answer.getByRole('button', { name: /^Source \d+:/ });
     if ((await chips.count()) === 0) {
       await expect(answer.getByText('No sources cited')).toBeVisible();

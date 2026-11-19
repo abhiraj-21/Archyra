@@ -232,7 +232,8 @@ export interface AiIndexResponse {
   reason: string | null;
   indexedAt: string | null;
 }
-export type AiProvider = 'GEMINI' | 'GROQ';
+/** The id of an Ask AI provider as configured on the server (for example `groq`). It is free-form: the chain is configuration, so never switch on it. */
+export type AiProvider = string;
 export interface ChatSource {
   /** The number of the [n] marker in the answer that first cited this node. */
   ref: number;
@@ -252,6 +253,8 @@ export interface ChatAnswer {
   sources: ChatSource[];
   cached: boolean;
   provider: AiProvider;
+  /** The provider's display name, for people (the id can be a slug). */
+  providerName: string;
 }
 export interface ChatQuestion {
   message: string;
@@ -272,6 +275,8 @@ export interface ChatMessage {
   sources?: ChatSource[];
   /** Assistant messages only. */
   provider?: AiProvider;
+  /** Assistant messages only. */
+  providerName?: string;
   cached: boolean;
   createdAt: string;
 }

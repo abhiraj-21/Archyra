@@ -26,6 +26,7 @@ function AnswerView({ message, analysisId }: { message: ChatMessage; analysisId:
   const [open, setOpen] = useState<ReadonlySet<string>>(new Set());
   const panels = useRef(new Map<string, HTMLElement>());
   const refs = useMemo(() => new Set(sources.map((s) => s.ref)), [sources]);
+  const note = providerNote(message.providerName, message.provider);
 
   const toggle = (id: string) => setOpen((current) => {
     const next = new Set(current);
@@ -77,8 +78,8 @@ function AnswerView({ message, analysisId }: { message: ChatMessage; analysisId:
         </div>
       )}
       <p className="text-xs text-muted">
-        {message.provider ? providerNote(message.provider) : null}
-        {message.cached ? <>{message.provider ? ' · ' : ''}from this conversation&rsquo;s cache, no question used</> : null}
+        {note}
+        {message.cached ? <>{note ? ' · ' : ''}from this conversation&rsquo;s cache, no question used</> : null}
       </p>
     </article>
   );

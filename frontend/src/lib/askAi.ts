@@ -185,7 +185,11 @@ export function questionsLabel(entry: Pick<UsageEntry, 'limit' | 'remaining' | '
   return { text, tone: entry.remaining <= LOW_QUESTIONS_LEFT ? 'warn' : 'normal' };
 }
 
-/** How the provider that answered is described. */
-export function providerNote(provider: 'GEMINI' | 'GROQ'): string {
-  return provider === 'GEMINI' ? 'Answered by Gemini' : 'Answered by Groq (fallback)';
+/**
+ * How the provider that answered is described: by its display name, which the server resolves from its configuration (the
+ * chain is configurable, so no provider is named here). The id stands in when a name is missing; null when there is neither.
+ */
+export function providerNote(providerName: string | null | undefined, provider?: string | null): string | null {
+  const label = (providerName ?? '').trim() || (provider ?? '').trim();
+  return label ? `Answered by ${label}` : null;
 }

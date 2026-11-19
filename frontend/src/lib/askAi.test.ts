@@ -149,8 +149,21 @@ describe('composer limits', () => {
     expect(counterVisible(1800)).toBe(true);
   });
 
-  it('describes the provider quietly', () => {
-    expect(providerNote('GEMINI')).toBe('Answered by Gemini');
-    expect(providerNote('GROQ')).toContain('fallback');
+  it('describes the provider that answered by the display name the server sent', () => {
+    expect(providerNote('Gemini', 'gemini')).toBe('Answered by Gemini');
+    expect(providerNote('OVHcloud AI Endpoints', 'ovh')).toBe('Answered by OVHcloud AI Endpoints');
+    expect(providerNote('  Cloudflare Workers AI ', 'cloudflare')).toBe('Answered by Cloudflare Workers AI');
+  });
+
+  it('falls back to the id, and says nothing when there is neither', () => {
+    expect(providerNote(undefined, 'some-provider')).toBe('Answered by some-provider');
+    expect(providerNote('', 'some-provider')).toBe('Answered by some-provider');
+    expect(providerNote(null, null)).toBeNull();
+    expect(providerNote('   ', undefined)).toBeNull();
+  });
+
+  it('never names a provider itself: an unknown one is shown as the server named it', () => {
+    expect(providerNote('A Provider Added Next Year', 'next-year')).toBe('Answered by A Provider Added Next Year');
+    expect(providerNote('Z AI <beta>', 'zai')).toBe('Answered by Z AI <beta>'); // returned as plain text: React escapes it when rendering
   });
 });
