@@ -8,11 +8,15 @@ import java.util.List;
 import java.util.UUID;
 import java.util.function.Consumer;
 
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Component;
 import org.springframework.util.FileSystemUtils;
 
+import com.abhiraj.archyra.common.AnalysisCompleted;
+import com.abhiraj.archyra.common.AnalysisFailed;
 import com.abhiraj.archyra.common.AnalysisFailureException;
+import com.abhiraj.archyra.common.AnalysisGraphBuilt;
 import com.abhiraj.archyra.common.AsyncConfig;
 import com.abhiraj.archyra.graph.GraphBuilder;
 import com.abhiraj.archyra.ingestion.IngestionResult;
@@ -50,6 +54,7 @@ public class AnalysisPipeline {
 	private final GraphBuilder graphBuilder;
 	private final AnalysisRegistrar registrar;
 	private final AnalysisCleanup cleanup;
+	private final ApplicationEventPublisher events;
 
 	/** Starts the pipeline for an already persisted analysis on the analysis executor. */
 	@Async(AsyncConfig.ANALYSIS_EXECUTOR)
@@ -80,8 +85,12 @@ public class AnalysisPipeline {
 			stage = advance(analysisId, AnalysisStatus.BUILDING_GRAPH, 80);
 			graphBuilder.build(analysisId.toString(), graph);
 
+			// Other features capture what they need while the clone still exists (Ask AI reads the code of each declaration).
+			publishQuietly(new AnalysisGraphBuilt(analysisId, ingestion.root(), graph));
+
 			update(analysisId, Analysis::markCompleted);
 			log.info("Analysis {} completed for {}", analysisId, analysis.getRepositoryUrl());
+			publishQuietly(new AnalysisCompleted(analysisId)); // hand-off for work that must not delay completion
 			cleanup.deleteReplaced(analysis); // a re-run replaces its predecessor only now; never throws
 		}
 		catch (Throwable failure) { // an analysis must never stay stuck, whatever was thrown
@@ -89,6 +98,16 @@ public class AnalysisPipeline {
 		}
 		finally {
 			deleteWorkDir(workDir);
+		}
+	}
+
+	/** Listeners are extras: whatever one of them throws, the analysis goes on. */
+	private void publishQuietly(Object event) {
+		try {
+			events.publishEvent(event);
+		}
+		catch (Throwable failure) {
+			log.warn("A listener of {} failed; the analysis is not affected", event.getClass().getSimpleName(), failure);
 		}
 	}
 
@@ -151,6 +170,7 @@ public class AnalysisPipeline {
 		// FAILED and the quota refund are one transaction, so a failed analysis never keeps its unit.
 		try {
 			registrar.failAndRefund(analysisId, reason);
+			publishQuietly(new AnalysisFailed(analysisId));
 			return;
 		}
 		catch (Throwable refundFailure) {
@@ -160,6 +180,7 @@ public class AnalysisPipeline {
 		try {
 			String storedReason = reason;
 			update(analysisId, analysis -> analysis.markFailed(storedReason));
+			publishQuietly(new AnalysisFailed(analysisId));
 		}
 		catch (Throwable updateFailure) {
 			log.error("Could not mark analysis {} as FAILED; startup recovery will fix it", analysisId, updateFailure);

@@ -204,6 +204,22 @@ public class AnalysisService {
 		return new AnalysisNotFoundException("Analysis not found");
 	}
 
+	/**
+	 * Whether the analysis exists and has COMPLETED. Not ownership-scoped: for background jobs of other features that
+	 * hold an id they got from an event, never for request handling (that goes through {@link #requireCompleted}).
+	 */
+	public boolean isCompleted(UUID analysisId) {
+		return analysisRepository.existsByIdAndStatus(analysisId, AnalysisStatus.COMPLETED);
+	}
+
+	/** Of the given ids, those of analyses that exist and have COMPLETED. Not ownership-scoped (see {@link #isCompleted}). */
+	public java.util.Set<UUID> completedAmong(java.util.Collection<UUID> analysisIds) {
+		if (analysisIds.isEmpty()) {
+			return java.util.Set.of();
+		}
+		return new java.util.HashSet<>(analysisRepository.findIdsByStatusAndIdIn(AnalysisStatus.COMPLETED, analysisIds));
+	}
+
 	/** Every analysis of every user. Not ownership-scoped, so only callers that have already checked for an administrator may use it. */
 	public long countAll() {
 		return analysisRepository.count();

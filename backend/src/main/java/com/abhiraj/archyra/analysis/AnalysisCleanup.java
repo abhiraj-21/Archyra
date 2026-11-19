@@ -2,7 +2,10 @@ package com.abhiraj.archyra.analysis;
 
 import java.util.UUID;
 
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Component;
+
+import com.abhiraj.archyra.common.AnalysisDeleting;
 
 import lombok.extern.slf4j.Slf4j;
 
@@ -25,10 +28,14 @@ class AnalysisCleanup {
 	private final AnalysisMetadataRepository metadataRepository;
 	private final GraphBuilder graphBuilder;
 	private final AnalysisRegistrar registrar;
+	private final ApplicationEventPublisher events;
 
 	void delete(Analysis analysis) {
 		graphBuilder.delete(analysis.getId().toString());
 		metadataRepository.deleteByAnalysisId(analysis.getId());
+		// Features with their own data for the analysis (Ask AI) remove it here. A listener that cannot throws, which stops the
+		// delete with the row still in place, so a retry finds everything.
+		events.publishEvent(new AnalysisDeleting(analysis.getId()));
 		registrar.deleteAndCredit(analysis);
 	}
 

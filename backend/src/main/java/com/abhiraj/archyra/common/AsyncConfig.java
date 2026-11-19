@@ -18,6 +18,7 @@ import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 public class AsyncConfig {
 
 	public static final String ANALYSIS_EXECUTOR = "analysisExecutor";
+	public static final String AI_INDEX_EXECUTOR = "aiIndexExecutor";
 
 	@Bean(ANALYSIS_EXECUTOR)
 	public Executor analysisExecutor(
@@ -32,6 +33,23 @@ public class AsyncConfig {
 		executor.setRejectedExecutionHandler(new ThreadPoolExecutor.AbortPolicy());
 		executor.setWaitForTasksToCompleteOnShutdown(true);
 		executor.setAwaitTerminationSeconds(30);
+		return executor;
+	}
+
+	/**
+	 * Embeds the code chunks of finished analyses (Ask AI). One worker and a small queue: embedding is CPU heavy and
+	 * must never compete with the analyses. A full queue is not an error: the index stays INDEXING and the sweeper
+	 * picks it up again.
+	 */
+	@Bean(AI_INDEX_EXECUTOR)
+	public Executor aiIndexExecutor(@Value("${archyra.ai.index.queue-capacity:20}") int queueCapacity) {
+		ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+		executor.setCorePoolSize(1);
+		executor.setMaxPoolSize(1);
+		executor.setQueueCapacity(queueCapacity);
+		executor.setThreadNamePrefix("ai-index-");
+		executor.setRejectedExecutionHandler(new ThreadPoolExecutor.AbortPolicy());
+		executor.setWaitForTasksToCompleteOnShutdown(false); // an interrupted job resumes from its INDEXING row at startup
 		return executor;
 	}
 }

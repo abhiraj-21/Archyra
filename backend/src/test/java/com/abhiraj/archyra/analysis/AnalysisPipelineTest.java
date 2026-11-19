@@ -76,6 +76,9 @@ class AnalysisPipelineTest {
 	private final List<AnalysisStatus> savedStatuses = new ArrayList<>();
 	private final List<Integer> savedProgress = new ArrayList<>();
 	private AnalysisPipeline pipeline;
+	/** Every event the pipeline publishes, with the analysis status at that moment. */
+	private final List<String> events = new ArrayList<>();
+	private java.util.function.Consumer<Object> eventListener = event -> { };
 
 	private final RepositoryIR repositoryIr = new RepositoryIR("repo", URL, List.of());
 	private final CodeGraphIR graph = new CodeGraphIR("repo", List.of(), List.of());
@@ -102,7 +105,10 @@ class AnalysisPipelineTest {
 
 		registrar = new AnalysisRegistrar(analysisRepository, usageService);
 		pipeline = new AnalysisPipeline(analysisRepository, ingestionService, parsingService, referenceResolver,
-				technologyDetector, metadataRepository, graphBuilder, registrar, cleanup);
+				technologyDetector, metadataRepository, graphBuilder, registrar, cleanup, event -> {
+					events.add(event.getClass().getSimpleName() + "@" + analysis.getStatus());
+					eventListener.accept(event);
+				});
 	}
 
 	@Test
@@ -116,6 +122,53 @@ class AnalysisPipelineTest {
 		assertThat(analysis.getFailureReason()).isNull();
 		verify(graphBuilder).build(id.toString(), graph);
 		verify(graphBuilder, never()).delete(anyString());
+	}
+
+	@Test
+	void announcesTheBuiltGraphWhileTheCloneExistsAndBeforeCompletionThenCompletion() {
+		AtomicReference<Path> root = new AtomicReference<>();
+		AtomicReference<Boolean> existedAtTheEvent = new AtomicReference<>();
+		when(ingestionService.ingest(eq(URL), any(Path.class))).thenAnswer(invocation -> {
+			Path dir = invocation.getArgument(1);
+			Files.createDirectories(dir.resolve("repo"));
+			return new IngestionResult("repo", dir.resolve("repo"), new DiscoveredFiles(List.of(), Map.of(), 0));
+		});
+		eventListener = event -> {
+			if (event instanceof com.abhiraj.archyra.common.AnalysisGraphBuilt built) {
+				root.set(built.root());
+				existedAtTheEvent.set(Files.isDirectory(built.root()));
+				assertThat(built.analysisId()).isEqualTo(id);
+				assertThat(built.graph()).isSameAs(graph);
+			}
+		};
+
+		pipeline.run(id);
+
+		assertThat(events).containsExactly("AnalysisGraphBuilt@BUILDING_GRAPH", "AnalysisCompleted@COMPLETED");
+		assertThat(existedAtTheEvent.get()).isTrue();
+		assertThat(root.get()).doesNotExist(); // deleted afterwards, as always
+	}
+
+	@Test
+	void aListenerThatThrowsNeverFailsTheAnalysis() {
+		eventListener = event -> {
+			throw new IllegalStateException("listener exploded");
+		};
+
+		pipeline.run(id);
+
+		assertThat(analysis.getStatus()).isEqualTo(AnalysisStatus.COMPLETED);
+		assertThat(analysis.getFailureReason()).isNull();
+		assertThat(events).hasSize(2); // both events were still published
+	}
+
+	@Test
+	void aFailedAnalysisAnnouncesTheFailureAndNoCompletion() {
+		when(parsingService.parse(any(), any(), any())).thenThrow(new AnalysisFailureException("nothing parsable"));
+
+		pipeline.run(id);
+
+		assertThat(events).containsExactly("AnalysisFailed@FAILED");
 	}
 
 	@Test

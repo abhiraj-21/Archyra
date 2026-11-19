@@ -120,6 +120,11 @@ public class GlobalExceptionHandler {
 		return ResponseEntity.status(ex.status()).body(new ErrorResponse(ex.code(), ex.getMessage()));
 	}
 
+	@ExceptionHandler(AiRuleException.class)
+	public ResponseEntity<ErrorResponse> handleAiRule(AiRuleException ex) {
+		return ResponseEntity.status(ex.status()).body(new ErrorResponse(ex.code(), ex.getMessage()));
+	}
+
 	@ExceptionHandler(PasswordRuleException.class)
 	public ResponseEntity<ErrorResponse> handlePasswordRule(PasswordRuleException ex) {
 		return ResponseEntity.status(ex.status()).body(new ErrorResponse(ex.code(), ex.getMessage()));

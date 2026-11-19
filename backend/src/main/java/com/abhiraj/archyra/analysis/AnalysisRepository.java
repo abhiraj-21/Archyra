@@ -33,6 +33,11 @@ public interface AnalysisRepository extends JpaRepository<Analysis, UUID> {
 	@Query("update Analysis a set a.quotaRefunded = true where a.id = :id and a.quotaCharged = true and a.quotaRefunded = false")
 	int markQuotaRefunded(@Param("id") UUID id);
 
+	boolean existsByIdAndStatus(UUID id, AnalysisStatus status);
+
+	@Query("select a.id from Analysis a where a.status = :status and a.id in :ids")
+	List<UUID> findIdsByStatusAndIdIn(@Param("status") AnalysisStatus status, @Param("ids") Collection<UUID> ids);
+
 	@Query("select a.ownerId from Analysis a where a.id = :id")
 	Optional<UUID> findOwnerId(@Param("id") UUID id);
 

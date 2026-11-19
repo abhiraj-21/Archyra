@@ -3,6 +3,7 @@ package com.abhiraj.archyra.parsing.lang;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.nio.file.Path;
 
 import org.springframework.stereotype.Component;
 
@@ -36,14 +37,23 @@ public class NotebookExtractor implements LanguageExtractor {
 
 	@Override
 	public FileIR extract(SourceFile file) {
-		JsonNode notebook;
+		String source;
 		try {
-			notebook = MAPPER.readTree(Files.readString(file.absolutePath(), StandardCharsets.UTF_8));
+			source = joinedCode(file.absolutePath());
 		}
 		catch (IOException | RuntimeException ex) {
 			throw new IllegalStateException("Notebook is not valid JSON", ex);
 		}
+		return python.extractSource(file, source, Language.JUPYTER);
+	}
 
+	/**
+	 * The code cells of a notebook joined into the Python text the extractor reads (magics commented out). The line
+	 * numbers of the extracted declarations refer to this text, not to the JSON file, so whoever shows the code of a
+	 * declaration must read it from here.
+	 */
+	public static String joinedCode(Path notebookFile) throws IOException {
+		JsonNode notebook = MAPPER.readTree(Files.readString(notebookFile, StandardCharsets.UTF_8));
 		StringBuilder source = new StringBuilder();
 		for (JsonNode cell : notebook.path("cells")) {
 			if (!"code".equals(cell.path("cell_type").asString(""))) {
@@ -57,7 +67,7 @@ public class NotebookExtractor implements LanguageExtractor {
 			}
 			source.append('\n');
 		}
-		return python.extractSource(file, source.toString(), Language.JUPYTER);
+		return source.toString();
 	}
 
 	private static String joinLines(JsonNode lines) {

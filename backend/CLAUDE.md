@@ -62,6 +62,8 @@ com.abhiraj.archyra
 ├── auth/          # /api/v1/auth, refresh-token rotation, email flows, password change (/users/me/password), token purge, admin bootstrap
 │   └── oauth2/    # Google and GitHub login: second filter chain, account resolver, handlers; account linking (link intents, binding cookie, link-mode handler, /users/me/linked-identities)
 ├── mail/          # EmailService and the asynchronous SMTP implementation
+├── ai/            # Ask AI (V1): index status endpoints, lifecycle events, pgvector setup
+│   └── index/     # chunk capture, local ONNX embeddings, code_chunks / ai_index, embedding job, recovery sweeper
 ├── usage/         # Lifetime usage counters (user_usage), free-tier limits from configuration, GET /api/v1/usage
 ├── security/      # Properties, JWT, API filter chain, rate limiting, entitlements, audit log
 └── common/        # Exceptions and their handler, shared config (clock, async, scheduling, Tomcat), TestPathClassifier (is this path test code?)

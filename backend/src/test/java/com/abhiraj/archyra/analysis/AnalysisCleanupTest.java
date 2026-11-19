@@ -32,6 +32,8 @@ class AnalysisCleanupTest {
 	private GraphBuilder graphBuilder;
 	@Mock
 	private AnalysisRegistrar registrar;
+	@Mock
+	private org.springframework.context.ApplicationEventPublisher events;
 	@InjectMocks
 	private AnalysisCleanup cleanup;
 
@@ -47,10 +49,22 @@ class AnalysisCleanupTest {
 
 		cleanup.delete(analysis);
 
-		var order = inOrder(graphBuilder, metadataRepository, registrar);
+		var order = inOrder(graphBuilder, metadataRepository, events, registrar);
 		order.verify(graphBuilder).delete(analysis.getId().toString());
 		order.verify(metadataRepository).deleteByAnalysisId(analysis.getId());
+		order.verify(events).publishEvent(new com.abhiraj.archyra.common.AnalysisDeleting(analysis.getId()));
 		order.verify(registrar).deleteAndCredit(analysis);
+	}
+
+	@Test
+	void keepsTheRowWhenAFeatureCannotRemoveItsDataSoARetryFindsEverything() {
+		Analysis analysis = analysis();
+		doThrow(new IllegalStateException("ai data stuck")).when(events)
+				.publishEvent(new com.abhiraj.archyra.common.AnalysisDeleting(analysis.getId()));
+
+		assertThatThrownBy(() -> cleanup.delete(analysis)).isInstanceOf(IllegalStateException.class);
+
+		verify(registrar, never()).deleteAndCredit(analysis);
 	}
 
 	@Test
