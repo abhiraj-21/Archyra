@@ -65,7 +65,7 @@
 
 ---
 
-- [ ]  **Ask AI**
+- [ ]  **Ask AI** (backend built, see "Ask AI" below; the UI is next)
 - [ ]  Repository-aware questions, Relationship explanations, Architecture explanations. For example:
     - "How does authentication work?"
     - "Where does a request to `/users` go?"
@@ -247,7 +247,7 @@
 - AI
     - Spring AI
 - LLM
-    - Use GPT, Gemini and Claude to see which one is giving better response
+    - V1 Ask AI uses Gemini (Google AI Studio free tier) with Groq (free plan) as the fallback; GPT and Claude were not compared (see "Decision: Ask AI backend")
 - Github Integration
     - Github API
     - Git
@@ -306,6 +306,19 @@
 - **Why the cookie:** without it, an attacker could send a victim a crafted authorization URL and attach the victim's provider identity to the attacker's account.
 - **Rejected:** auto-linking by email in link mode (the person proved control of the provider by completing the login while signed in, so no email match is needed and a different email is allowed), account merging (an identity already linked elsewhere is refused without naming the owner), and a "set password" flow for OAuth-only users (they use Forgot password).
 - **Consequences:** one identity per provider per user (unique `(user_id, provider)`); unlinking never removes the last way to sign in; both actions email the owner after commit. Endpoint behaviour is under User → Linked sign-in methods.
+
+### Decision: Ask AI backend (2026-11-19)
+
+Full design and the decision table: `backend/spec/ask-ai-backend/spec.md`. As built:
+
+- **AI stack.** Spring AI 2.0.2 (Boot 4.0), used only for `EmbeddingModel` and chat, through the explicit modules `spring-ai-transformers`, `spring-ai-google-genai` and `spring-ai-openai` (no auto-configuration, so no default `ChatModel` exists for other code to pick up). Chat: Gemini (Google AI Studio free tier) first, Groq (OpenAI-compatible, free plan) as the fallback, both behind `ChatProvider` and the only way to a model is `ProviderGateway`. Model ids, base URLs, limits and keys are configuration (`archyra.ai.*`), never Java. Both providers could be pointed at a fake server through their SDKs, so the `RestClient` fallback of the spec was not needed. Embeddings run in the JVM (ONNX `all-MiniLM-L6-v2`, 384 dimensions): no key, no rate limit. Vectors live in our own `code_chunks` table (pgvector, cosine `<=>`, exact scan of one analysis, no vector index in V1), not in Spring AI's `PgVectorStore`.
+- **Chunk text vs the deleted clone.** The pipeline deletes the clone in `finally`, and the IR had no source text, so chunk text is captured **while the clone exists**: the pipeline publishes `AnalysisGraphBuilt` (defined in `common/`, handled synchronously by `ai/`) after the graph is written and before `COMPLETED`. The IR, the graph and `GET /nodes/{nodeId}` gained `endLine`. One chunk per method or function (`line..endLine`) and one header chunk per type (up to its first member, at most 80 lines; a type without members gets its whole declaration), test code and external nodes excluded, capped at `chunk.max-per-analysis`, over-long text truncated with a marker. Capture can never fail an analysis: any error becomes a `FAILED` index with no chunks.
+- **Index lifecycle.** `ai_index` per analysis (no row is `NOT_INDEXED`: analyses from before the feature are not indexed and are not backfilled, the user re-analyzes). Capture stores the chunks and an `INDEXING` row (`EMPTY` when only test code); after `COMPLETED` a one-worker executor embeds the chunks without a vector in batches, committing each; `READY` when all have one. A failed embedding is `FAILED` and retryable for free (`POST .../ai-index`); a failed capture is not (re-analyze). A startup step and a scheduled sweep drop the data of analyses that did not complete and resume `INDEXING` rows where they stopped; a full queue is the same case. The analysis never waits for any of this. Deleting or replacing an analysis removes its index, chunks, conversations and messages before the row goes.
+- **Retrieval.** Hybrid and deterministic. Identifiers in the question are looked up in the graph (name, qualified name, file suffix), the question is embedded and the nearest chunks above `min-similarity` are taken, the nodes the previous answer cited are sticky seeds, and the named nodes, the best `vector-seeds-expanded` vector hits and the sticky nodes are expanded one hop through `DEPENDS_ON`, `CALLS`, `EXTENDS`, `IMPLEMENTS` (both directions, at most `neighbors-per-node`) into **facts** such as `UserController DEPENDS_ON UserService`. Ranked: name matches, facts, vector hits, neighbours, sticky; fitted to the **chosen provider's** token budget (Groq's is small because one request above its per-minute token limit can never succeed), so a fallback rebuilds its prompt. A named node whose relationships were cut gets a fact saying so. This is what answers "what depends on X?" even when no vector is close.
+- **Grounding.** The model sees numbered context items and never a node id. The server reads the `[n]` markers (not inside code), drops numbers that are not items, renumbers by first appearance, maps items to nodes and **re-verifies every source node in Neo4j** (a marker whose nodes vanished is dropped too). No citation means `sources: []`. Repository text is untrusted data inside `<repository_context>` tags; a closing tag inside a chunk is defused.
+- **Quota semantics.** One `AI_QUERY` is reserved before the model call, in one short transaction with the PENDING user message (`UsageService.lock` + `charge`, like `AnalysisRegistrar`); no transaction is open during retrieval or the model call. Any failure after that refunds exactly once (a guarded UPDATE on `chat_messages`, only for a still-PENDING message) and removes the PENDING message and a conversation created for it, so history never holds an unanswered question. A cache hit stores both messages and is free. A crash is repaired at startup; deleting an analysis first refunds its pending questions. FREE: 20 questions for life (`AI_LIMIT`), PREMIUM is counted and never blocked, everyone: 10 questions per minute (`RATE_LIMITED`). Deleting a conversation does not give questions back.
+- **Provider fallback and cool-down.** Gemini then Groq within `timeout.total`; the same provider is never tried twice for one question and there are no retries inside the SDKs. A 429, a 5xx, a timeout, a connection error, an empty or blocked answer and a bad key (logged loudly) each move on to the next provider. A 429 puts that provider in cool-down for its `Retry-After` (Groq sends one; the Gemini SDK does not expose headers, so Gemini uses the default), capped at `cooldown-max`; the pre-flight check skips cooling providers and refuses with `503 AI_UNAVAILABLE` **before** anything is charged. One attempt is capped at connect + read by the gateway itself, because the Gemini SDK's own timeout did not cut a slow call.
+- **Privacy.** Questions and code excerpts go to Gemini or Groq on their free tiers, which may use that data to improve their products; Archyra only clones public repositories. Nothing sent or received (question, code, answer, provider body) and no key is ever logged.
 
 ---
 
@@ -588,6 +601,7 @@ Returns information about a class/file/function/etc.
   "qualifiedName": "com.foo.UserService",
   "file": "src/UserService.java",
   "line": 12,
+  "endLine": 88,
   "kind": "CLASS",
   "parentId": "file:src/UserService.java",
   "test": false,
@@ -602,6 +616,7 @@ Semantics (V0.1):
 
 - `nodeId` is the id the graph exposes. Ids contain `/`, `#`, `(`, `)` and spaces, so a client percent-encodes the whole id (`file%3Asrc%2Fmain%2FApp.java`); the server accepts an encoded slash (`TomcatConfig`).
 - Any node type works. Fields that do not apply are left out: `kind` is the declaration kind of a type (`CLASS`, `ENUM`, `RECORD`, `INTERFACE`, ...) and is absent for methods and functions here (the method lists of `GET /files/{fileId}` do carry it, e.g. `CONSTRUCTOR`), `language` replaces it for a file (display name, e.g. `Java`), `file` is absent for repository and module nodes, `parentId` is the containing node (absent for the repository). `qualifiedName` is present for every node type, including files, modules and the repository.
+- `line` and `endLine` are the 1-based first and last line of a class, interface, method or function (`endLine` is inclusive and at least `line`). `endLine` is additive and absent for other node types and for analyses made before it was recorded. A type declared in several pieces (C# `partial`, Go receivers, Rust `impl`, Ruby reopened classes) carries the range of its first piece; each piece keeps its own range in the IR, and the methods of the other pieces carry their own file and lines.
 - `test` is always present (see the rules under `GET /graph`); for a module it needs the paths of the module's files, read with the node.
 - `relationships` counts relationships by type to and from other nodes of the repository. External nodes are not counted, and types with no relationship are absent. `/nodes/{nodeId}/relationships` (V2) will list them.
 - An external node (outside the repository), an unknown id and an id that is not a node id all return `404 NODE_NOT_FOUND`. Unknown or malformed analysis ids return `404 ANALYSIS_NOT_FOUND`, an analysis that is not `COMPLETED` returns `409 ANALYSIS_NOT_COMPLETED`.
@@ -818,7 +833,7 @@ Google OAuth itself can have dedicated auth routes, but I'd let Spring Security 
 
 #### Implemented in V0.5 (security)
 
-Full spec: `backend/specs/security/spec.md`. How it works, as built:
+Full spec: `backend/spec/security/spec.md`. How it works, as built:
 
 - **Login methods:** email + password, Google and GitHub (Spring's own `/oauth2/authorization/{google|github}`).
 - **Tokens:** a 15-minute access JWT (HS256, `sub` = user id, `roles` claim, never the plan) sent as `Authorization: Bearer ...`, plus an opaque refresh token in an `HttpOnly; SameSite=Strict; Path=/api/v1/auth` cookie, rotated on every use. Presenting an old refresh token revokes the whole login family. Only SHA-256 hashes of refresh, verification and reset tokens are stored.
@@ -986,7 +1001,7 @@ For a PREMIUM user `limit` and `remaining` are `null` (present, not omitted, not
 
 > **Built in V0.5** (`usage/` package):
 >
-> - **Lifetime allowance.** A free user gets `archyra.usage.free-tier.repository-analysis-limit` analyses (default 5) in total, not per month, and nothing resets. The counter is `used_count` in `user_usage`, one row per user and usage type, created on first use. The limits come from configuration only (`archyra.usage.free-tier.*`; a missing or negative value fails startup). `AI_QUERY` exists in the enum and the configuration but nothing consumes it yet.
+> - **Lifetime allowance.** A free user gets `archyra.usage.free-tier.repository-analysis-limit` analyses (default 5) in total, not per month, and nothing resets. The counter is `used_count` in `user_usage`, one row per user and usage type, created on first use. The limits come from configuration only (`archyra.usage.free-tier.*`; a missing or negative value fails startup). `AI_QUERY` counts Ask AI questions (see Ask AI): a unit is reserved before the model is called and returned once if the answer fails; cached answers are free; `AI_LIMIT` (default 20) is the FREE allowance.
 > - **When a unit is consumed.** `AnalysisService.createAnalysis` calls `AnalysisRegistrar.registerOrReuse`, one short transaction that commits before the background pipeline starts. Every analysis creation goes through it (`reanalyze` uses the same registrar).
 > - **Locking.** The transaction first creates the user's counter row if needed (`INSERT ... ON CONFLICT DO NOTHING`, so concurrent first requests cannot violate the unique constraint) and then locks it with `SELECT ... FOR UPDATE` (waiting at most 5 s, then `503 SERVICE_BUSY`). That serializes all analysis creation of one user, and only that user, and makes the duplicate check, the limit check, the increment and the insert race-free. Premium users take the same lock so that their counter stays exact. A guarded `UPDATE ... WHERE used_count < :limit` would solve the limit race but not the duplicate-request race, which needs the same serialization anyway.
 > - **Duplicates.** Under that lock, a request for a repository URL (compared exactly as validated) that the same user already has in `QUEUED`, `CLONING`, `PARSING`, `ANALYZING` or `BUILDING_GRAPH` returns that analysis (same `202 { analysisId, status }` shape), starts no pipeline and charges nothing. This check runs before the limit check, so a user at 5/5 who resubmits a running URL gets it back instead of a 403. A `COMPLETED` or `FAILED` analysis is not a duplicate: running it again is a new charge.
@@ -1086,34 +1101,48 @@ RequestBody:
 
 ## Ask AI
 
+All routes need a bearer token. An analysis is visible only to its owner (404 for anything else, admins included) and conversations belong to the user who created them (`404 CONVERSATION_NOT_FOUND`, admins included). Lists paginate with zero-based `page` and `size` (default 50, at most 200; out of range is `400 VALIDATION_ERROR`). Errors are `{ code, message }`; messages never echo user input or a provider's response.
+
+### `GET /api/v1/analyses/{analysisId}/ai-index`
+
+Whether Ask AI can answer about this analysis. `409 ANALYSIS_NOT_COMPLETED` while it runs.
+
+```
+{ "status": "READY", "chunkCount": 412, "embeddedCount": 412, "embeddingModel": "all-MiniLM-L6-v2",
+  "retryable": false, "reason": null, "indexedAt": "2026-11-19T10:00:00Z" }
+```
+
+`status` is `NOT_INDEXED` (analysed before Ask AI existed: show "Re-analyze to enable Ask AI"), `INDEXING`, `READY`, `FAILED` or `EMPTY` (only test code). `retryable` is true only for `FAILED` with chunks. `reason` is a safe message for `FAILED` and `EMPTY`, or a note on a `READY` index that covers only part of a large repository.
+
+### `POST /api/v1/analyses/{analysisId}/ai-index`
+
+Retries a `FAILED` index for free. `202` with the same body when it starts, `200` unchanged for `INDEXING`, `READY` and `EMPTY`, `409 AI_REANALYZE_REQUIRED` for `NOT_INDEXED` and for a `FAILED` index with no chunks (a chunk-capture failure needs a new analysis).
+
 ### `POST /api/v1/analyses/{analysisId}/chat`
 
-### RequestBody
+```
+{ "message": "How does authentication work in this repository?", "conversationId": "...optional..." }
+```
+
+`message` is 1 to 2000 characters after trimming. Without `conversationId` a conversation is created, titled from the first 60 characters of the question (cut at a word).
 
 ```
 {
-  "message": "How does authentication work in this repository?"
-}
-```
-
-### Response
-
-```
-{
-  "answer": "...",
+  "conversationId": "7c0e...", "messageId": "b19a...",
+  "answer": "Login goes through [1], which delegates to [2]...",
   "sources": [
-    {
-      "type": "CLASS",
-      "id": "class-123",
-      "name": "SecurityConfig"
-    }
-  ]
+    { "ref": 1, "type": "CLASS", "id": "class:com.foo.SecurityConfig", "name": "SecurityConfig",
+      "file": "src/main/java/com/foo/SecurityConfig.java", "line": 12, "endLine": 88, "excerpt": "...first lines of the chunk..." },
+    { "ref": 2, "type": "METHOD", "id": "method:com.foo.AuthService#login(String)", "name": "login",
+      "file": "...", "line": 41, "endLine": 77, "excerpt": null }
+  ],
+  "cached": false, "provider": "GEMINI"
 }
 ```
 
-I'd absolutely include sources.
+`answer` is Markdown (never HTML). `ref` matches the `[n]` markers in `answer`, already renumbered by first appearance; `excerpt` is the first lines of the chunk the model saw, or `null` for a node known only from a graph fact; a graph fact cites both its nodes (one source per node, under the ref that first cited it). Every source id is a node of this analysis, verified in Neo4j before the response is sent; a citation the model invented is dropped, and an answer with no citations has `sources: []`. `cached: true` means the same question in the same situation was answered before: nothing was charged and `provider` is the one that answered then.
 
-Otherwise the user has no idea whether the AI actually looked at the repository.
+Errors: `400 VALIDATION_ERROR` (blank or too long message, malformed `conversationId`), `403 USAGE_LIMIT_EXCEEDED` (a FREE user out of `AI_QUERY`), `404 ANALYSIS_NOT_FOUND`, `404 CONVERSATION_NOT_FOUND` (not yours, another analysis, deleted), `409 ANALYSIS_NOT_COMPLETED`, `409 AI_NOT_READY` (read `GET ai-index` for the state), `409 CONVERSATION_FULL` (100 messages), `409 CONVERSATION_BUSY` (a question of this conversation is still being answered), `409 TOO_MANY_CONVERSATIONS` (50 per analysis), `429 RATE_LIMITED` (10 questions a minute per user, every plan, with `Retry-After`), `503 AI_UNAVAILABLE` (no provider usable or all failed; the question was not counted and the frontend keeps the user's text), `503 SERVICE_BUSY`. Everything refused before the model is called costs nothing.
 
 ---
 
@@ -1121,11 +1150,19 @@ Otherwise the user has no idea whether the AI actually looked at the repository.
 
 ### `GET /api/v1/analyses/{analysisId}/conversations`
 
+A page of `{ "id", "title", "createdAt", "updatedAt", "messageCount" }`, newest activity first. `messageCount` counts answered questions and their answers.
+
 ### `POST /api/v1/analyses/{analysisId}/conversations`
 
-Potentially useful if you want separate conversations.
+Empty body. `201 { "id", "title": "New conversation", "createdAt", "updatedAt", "messageCount": 0 }`. Needs a `COMPLETED` analysis; `409 TOO_MANY_CONVERSATIONS` at the limit. The title is set automatically on the first question; there is no rename in V1.
+
+### `DELETE /api/v1/conversations/{conversationId}`
+
+`204`; another user's or an unknown id is `404 CONVERSATION_NOT_FOUND`; a conversation with a question being answered is `409 CONVERSATION_BUSY`. Deleting never gives questions back: the allowance is for life.
 
 ### `GET /api/v1/conversations/{conversationId}/messages`
+
+A page, oldest first, of `{ "id", "role": "USER|ASSISTANT", "content", "sources", "provider", "cached", "createdAt" }`; `sources` and `provider` exist only on assistant messages, and a question that is still being answered is never listed.
 
 ---
 
@@ -1566,10 +1603,16 @@ By V3, your API could look roughly like this:
 │   │
 │   ├── GET /{analysisId}/architecture
 │   │
+│   ├── GET /{analysisId}/ai-index
+│   ├── POST /{analysisId}/ai-index
 │   ├── POST /{analysisId}/chat
+│   ├── GET /{analysisId}/conversations
+│   ├── POST /{analysisId}/conversations
 │   └── POST /{analysisId}/explain
 │
 ├── /conversations
+│   ├── DELETE /{conversationId}
+│   └── GET /{conversationId}/messages
 │
 ├── /usage
 │

@@ -2,16 +2,22 @@
 
 Spring Boot 4 / Java 25 API that analyses a GitHub repository, builds its code graph in Neo4j and serves it to the
 frontend. This file covers running it, configuring it and the security set-up. Design notes for contributors are in
-`CLAUDE.md`; the security design is in `specs/security/spec.md`.
+`CLAUDE.md`; the security design is in `spec/security/spec.md`, the usage limits in `spec/usage/spec-usage.md` and Ask AI in
+`spec/ask-ai-backend/spec.md`.
 
 ## Running locally
 
 1. Java 25, Docker (for PostgreSQL, Neo4j and the tests) and a C compiler (for the Tree-sitter libraries).
 2. `./scripts/build-native.sh` once. It builds the parser libraries into `native/`.
 3. Start PostgreSQL and Neo4j, for example
-   `docker run -d -p 7687:7687 -e NEO4J_AUTH=neo4j/<password> neo4j:5.26-community` and a PostgreSQL 17 with a database called `archyra`.
-4. Copy `.env.example` to `.env` and fill in the required values (below). `.env` is git-ignored.
-5. `./mvnw spring-boot:run` from `backend/` (it reads `.env` and `native/` from the working directory). The API is on port 8080.
+   `docker run -d -p 7687:7687 -e NEO4J_AUTH=neo4j/<password> neo4j:5.26-community` and a PostgreSQL 17 **with pgvector** and a database called
+   `archyra`, for example `docker run -d -p 5432:5432 -e POSTGRES_PASSWORD=<password> -e POSTGRES_DB=archyra pgvector/pgvector:pg17`.
+   A plain `postgres` image stops the application at startup with a message saying so (Ask AI stores embeddings in a `vector` column).
+   An existing database keeps its data when you switch to the pgvector image of the same major version.
+4. `./scripts/fetch-embedding-model.sh` once (about 90 MB). It downloads the local embedding model into `models/` (git-ignored); without it the
+   application downloads the same files on first start, and fails with a message that names this script if it cannot.
+5. Copy `.env.example` to `.env` and fill in the required values (below). `.env` is git-ignored.
+6. `./mvnw spring-boot:run` from `backend/` (it reads `.env`, `native/` and `models/` from the working directory). The API is on port 8080.
 
 For email in development run a local SMTP sink, e.g. `docker run -d -p 1025:1025 -p 8025:8025 mailhog/mailhog`, set
 `SMTP_HOST=localhost SMTP_PORT=1025 SMTP_AUTH=false SMTP_STARTTLS=false`, and read the mails at http://localhost:8025.
@@ -34,6 +40,11 @@ Everything is in `src/main/resources/application.properties`; secrets come from 
 | `SMTP_HOST`, `SMTP_PORT`, `SMTP_USERNAME`, `SMTP_PASSWORD`, `SMTP_AUTH`, `SMTP_STARTTLS`, `MAIL_FROM` | no | Outgoing mail. Defaults point at `localhost:587` |
 | `ADMIN_EMAIL`, `ADMIN_PASSWORD` | no | Creates the first administrator at startup if none exists. Remove `ADMIN_PASSWORD` afterwards |
 | `NATIVE_LIB_DIR` | no | Where the Tree-sitter libraries are (default `native`) |
+| `ANALYSIS_LIMIT`, `AI_LIMIT` | yes | Lifetime allowance of analyses and of Ask AI questions for FREE users (PREMIUM is never capped). Startup fails if missing or negative |
+| `GEMINI_API_KEY`, `GROQ_API_KEY` | no | Ask AI providers (see *Ask AI* below). Chat needs at least one; indexing needs none. Missing keys never fail startup |
+| `GEMINI_MODEL`, `GROQ_MODEL`, `GROQ_REASONING_EFFORT` | no | Model ids and Groq's reasoning effort; defaults in `application.properties` |
+| `GEMINI_BASE_URL`, `GROQ_BASE_URL` | no | Provider endpoints (used by the tests to point at fake servers). Groq's must end in `/v1` |
+| `EMBEDDING_CACHE_DIR`, `EMBEDDING_MODEL_URI`, `EMBEDDING_TOKENIZER_URI` | no | Where the embedding model is cached (default `models`) and where it comes from |
 
 Fixed behaviour you can tune in `application.properties`: access token 15 min, refresh token 7 days, verification link
 24 h, reset link 30 min, 5 failed logins lock an account for 15 min, rate limits (`app.security.rate-limit.*`).
@@ -55,6 +66,36 @@ Register an OAuth application with each provider and add the redirect URI for th
 Google needs the `openid profile email` scopes and
 GitHub `read:user user:email`; they are already configured. Only a **verified** provider email is trusted.
 
+## Ask AI
+
+Repository-aware chat (V1). After an analysis completes, its code is cut into chunks (captured while the clone still exists), embedded
+**locally** (an ONNX MiniLM model inside the JVM, no key, no rate limit) and stored in PostgreSQL with pgvector. A question is answered by
+hybrid retrieval (names looked up in the graph, nearest vectors, one hop of graph neighbours) and a chat model, which cites numbered
+context items that the server maps back to verified graph nodes. Test code is not indexed. Analyses made before this feature are not
+indexed either: re-analyze them.
+
+**Providers.** Gemini (Google AI Studio free tier) answers; Groq (free plan) takes over on a 429, a 5xx, a timeout or an empty answer.
+One key works (no fallback), no key means chat answers `503 AI_UNAVAILABLE` without charging.
+
+| | Key | Default model (looked up 2026-11-19) |
+| --- | --- | --- |
+| Gemini | https://aistudio.google.com/apikey | `gemini-3.6-flash` (stable Flash model with a free tier) |
+| Groq | https://console.groq.com/keys | `openai/gpt-oss-120b` (30 requests/min, about 8,000 tokens/min on the free plan) |
+
+Model ids and free-tier limits change often and Google no longer publishes per-model free limits: check the providers' docs and your
+account's limits page, and change `GEMINI_MODEL` / `GROQ_MODEL` (never Java code). The small Groq context budget
+(`archyra.ai.context.groq-max-tokens`) exists because one request larger than the per-minute token limit can never succeed.
+
+**Limits.** FREE users get `AI_LIMIT` questions for life (a failed answer never counts, a cached one is free), everyone gets 10 questions per
+minute (`app.security.rate-limit.ai-chat-per-user-per-minute`). Tuning keys (`archyra.ai.*`) are in `application.properties`.
+
+**Privacy.** Questions and code excerpts are sent to Gemini or Groq. On their free tiers the providers may use that data to improve their
+products. Archyra only clones public GitHub repositories. Nothing sent or received is ever written to the logs, and API keys never are.
+
+**Embedding model.** `scripts/fetch-embedding-model.sh` downloads `all-MiniLM-L6-v2` (384 dimensions). Its size is fixed by the
+`code_chunks.embedding` column: startup fails if a configured model differs. (The `spring-ai-transformers` jar contains only a 133-byte
+pointer instead of the model, so the download is always needed.)
+
 ### Deployment notes
 
 - **Same site.** The refresh cookie is `SameSite=Strict`, so the SPA and the API must share a registrable domain
@@ -67,6 +108,9 @@ GitHub `read:user user:email`; they are already configured. Only a **verified** 
 - **Rate limits are per instance** (in memory). Before running several instances move them to a shared store (Redis).
 - **Schema.** Tables are created by Hibernate (`spring.jpa.hibernate.ddl-auto=update`). That is fine for development and
   must not be used in production; add migrations (Flyway) first.
+- **pgvector.** The database needs the `vector` extension. The application runs `CREATE EXTENSION IF NOT EXISTS vector` at startup, which needs
+  a role allowed to do that (the database owner on most managed services), or run it once as a superuser.
+- **Embedding model files** must be present on the server (`models/` or the `EMBEDDING_*` settings) and the JVM needs about 300 MB for it.
 - **Pre-accounts data.** On startup, analyses created before accounts existed (no owner) are deleted with their graphs.
 
 ## For the frontend
@@ -92,3 +136,9 @@ GitHub `read:user user:email`; they are already configured. Only a **verified** 
 `./mvnw test` runs everything (Docker must be running: PostgreSQL and Neo4j start through Testcontainers). Use
 `./mvnw clean test` after changing signatures, so no stale test classes survive. Opt-in network tests:
 `ARCHYRA_NETWORK_TESTS=true ./mvnw test -Dtest='GitClonerTest,RealRepositoryAnalysisTest'`.
+
+The Ask AI tests use the pgvector image (`pgvector/pgvector:pg17`) and the real embedding model; the first run downloads the model (about 90 MB)
+into `models/`. The chat tests use WireMock as the fake Gemini and Groq servers. Every Spring context holds a PostgreSQL and a Neo4j
+container, so on a small Docker VM (8 GB) the AI test classes close their context when they finish, Spring's test context cache is bounded (`src/test/resources/spring.properties`) and Neo4j's memory is capped; if classes fail with "connection refused" the VM probably ran out of memory (`docker events --filter event=oom`). Opt-in smoke test against the real
+providers (needs `GEMINI_API_KEY` and/or `GROQ_API_KEY`, spends a question or two of your free tier):
+`ARCHYRA_AI_LIVE_TESTS=true ./mvnw test -Dtest=AiLiveSmokeTest`.
