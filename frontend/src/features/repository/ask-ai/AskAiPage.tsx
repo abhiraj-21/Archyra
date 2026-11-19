@@ -4,6 +4,7 @@ import { ErrorState } from '@/components/ui/States';
 import { useAiIndex } from '@/hooks/useAskAi';
 import { useWorkspace } from '../workspaceContext';
 import { ChatWorkspace } from './ChatWorkspace';
+import { Composer } from './Composer';
 import { IndexPanel } from './IndexPanel';
 
 /** Ask AI: the index state decides what is shown (there is no chat until it is READY). */
@@ -34,6 +35,11 @@ export default function AskAiPage() {
   return (
     <div className="grid gap-lg px-md py-xl sm:px-lg">
       <IndexPanel analysisId={analysisId} repositoryUrl={repositoryUrl} index={state} />
+      {state.status === 'INDEXING' ? (
+        <div className="mx-auto w-full max-w-[40rem]">
+          <Composer value="" onChange={() => undefined} onSend={() => undefined} disabledReason="Ask AI is being prepared for this repository. You can ask as soon as it is ready." sending={false} />
+        </div>
+      ) : null}
     </div>
   );
 }

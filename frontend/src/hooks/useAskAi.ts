@@ -24,6 +24,12 @@ export function useAiIndex(analysisId: string, ready: boolean) {
   });
 }
 
+/** Re-reads the index state (after an AI_NOT_READY answer), so the tab switches to the right panel. */
+export function useRefreshAiIndex(analysisId: string) {
+  const queryClient = useQueryClient();
+  return () => queryClient.invalidateQueries({ queryKey: queryKeys.aiIndex(analysisId) });
+}
+
 /** A free retry of a FAILED index; the answer is the new state (INDEXING), so polling resumes at once. */
 export function useRetryAiIndex(analysisId: string) {
   const queryClient = useQueryClient();
