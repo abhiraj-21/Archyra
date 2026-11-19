@@ -3,7 +3,7 @@ import { Navigate, NavLink, Outlet, useMatch, useNavigate, useParams } from 'rea
 import { Boxes, FileCode2, GitBranch, LayoutGrid, MessageSquareText, MoreHorizontal, RefreshCw, Trash2 } from 'lucide-react';
 import { hasCode } from '@/api/errors';
 import { Button } from '@/components/ui/Button';
-import { ComingSoonBadge, StatusChip } from '@/components/ui/Chips';
+import { StatusChip } from '@/components/ui/Chips';
 import { Menu } from '@/components/ui/Menu';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { ErrorState } from '@/components/ui/States';
@@ -58,7 +58,7 @@ export default function WorkspaceLayout() {
   const name = url ? repoLabel(url) : (repository.data?.name ?? 'Repository');
   const href = url ? safeGithubHref(url) : null;
   const summary = { analysisId, repositoryUrl: url ?? name, status: 'COMPLETED' as const };
-  const context: WorkspaceContext = { analysisId, ready: true };
+  const context: WorkspaceContext = { analysisId, repositoryUrl: summary.repositoryUrl, ready: true };
 
   return (
     <div className={`flex flex-col ${fillViewport ? 'lg:h-dvh lg:overflow-hidden' : 'min-h-dvh max-lg:min-h-[calc(100dvh-3.5rem)]'}`}>
@@ -107,7 +107,6 @@ export default function WorkspaceLayout() {
             <NavLink key={to} to={to} className="tab">
               <Icon size={16} aria-hidden="true" />
               {label}
-              {to === 'ask-ai' ? <ComingSoonBadge /> : null}
             </NavLink>
           ))}
         </nav>

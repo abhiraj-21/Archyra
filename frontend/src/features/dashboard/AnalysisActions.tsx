@@ -40,6 +40,7 @@ export function ReanalyzeDialog({ analysis, open, onClose }: { analysis: Pick<An
       <div className="grid gap-sm">
         <p>Archyra analyses the latest code as a new run. This analysis stays until the new one completes, then the new one replaces it. If the new run fails, this one is kept.</p>
         {plan === 'FREE' ? <p className="text-muted">On the free plan the run needs one free analysis while it works; you get it back when it replaces this one.</p> : null}
+        <p>Ask AI conversations for the current analysis are deleted when the new analysis completes.</p>
         {copy ? <Notice tone="error" title={copy.title}>{copy.message}</Notice> : null}
       </div>
     </Dialog>

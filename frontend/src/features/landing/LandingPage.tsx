@@ -170,12 +170,12 @@ export default function LandingPage() {
                   <div><dt>Layered graph</dt><dd>Classes, interfaces, modules and functions with their relationships.</dd></div>
                   <div><dt>Files and classes</dt><dd>Every analysed file and class with its imports and dependencies.</dd></div>
                   <div><dt>History</dt><dd>Re-run an analysis when the code changes.</dd></div>
+                  <div><dt>Ask AI</dt><dd>Questions answered from the graph and the code, with the nodes it used as sources.</dd></div>
                 </dl>
               </div>
               <div className="lp-rows__group">
                 <h3>Coming soon</h3>
                 <dl>
-                  <div><dt>Ask AI</dt><dd>Questions answered from the graph, with the nodes it used as sources.</dd></div>
                   <div><dt>Drill-down</dt><dd>From a class to its methods and their calls.</dd></div>
                 </dl>
               </div>

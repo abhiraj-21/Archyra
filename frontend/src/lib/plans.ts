@@ -19,7 +19,7 @@ export const PLAN_ROWS: PlanRow[] = [
   { feature: 'Actual classes and modules', free: 'yes', premium: 'yes', now: true },
   { feature: 'Basic relationships', free: 'yes', premium: 'yes', now: true },
   { feature: 'Beginner graph', free: 'yes', premium: 'yes', now: true },
-  { feature: 'Ask AI', free: 'limited', premium: 'more', now: false },
+  { feature: 'Ask AI', free: 'limited', premium: 'more', now: true },
   { feature: 'Interactive graph', free: 'no', premium: 'yes', now: false },
   { feature: 'Class to method exploration', free: 'no', premium: 'yes', now: false },
   { feature: 'Method-level dependencies', free: 'no', premium: 'yes', now: false },
