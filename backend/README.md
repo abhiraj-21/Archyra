@@ -41,9 +41,11 @@ Everything is in `src/main/resources/application.properties`; secrets come from 
 | `ADMIN_EMAIL`, `ADMIN_PASSWORD` | no | Creates the first administrator at startup if none exists. Remove `ADMIN_PASSWORD` afterwards |
 | `NATIVE_LIB_DIR` | no | Where the Tree-sitter libraries are (default `native`) |
 | `ANALYSIS_LIMIT`, `AI_LIMIT` | yes | Lifetime allowance of analyses and of Ask AI questions for FREE users (PREMIUM is never capped). Startup fails if missing or negative |
-| `GEMINI_API_KEY`, `GROQ_API_KEY` | no | Ask AI providers (see *Ask AI* below). Chat needs at least one; indexing needs none. Missing keys never fail startup |
-| `GEMINI_MODEL`, `GROQ_MODEL`, `GROQ_REASONING_EFFORT` | no | Model ids and Groq's reasoning effort; defaults in `application.properties` |
-| `GEMINI_BASE_URL`, `GROQ_BASE_URL` | no | Provider endpoints (used by the tests to point at fake servers). Groq's must end in `/v1` |
+| `GEMINI_API_KEY`, `GROQ_API_KEY`, `OPENROUTER_API_KEY`, `CLOUDFLARE_API_TOKEN` + `CLOUDFLARE_ACCOUNT_ID`, `ZAI_API_KEY`, `COHERE_API_KEY`, `LLM7_API_KEY` | no | Ask AI providers (see *Ask AI* below). Chat needs at least one provider in the chain; indexing needs none. A provider without a key is simply not used, and missing keys never fail startup |
+| `OVH_ENABLED` | no | OVHcloud AI Endpoints needs no key (it is used anonymously) and is on by default; `false` leaves it out |
+| `NVIDIA_NIM_ENABLED`, `KILO_ENABLED`, `GONKA_ENABLED` (+ `*_API_KEY`) | no | Opt-in providers, off unless `true` (see *Ask AI*) |
+| `AI_PROVIDER_ORDER` | no | Comma-separated provider ids, the order they are tried in. Default `gemini,groq,openrouter,cloudflare,zai,cohere,ovh,llm7` |
+| `<PROVIDER>_MODEL`, `<PROVIDER>_BASE_URL`, `GROQ_REASONING_EFFORT` | no | Model id and endpoint of a provider (`GEMINI_MODEL`, `OPENROUTER_MODEL`, ...). Defaults, and every local limit, are in `application.properties`. A base URL is what the tests point at a fake server. OpenRouter's model must end in `:free` |
 | `EMBEDDING_CACHE_DIR`, `EMBEDDING_MODEL_URI`, `EMBEDDING_TOKENIZER_URI` | no | Where the embedding model is cached (default `models`) and where it comes from |
 
 Fixed behaviour you can tune in `application.properties`: access token 15 min, refresh token 7 days, verification link
@@ -74,23 +76,40 @@ hybrid retrieval (names looked up in the graph, nearest vectors, one hop of grap
 context items that the server maps back to verified graph nodes. Test code is not indexed. Analyses made before this feature are not
 indexed either: re-analyze them.
 
-**Providers.** Gemini (Google AI Studio free tier) answers; Groq (free plan) takes over on a 429, a 5xx, a timeout or an empty answer.
-One key works (no fallback), no key means chat answers `503 AI_UNAVAILABLE` without charging.
+**Providers.** A chain of free providers, tried in the order of `AI_PROVIDER_ORDER` (default below). A question goes to the first provider that is
+configured, not cooling down and within its own limits; on a 429, a 5xx, a timeout, an empty answer, a bad key or an unknown model it goes on to
+the next one, up to 4 providers per question. No key at all (and no anonymous provider) means chat answers `503 AI_UNAVAILABLE` without charging.
+Gemini has a dedicated client; every other provider speaks the OpenAI chat-completions protocol and is driven by a config block alone.
 
-| | Key | Default model (looked up 2026-11-19) |
-| --- | --- | --- |
-| Gemini | https://aistudio.google.com/apikey | `gemini-3.6-flash` (stable Flash model with a free tier) |
-| Groq | https://console.groq.com/keys | `openai/gpt-oss-120b` (30 requests/min, about 8,000 tokens/min on the free plan) |
+| Provider (id) | Where to get a key | Default model | Notes |
+| --- | --- | --- | --- |
+| Gemini (`gemini`) | https://aistudio.google.com/apikey | `gemini-3.6-flash` | Free limits are not published any more. Free-tier prompts may be used by Google; its terms require a paid service when the app is exposed to users in the EEA, Switzerland or the UK |
+| Groq (`groq`) | https://console.groq.com/keys | `openai/gpt-oss-120b` | 30 requests/min, 1,000/day, 8,000 tokens/min: hence a small context budget |
+| OpenRouter (`openrouter`) | https://openrouter.ai/keys | `google/gemma-4-31b-it:free` | **Only `:free` models: startup refuses anything else.** 20 requests/min, 50/day (1,000 after 10 credits were ever bought: raise `max-requests-per-day`). Free providers may log prompts for training |
+| Cloudflare Workers AI (`cloudflare`) | API token from https://dash.cloudflare.com/profile/api-tokens (Workers AI template) and your account id | `@cf/meta/llama-3.3-70b-instruct-fp8-fast` | 10,000 neurons/day, reset 00:00 UTC; over it the request fails, nothing is billed. Needs `CLOUDFLARE_ACCOUNT_ID` too |
+| Z AI (`zai`) | https://z.ai/manage-apikey/apikey-list | `glm-4.7-flash` | One concurrent request; thinking is switched off. International endpoint `api.z.ai` |
+| Cohere (`cohere`) | https://dashboard.cohere.com/api-keys (trial key) | `command-a-plus-05-2026` | **Trial keys are non-commercial use only**; 1,000 calls/month, 20/min. A warning is logged at startup |
+| OVHcloud AI Endpoints (`ovh`) | none: used anonymously | `Meta-Llama-3_3-70B-Instruct` | **No `Authorization` header is ever sent** (a key is ignored): keyed use is billed. 2 requests/min per IP and model. On by default; `OVH_ENABLED=false` removes it |
+| LLM7 (`llm7`) | https://token.llm7.io (the README of awesome-free-llm-apis) or https://dash.llm7.io (its docs) | `mistral-Nemo-Instruct-2407` | 100,000 tokens/24 h. Catalogue and free quota change without notice; no privacy statement found |
 
-Model ids and free-tier limits change often and Google no longer publishes per-model free limits: check the providers' docs and your
-account's limits page, and change `GEMINI_MODEL` / `GROQ_MODEL` (never Java code). The small Groq context budget
-(`archyra.ai.context.groq-max-tokens`) exists because one request larger than the per-minute token limit can never succeed.
+Opt-in providers: **off until `<ID>_ENABLED=true`**, with a startup warning, and appended after the listed ones. NVIDIA NIM (`nvidia-nim`, key from
+https://build.nvidia.com): hosted endpoints are for prototyping and log submitted data to improve NVIDIA products. Kilo (`kilo`, no key needed):
+its free router may use providers that log prompts. Gonka (`gonka`): the key needs SMS verification with a real, non-VoIP phone number.
+**Not implemented:** ModelScope and SiliconFlow (mainland-China real-name verification, cannot be tested from outside) and Aion Labs (a roleplay model).
+
+Model ids and free-tier limits change often (the README of https://github.com/mnfst/awesome-free-llm-apis flags retired models itself): check the
+provider's docs and your account's limits page, and change the model (`<PROVIDER>_MODEL`) or the block in `application.properties`, never Java code.
+**Adding a provider** that speaks the OpenAI protocol is one block `archyra.ai.providers.<id>.*` (display name, base URL, key, model, context budget
+and the local limits) plus its id in `AI_PROVIDER_ORDER`. A local limit of `0` means none. The local limits (requests per minute, calls in flight,
+requests per UTC day and month) keep us from spending a free quota on calls that would be refused; the counters live in memory, so a restart resets
+them (the provider's own 429 is the backstop). A 429 cools a provider down (its `Retry-After`, else 30 s; repeated 429s double it, up to 1 h); a bad key
+or an unknown model cools it down for 30 min with an `ERROR` log. Administrators can see every provider's state at `GET /api/v1/admin/ai/providers`.
 
 **Limits.** FREE users get `AI_LIMIT` questions for life (a failed answer never counts, a cached one is free), everyone gets 10 questions per
 minute (`app.security.rate-limit.ai-chat-per-user-per-minute`). Tuning keys (`archyra.ai.*`) are in `application.properties`.
 
-**Privacy.** Questions and code excerpts are sent to Gemini or Groq. On their free tiers the providers may use that data to improve their
-products. Archyra only clones public GitHub repositories. Nothing sent or received is ever written to the logs, and API keys never are.
+**Privacy.** Questions and code excerpts are sent to the third-party providers of the chain. On their free tiers some of them log prompts or use
+them to improve their products (see the table). The chat UI says so next to the composer. Archyra only clones public GitHub repositories. Nothing sent or received is ever written to the logs, and API keys never are.
 
 **Embedding model.** `scripts/fetch-embedding-model.sh` downloads `all-MiniLM-L6-v2` (384 dimensions). Its size is fixed by the
 `code_chunks.embedding` column: startup fails if a configured model differs. (The `spring-ai-transformers` jar contains only a 133-byte
@@ -138,7 +157,8 @@ pointer instead of the model, so the download is always needed.)
 `ARCHYRA_NETWORK_TESTS=true ./mvnw test -Dtest='GitClonerTest,RealRepositoryAnalysisTest'`.
 
 The Ask AI tests use the pgvector image (`pgvector/pgvector:pg17`) and the real embedding model; the first run downloads the model (about 90 MB)
-into `models/`. The chat tests use WireMock as the fake Gemini and Groq servers. Every Spring context holds a PostgreSQL and a Neo4j
+into `models/`. The chat tests use WireMock as the fake provider servers (Gemini, Groq, OpenRouter, Z AI, ...). Every Spring context holds a PostgreSQL and a Neo4j
 container, so on a small Docker VM (8 GB) the AI test classes close their context when they finish, Spring's test context cache is bounded (`src/test/resources/spring.properties`) and Neo4j's memory is capped; if classes fail with "connection refused" the VM probably ran out of memory (`docker events --filter event=oom`). Opt-in smoke test against the real
-providers (needs `GEMINI_API_KEY` and/or `GROQ_API_KEY`, spends a question or two of your free tier):
-`ARCHYRA_AI_LIVE_TESTS=true ./mvnw test -Dtest=AiLiveSmokeTest`.
+providers (one trivial question per provider whose key is set, skipped silently for the others, plus one real grounded question; it spends a
+request or two of each free tier): `ARCHYRA_AI_LIVE_TESTS=true ./mvnw test -Dtest=AiLiveSmokeTest`. Providers that need `<ID>_ENABLED=true` (OVH is on by default) are
+asked only when switched on.
