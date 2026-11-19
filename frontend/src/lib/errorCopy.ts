@@ -53,6 +53,12 @@ const COPY: Record<string, Entry> = {
     retryable: false,
   },
   IDENTITY_NOT_FOUND: { title: 'Not linked', message: 'That provider is not linked to your account any more.', retryable: false },
+  INCORRECT_PASSWORD: { title: 'Wrong current password', message: 'That is not your current password.', retryable: false },
+  NO_PASSWORD_SET: {
+    title: 'No password yet',
+    message: 'This account signs in with Google or GitHub. Use Forgot password with your account email to set one.',
+    retryable: false,
+  },
   NETWORK_ERROR: { title: 'Cannot reach Archyra', message: 'Check your connection, then try again.', retryable: true },
   TIMEOUT: { title: 'That took too long', message: 'The server did not answer in time. Try again.', retryable: true },
   UNEXPECTED_RESPONSE: { title: 'Unreadable answer', message: 'The server sent an answer that could not be read.', retryable: true },

@@ -101,6 +101,20 @@ class SmtpEmailService implements EmailService {
 				""".formatted(greeting(name), provider, WHEN.format(at), resetLink));
 	}
 
+	@Async(MailConfig.MAIL_EXECUTOR)
+	@Override
+	public void sendPasswordChangedNotice(String to, String name, Instant at, String resetLink) {
+		send(to, "Your Archyra password was changed", """
+				Hi %s,
+
+				The password of your Archyra account was changed on %s. Your other devices were signed out.
+
+				If this wasn't you, reset your password right away:
+
+				%s
+				""".formatted(greeting(name), WHEN.format(at), resetLink));
+	}
+
 	private void send(String to, String subject, String text) {
 		try {
 			SimpleMailMessage message = new SimpleMailMessage();

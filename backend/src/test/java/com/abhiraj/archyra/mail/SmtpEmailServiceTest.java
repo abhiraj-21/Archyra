@@ -76,6 +76,18 @@ class SmtpEmailServiceTest {
 	}
 
 	@Test
+	void thePasswordChangedNoticeSaysWhenAndPointsToResetWithoutAToken() throws Exception {
+		service.sendPasswordChangedNotice("ada@example.com", "Ada", java.time.Instant.parse("2026-11-19T10:15:00Z"),
+				"http://localhost:5173/forgot-password");
+
+		MimeMessage message = GREEN_MAIL.getReceivedMessages()[0];
+		assertThat(message.getSubject()).isEqualTo("Your Archyra password was changed");
+		String body = GreenMailUtil.getBody(message);
+		assertThat(body).contains("Hi Ada,", "19 Nov 2026, 10:15 UTC", "http://localhost:5173/forgot-password", "If this wasn't you");
+		assertThat(body).doesNotContain("token");
+	}
+
+	@Test
 	void aNameCannotInjectLinesIntoTheMessage() {
 		service.sendVerificationEmail("ada@example.com", "Ada\r\nBcc: victim@example.com", "http://x/y?token=t");
 

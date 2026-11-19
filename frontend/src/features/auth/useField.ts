@@ -11,6 +11,11 @@ export function useField(validate: (value: string) => string | null, initial = '
     error,
     touch: () => setTouched(true),
     isValid: () => validate(value) === null,
+    /** Back to the initial value, untouched (no errors shown), e.g. after a successful submit. */
+    reset: () => {
+      setValue(initial);
+      setTouched(false);
+    },
     inputProps: {
       value,
       onChange: (e: React.ChangeEvent<HTMLInputElement>) => setValue(e.target.value),

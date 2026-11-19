@@ -29,6 +29,8 @@ export const SERVER_ERROR_CODES = [
   'PROVIDER_ALREADY_LINKED',
   'LAST_LOGIN_METHOD',
   'IDENTITY_NOT_FOUND',
+  'INCORRECT_PASSWORD',
+  'NO_PASSWORD_SET',
 ] as const;
 
 /** Codes the client assigns when no backend answer could be read. */

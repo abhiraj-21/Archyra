@@ -81,6 +81,18 @@ final class AuthDtos {
 		}
 	}
 
+	record ChangePasswordRequest(
+			@NotBlank(message = "currentPassword must not be blank")
+			@Size(max = PasswordPolicy.MAX_LENGTH, message = "currentPassword must be at most 128 characters") String currentPassword,
+			@NotBlank(message = "newPassword must not be blank")
+			@Size(max = PasswordPolicy.MAX_LENGTH, message = "newPassword must be at most 128 characters") String newPassword) {
+
+		@Override
+		public String toString() {
+			return "ChangePasswordRequest[currentPassword=<redacted>, newPassword=<redacted>]";
+		}
+	}
+
 	/** What login and refresh return. The refresh token travels only in its cookie. */
 	record AuthResponse(String accessToken, String tokenType, long expiresIn) {
 

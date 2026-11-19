@@ -12,6 +12,7 @@ import { useUpgrade } from '@/hooks/upgradeContext';
 import { describeError } from '@/lib/errorCopy';
 import { UsageMeter } from '@/features/usage/UsageMeter';
 import { nameError } from '@/features/auth/validation';
+import { ChangePassword } from './ChangePassword';
 import { SignInMethods } from './SignInMethods';
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
@@ -42,7 +43,7 @@ export default function SettingsPage() {
     <div className="mx-auto grid w-full max-w-[56rem] px-md py-lg sm:px-lg lg:py-xl">
       <header className="grid gap-2xs pb-lg">
         <h1 className="text-2xl">Settings</h1>
-        <p className="text-muted">Your account, plan and sign-in methods.</p>
+        <p className="text-muted">Your account, plan, sign-in methods and password.</p>
       </header>
 
       <Section title="Profile">
@@ -103,6 +104,10 @@ export default function SettingsPage() {
 
       <Section title="Sign-in methods">
         <SignInMethods />
+      </Section>
+
+      <Section title="Password">
+        <ChangePassword />
       </Section>
 
       <Section title="Session">

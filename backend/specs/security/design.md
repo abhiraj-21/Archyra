@@ -179,6 +179,7 @@ the provider's email. The resolver above is unchanged and is **not called** in l
   depend on `auth`). Refused: disabling yourself (`CANNOT_DISABLE_SELF`) and the last enabled admin (`LAST_ADMIN`, with the admin rows locked). Responses
   contain no hashes or tokens.
 - `/api/v1/users/me` (`GET`, `PATCH {name}`) and `/api/v1/auth/me` return the same `UserProfile` with the effective plan. The entity is never bound from a request.
+- `POST /api/v1/users/me/password {currentPassword, newPassword}` (bearer): verifies the current password (a wrong one is `400 INCORRECT_PASSWORD` and counts towards the login lockout), applies `PasswordPolicy`, then in one transaction sets the hash, revokes every refresh family and starts a new one for the caller, whose cookie the `AuthResponse`-shaped answer replaces. An account without a password gets `409 NO_PASSWORD_SET` (a first password needs the email flow). The owner gets a notice email after commit. See `Architecture.md` → Change password.
 
 ## 11. Testing the security code
 

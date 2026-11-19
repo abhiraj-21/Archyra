@@ -21,6 +21,14 @@ export function newPasswordError(value: string, email?: string): string | null {
   return null;
 }
 
+/** Settings → Password: the new password follows the usual rules and must differ from the current one. */
+export function changedPasswordError(value: string, current: string, email?: string): string | null {
+  const rule = newPasswordError(value, email);
+  if (rule) return rule;
+  if (value === current) return 'Choose a password different from your current one.';
+  return null;
+}
+
 export function nameError(value: string): string | null {
   const v = value.trim();
   if (!v) return 'Enter your name.';

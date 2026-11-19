@@ -65,6 +65,14 @@ public class RecordingEmailService implements EmailService {
 		identityNotice("IDENTITY_UNLINKED", to, name, provider, resetLink);
 	}
 
+	@Override
+	public void sendPasswordChangedNotice(String to, String name, Instant at, String resetLink) {
+		if (failIdentityNotices) {
+			throw new IllegalStateException("simulated mail failure");
+		}
+		sent.add(new Sent("PASSWORD_CHANGED", to, name, resetLink, resetLink, List.of()));
+	}
+
 	private void identityNotice(String kind, String to, String name, String provider, String resetLink) {
 		if (failIdentityNotices) {
 			throw new IllegalStateException("simulated mail failure");

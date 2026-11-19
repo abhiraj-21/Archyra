@@ -39,4 +39,10 @@ public interface EmailService {
 
 	/** Tells the owner that a social login was removed from their account. Same shape and rules as the linked notice. */
 	void sendIdentityUnlinkedNotice(String to, String name, String provider, Instant at, String resetLink);
+
+	/**
+	 * Tells the owner that the password was changed from Settings and that other devices were signed out. The link
+	 * carries no token: it is the forgot-password page, for "this wasn't me".
+	 */
+	void sendPasswordChangedNotice(String to, String name, Instant at, String resetLink);
 }

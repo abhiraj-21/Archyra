@@ -893,6 +893,22 @@ Get current user.
 > - **Set a password** for an OAuth-only user is not built; they use Forgot password, which works for an account without a password (`AccountEmailFlows.forgotPassword` only needs an enabled account, and the reset sets the first password).
 > - Link and unlink never touch the refresh cookie or refresh-token families.
 
+### Change password (Settings)
+
+> **Built:** `POST /api/v1/users/me/password` (bearer token).
+>
+> ```
+> POST { "currentPassword": "…", "newPassword": "…" }
+> 200  → { "accessToken": "…", "tokenType": "Bearer", "expiresIn": 900 }   (+ Set-Cookie: refresh_token=…)
+> ```
+>
+> - **The current password is required**, even with a valid access token, so a stolen token alone cannot take the account over. A wrong one is `400 INCORRECT_PASSWORD` and counts like a failed login: the same lockout (5 attempts, 15 minutes), so the form cannot be used to guess the password. While the account is locked the current password is not checked and the answer is the same `INCORRECT_PASSWORD`.
+> - **The new password** follows `PasswordPolicy` (`400 VALIDATION_ERROR`) and must differ from the current one. Messages never echo either password.
+> - **Sessions.** One transaction sets the new hash (and clears any lockout), revokes every refresh-token family of the user and starts a new one for the caller, whose cookie the response replaces. The browser that changed the password stays signed in; every other device has to sign in again once its access token (15 minutes, stateless) runs out.
+> - **No password yet** (an account that only signs in with Google or GitHub): `409 NO_PASSWORD_SET`. Setting a *first* password needs proof of the inbox, so it stays on Forgot password. The Settings section shows that instead of the form when `linked-identities.hasPassword` is false.
+> - **Notice email** (`EmailService.sendPasswordChangedNotice`: when, "wasn't you? reset your password" link to `/forgot-password`, no token) after the commit; a mail failure is logged and never fails the change. Audit: `PASSWORD_CHANGED`, `PASSWORD_CHANGE_REFUSED`, `ACCOUNT_LOCKED`.
+> - No dedicated rate limit: the lockout bounds guessing. Code: `auth/PasswordController`, `auth/PasswordChangeService`.
+
 ---
 
 # Analysis history
@@ -1163,7 +1179,7 @@ Dashboard
           └── Ask AI
 ```
 
-> **Built in V0.5 (ahead of V1):** this structure exists in `frontend/` against the real API: dashboard (submit, history, usage), the polling progress view, the five repository tabs (Ask AI as a "coming soon" page that calls nothing), settings, and the admin area (`/admin/stats`, `/admin/users`, `/admin/users/{userId}`, shown only when `/users/me` says `ADMIN`). The Vite dev server proxies `/api`, `/oauth2` and `/login/oauth2` (keeping the browser's `Host`, adding `X-Forwarded-*`), so in development Google and GitHub redirect to `http://localhost:5173/login/oauth2/code/{google,github}` (verified from the real authorization redirect; `OAuth2RedirectUriHttpTest` and an e2e test guard it). Those URIs must be what the providers have registered: a **Google** web client can list several authorized redirect URIs (add the `:5173` one next to any `:8080` one), but a **GitHub OAuth App holds exactly one** callback URL, so it can serve the proxy flow *or* direct `:8080` use, not both (use a second OAuth App and separate `GITHUB_CLIENT_ID`/`GITHUB_CLIENT_SECRET` in `backend/.env` if both origins are ever needed). Always browse via `http://localhost:5173`, never `127.0.0.1`. A `redirect_uri_mismatch` is a provider-console setting, not a code defect. The session boot (csrf → refresh → `/users/me`, one single flight per page load with a 10 s timeout and a retry screen) is the only code that hydrates a session, including after a Google/GitHub redirect. Settings has a *Sign-in methods* section to link and unlink Google and GitHub. Details: `frontend/CLAUDE.md`.
+> **Built in V0.5 (ahead of V1):** this structure exists in `frontend/` against the real API: dashboard (submit, history, usage), the polling progress view, the five repository tabs (Ask AI as a "coming soon" page that calls nothing), settings, and the admin area (`/admin/stats`, `/admin/users`, `/admin/users/{userId}`, shown only when `/users/me` says `ADMIN`). The Vite dev server proxies `/api`, `/oauth2` and `/login/oauth2` (keeping the browser's `Host`, adding `X-Forwarded-*`), so in development Google and GitHub redirect to `http://localhost:5173/login/oauth2/code/{google,github}` (verified from the real authorization redirect; `OAuth2RedirectUriHttpTest` and an e2e test guard it). Those URIs must be what the providers have registered: a **Google** web client can list several authorized redirect URIs (add the `:5173` one next to any `:8080` one), but a **GitHub OAuth App holds exactly one** callback URL, so it can serve the proxy flow *or* direct `:8080` use, not both (use a second OAuth App and separate `GITHUB_CLIENT_ID`/`GITHUB_CLIENT_SECRET` in `backend/.env` if both origins are ever needed). Always browse via `http://localhost:5173`, never `127.0.0.1`. A `redirect_uri_mismatch` is a provider-console setting, not a code defect. The session boot (csrf → refresh → `/users/me`, one single flight per page load with a 10 s timeout and a retry screen) is the only code that hydrates a session, including after a Google/GitHub redirect. Settings has a *Sign-in methods* section to link and unlink Google and GitHub, and a *Password* section to change the password. Details: `frontend/CLAUDE.md`.
 
 ## V2
 
@@ -1524,7 +1540,8 @@ By V3, your API could look roughly like this:
 ├── /auth
 │
 ├── /users
-│   └── /me/linked-identities (GET, POST /{provider}/link-intent, DELETE /{provider})
+│   ├── /me/linked-identities (GET, POST /{provider}/link-intent, DELETE /{provider})
+│   └── /me/password (POST)
 │
 ├── /analyses
 │   ├── POST /
