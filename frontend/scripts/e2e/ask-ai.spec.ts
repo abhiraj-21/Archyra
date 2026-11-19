@@ -128,8 +128,10 @@ live('shows the panel for the index state the analysis is in', async (page) => {
 
 live('creates a conversation, keeps it in ?c= across a reload, and deletes it', async (page) => {
   await page.goto(ASK());
+  // the list is a skeleton until it has loaded: count it only once it is there (an account with conversations made this race show)
+  await expect(page.getByRole('navigation', { name: 'Conversations' })).toBeVisible();
   const before = await page.getByRole('navigation', { name: 'Conversations' }).getByRole('listitem').count();
-  await page.getByRole('button', { name: 'New conversation' }).click();
+  await page.getByRole('button', { name: 'New conversation', exact: true }).click();
   await expect(page).toHaveURL(/[?&]c=[0-9a-f-]{36}/);
   const id = new URL(page.url()).searchParams.get('c') as string;
   const list = page.getByRole('navigation', { name: 'Conversations' }).getByRole('listitem');
@@ -191,7 +193,7 @@ async function ownNames(page: Page): Promise<{ className: string; moduleName: st
 live('the guide shows what to ask and what not to, with this repository\'s own class and module names, and an honest counting note', async (page) => {
   const { className, moduleName } = await ownNames(page);
   await page.goto(ASK());
-  await page.getByRole('button', { name: 'New conversation' }).click();
+  await page.getByRole('button', { name: 'New conversation', exact: true }).click();
   await expect(page).toHaveURL(/[?&]c=[0-9a-f-]{36}/);
 
   await expect(page.getByRole('heading', { name: 'Questions that work well' })).toBeVisible();
