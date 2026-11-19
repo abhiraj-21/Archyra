@@ -111,6 +111,7 @@ class NodeEndpointHttpTest {
 		assertThat(response.string("$.qualifiedName")).isEqualTo("com.example.shop.web.OrderController");
 		assertThat(response.string("$.file")).isEqualTo("src/main/java/com/example/shop/web/OrderController.java");
 		assertThat(response.number("$.line")).isPositive();
+		assertThat(response.number("$.endLine")).isGreaterThan(response.number("$.line"));
 		assertThat(response.string("$.kind")).isEqualTo("CLASS");
 		assertThat(response.string("$.parentId")).isEqualTo(CONTROLLER_FILE);
 		assertThat(response.has("$.language")).isFalse();
@@ -160,6 +161,7 @@ class NodeEndpointHttpTest {
 		assertThat(response.string("$.id")).isEqualTo(CREATE);
 		assertThat(response.string("$.type")).isEqualTo("METHOD");
 		assertThat(response.string("$.name")).isEqualTo("create");
+		assertThat(response.number("$.endLine")).isGreaterThanOrEqualTo(response.number("$.line"));
 		assertThat(response.string("$.parentId")).isEqualTo(CONTROLLER);
 		assertThat(response.number("$.relationships.outgoing.CALLS")).isPositive();
 	}

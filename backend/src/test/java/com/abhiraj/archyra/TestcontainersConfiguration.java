@@ -3,21 +3,26 @@ package com.abhiraj.archyra;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Import;
 import org.testcontainers.neo4j.Neo4jContainer;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.utility.DockerImageName;
 
+import com.abhiraj.archyra.ai.PgVectorSetup;
+
 /**
- * Real PostgreSQL and Neo4j for tests that load the Spring context, so no local installs are needed
+ * Real PostgreSQL (with pgvector) and Neo4j for tests that load the Spring context, so no local installs are needed
  * (Docker is). {@link ServiceConnection} points the application at the containers.
  */
 @TestConfiguration(proxyBeanMethods = false)
+@Import(PgVectorSetup.class) // so slice tests (@DataJpaTest) also get the vector extension before the schema is created
 public class TestcontainersConfiguration {
 
 	@Bean
 	@ServiceConnection
 	PostgreSQLContainer postgres() {
-		return new PostgreSQLContainer(DockerImageName.parse("postgres:17-alpine"));
+		// pgvector build of PostgreSQL: Ask AI stores embeddings in a vector column
+		return new PostgreSQLContainer(DockerImageName.parse("pgvector/pgvector:pg17").asCompatibleSubstituteFor("postgres"));
 	}
 
 	@Bean

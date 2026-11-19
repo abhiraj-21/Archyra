@@ -54,7 +54,7 @@ class GraphServiceTest {
 
 	@Test
 	void nodeDetailsComeFromTheValidatedAnalysis() {
-		NodeResponse node = new NodeResponse("class:A", NodeType.CLASS, "A", null, null, null, null, null, null, false, null);
+		NodeResponse node = new NodeResponse("class:A", NodeType.CLASS, "A", null, null, null, null, null, null, null, false, null);
 		when(analysisService.requireCompleted(ID.toString())).thenReturn(ID);
 		when(graphQueryService.getNode(ID.toString(), "class:A")).thenReturn(java.util.Optional.of(node));
 

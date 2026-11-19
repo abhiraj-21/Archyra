@@ -213,7 +213,7 @@ public class ReferenceResolver {
 		private void declare() {
 			repositoryNodeId = "repository:" + repository.name();
 			putNode(new NodeIR(repositoryNodeId, NodeType.REPOSITORY, repository.name(), repository.url(),
-					null, null, null, false));
+					null, null, null, null, false));
 
 			for (FileIR file : repository.files()) {
 				filesByPath.put(file.path(), file);
@@ -222,17 +222,17 @@ public class ReferenceResolver {
 				String moduleId = moduleNodeId(file);
 				if (!nodes.containsKey(moduleId)) {
 					String name = groupName(file);
-					putNode(new NodeIR(moduleId, NodeType.MODULE, name, name, null, null, null, false));
+					putNode(new NodeIR(moduleId, NodeType.MODULE, name, name, null, null, null, null, false));
 					addEdge(repositoryNodeId, moduleId, RelationshipType.CONTAINS);
 				}
 				putNode(new NodeIR(fileId(file), NodeType.FILE, fileName(file.path()), file.path(), file.path(), null,
-						file.language().name(), false));
+						null, file.language().name(), false));
 				addEdge(moduleId, fileId(file), RelationshipType.CONTAINS);
 
 				for (MethodIR function : file.functions()) {
 					String id = uniqueId("function:" + file.path() + "#" + signature(function));
 					putNode(new NodeIR(id, NodeType.FUNCTION, function.name(), file.path() + "#" + signature(function),
-							file.path(), function.line(), null, false));
+							file.path(), function.line(), function.endLine(), null, false));
 					addEdge(fileId(file), id, RelationshipType.CONTAINS);
 					MethodEntry entry = new MethodEntry(function, id, null, file);
 					functions.add(entry);
@@ -285,7 +285,7 @@ public class ReferenceResolver {
 			TypeEntry entry = new TypeEntry(type, file, id, nodeType, parent);
 			typesByQualifiedName.put(type.qualifiedName(), entry);
 			allTypes.add(entry);
-			putNode(new NodeIR(id, nodeType, type.name(), type.qualifiedName(), file.path(), type.line(),
+			putNode(new NodeIR(id, nodeType, type.name(), type.qualifiedName(), file.path(), type.line(), type.endLine(),
 					type.kind().name(), false));
 			addEdge(containerId, id, RelationshipType.CONTAINS);
 			addMembers(entry, type, file);
@@ -300,7 +300,7 @@ public class ReferenceResolver {
 			for (MethodIR method : type.methods()) {
 				String methodId = uniqueId("method:" + type.qualifiedName() + "#" + signature(method));
 				putNode(new NodeIR(methodId, NodeType.METHOD, method.name(),
-						type.qualifiedName() + "#" + signature(method), file.path(), method.line(),
+						type.qualifiedName() + "#" + signature(method), file.path(), method.line(), method.endLine(),
 						method.constructor() ? "CONSTRUCTOR" : null, false));
 				addEdge(entry.nodeId, methodId, RelationshipType.CONTAINS);
 				entry.methods.add(new MethodEntry(method, methodId, entry, file));
@@ -567,7 +567,7 @@ public class ReferenceResolver {
 			String id = "external:method:" + ownerQualifiedName + "#" + call.name();
 			if (!nodes.containsKey(id)) {
 				putNode(new NodeIR(id, NodeType.METHOD, call.name(), ownerQualifiedName + "#" + call.name(),
-						null, null, null, true));
+						null, null, null, null, true));
 				addEdge(owner.id(), id, RelationshipType.CONTAINS);
 			}
 			addEdge(caller.nodeId(), id, RelationshipType.CALLS);
@@ -579,7 +579,7 @@ public class ReferenceResolver {
 			String id = "external:function:" + moduleName + "#" + call.name();
 			if (!nodes.containsKey(id)) {
 				putNode(new NodeIR(id, NodeType.FUNCTION, call.name(), moduleName + "#" + call.name(),
-						null, null, null, true));
+						null, null, null, null, true));
 				addEdge(module.id(), id, RelationshipType.CONTAINS);
 			}
 			addEdge(caller.nodeId(), id, RelationshipType.CALLS);
@@ -1095,7 +1095,7 @@ public class ReferenceResolver {
 			return externalTypes.computeIfAbsent(qualifiedName, key -> {
 				NodeType type = preferred == NodeType.INTERFACE ? NodeType.INTERFACE : NodeType.CLASS;
 				String id = "external:" + (type == NodeType.INTERFACE ? "interface:" : "class:") + key;
-				NodeIR node = new NodeIR(id, type, simpleName(key), key, null, null, null, true);
+				NodeIR node = new NodeIR(id, type, simpleName(key), key, null, null, null, null, true);
 				putNode(node);
 				return node;
 			});
@@ -1103,7 +1103,7 @@ public class ReferenceResolver {
 
 		private NodeIR externalModule(String moduleName) {
 			return externalModules.computeIfAbsent(moduleName, key -> {
-				NodeIR node = new NodeIR("external:module:" + key, NodeType.MODULE, key, key, null, null, null, true);
+				NodeIR node = new NodeIR("external:module:" + key, NodeType.MODULE, key, key, null, null, null, null, true);
 				putNode(node);
 				return node;
 			});

@@ -5,6 +5,8 @@ import java.util.List;
 /**
  * A class, interface, struct, trait, enum, record, object or module declaration.
  *
+ * @param line            1-based first line of the declaration
+ * @param endLine         1-based last line of the declaration (inclusive), at least {@code line}
  * @param name            simple name; for an {@link Declaration#EXTENSION} the name of the extended type
  * @param qualifiedName   module or namespace, enclosing types and name, e.g. {@code com.foo.Outer.Inner}
  * @param declaration     see {@link Declaration}
@@ -17,6 +19,7 @@ public record TypeIR(
 		String name,
 		String qualifiedName,
 		int line,
+		int endLine,
 		Declaration declaration,
 		List<TypeRefIR> extendsTypes,
 		List<TypeRefIR> implementsTypes,
@@ -33,10 +36,10 @@ public record TypeIR(
 	}
 
 	/** A regular, single declaration. */
-	public TypeIR(TypeKind kind, String name, String qualifiedName, int line, List<TypeRefIR> extendsTypes,
-			List<TypeRefIR> implementsTypes, List<VariableIR> fields, List<MethodIR> methods,
-			List<TypeIR> nestedTypes) {
-		this(kind, name, qualifiedName, line, Declaration.FULL, extendsTypes, implementsTypes, fields, methods,
+	public TypeIR(TypeKind kind, String name, String qualifiedName, int line, int endLine,
+			List<TypeRefIR> extendsTypes, List<TypeRefIR> implementsTypes, List<VariableIR> fields,
+			List<MethodIR> methods, List<TypeIR> nestedTypes) {
+		this(kind, name, qualifiedName, line, endLine, Declaration.FULL, extendsTypes, implementsTypes, fields, methods,
 				nestedTypes);
 	}
 }

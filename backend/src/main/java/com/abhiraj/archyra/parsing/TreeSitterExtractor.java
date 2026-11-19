@@ -181,25 +181,28 @@ public abstract class TreeSitterExtractor implements LanguageExtractor {
 		final TypeKind kind;
 		final Declaration declaration;
 		final int line;
+		/** Grows to cover every method when the type is only known from receiver-style methods (Go). */
+		int endLine;
 		final List<TypeRefIR> extendsTypes;
 		final List<TypeRefIR> implementsTypes;
 		final List<VariableIR> fields = new ArrayList<>();
 		final List<MethodIR> methods = new ArrayList<>();
 		final List<TypeBuilder> nested = new ArrayList<>();
 
-		TypeBuilder(String name, String qualifiedName, TypeKind kind, Declaration declaration, int line,
+		TypeBuilder(String name, String qualifiedName, TypeKind kind, Declaration declaration, int line, int endLine,
 				List<TypeRefIR> extendsTypes, List<TypeRefIR> implementsTypes) {
 			this.name = name;
 			this.qualifiedName = qualifiedName;
 			this.kind = kind;
 			this.declaration = declaration;
 			this.line = line;
+			this.endLine = endLine;
 			this.extendsTypes = extendsTypes;
 			this.implementsTypes = implementsTypes;
 		}
 
 		TypeIR build() {
-			return new TypeIR(kind, name, qualifiedName, line, declaration, extendsTypes, implementsTypes, fields,
+			return new TypeIR(kind, name, qualifiedName, line, endLine, declaration, extendsTypes, implementsTypes, fields,
 					methods, nested.stream().map(TypeBuilder::build).toList());
 		}
 	}
@@ -253,7 +256,7 @@ public abstract class TreeSitterExtractor implements LanguageExtractor {
 		private void declareType(Node node, TypeDecl decl, String qualifier, List<TypeBuilder> typeSink) {
 			String qualifiedName = qualifier.isEmpty() ? decl.name() : qualifier + "." + decl.name();
 			TypeBuilder builder = new TypeBuilder(decl.name(), qualifiedName, decl.kind(), decl.declaration(),
-					lineOf(node), decl.extendsTypes(), decl.implementsTypes());
+					lineOf(node), endLineOf(node), decl.extendsTypes(), decl.implementsTypes());
 			builder.fields.addAll(decl.fields());
 			visit(decl.members(), builder, qualifiedName, builder.nested);
 			typeSink.add(builder);
@@ -265,11 +268,12 @@ public abstract class TreeSitterExtractor implements LanguageExtractor {
 				String qualifiedName = moduleName.isEmpty() ? decl.receiverType() : moduleName + "." + decl.receiverType();
 				TypeBuilder receiver = receiverTypes.computeIfAbsent(qualifiedName, key -> {
 					TypeBuilder created = new TypeBuilder(decl.receiverType(), key, TypeKind.STRUCT,
-							Declaration.EXTENSION, lineOf(node), List.of(), List.of());
+							Declaration.EXTENSION, lineOf(node), endLineOf(node), List.of(), List.of());
 					types.add(created);
 					return created;
 				});
 				receiver.methods.add(method);
+				receiver.endLine = Math.max(receiver.endLine, method.endLine());
 			}
 			else if (owner != null) {
 				owner.methods.add(method);
@@ -299,7 +303,7 @@ public abstract class TreeSitterExtractor implements LanguageExtractor {
 					}
 				}
 			}
-			return new MethodIR(decl.name(), decl.constructor(), lineOf(node), decl.parameters(), decl.returnType(),
+			return new MethodIR(decl.name(), decl.constructor(), lineOf(node), endLineOf(node), decl.parameters(), decl.returnType(),
 					locals, calls, instantiated);
 		}
 	}
@@ -308,6 +312,13 @@ public abstract class TreeSitterExtractor implements LanguageExtractor {
 
 	protected static int lineOf(Node node) {
 		return node.getStartPoint().row() + 1;
+	}
+
+	/** 1-based last line of {@code node}, inclusive (a node that ends at a line start still ends on the line before). */
+	protected static int endLineOf(Node node) {
+		var end = node.getEndPoint();
+		int line = end.row() + 1;
+		return end.column() == 0 && line > lineOf(node) ? line - 1 : line;
 	}
 
 	protected static String textOf(Node node) {

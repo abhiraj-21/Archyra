@@ -32,7 +32,20 @@
 		<bucket4j.version>8.22.0</bucket4j.version>
 		<greenmail.version>2.1.15</greenmail.version>
 		<wiremock.version>3.13.2</wiremock.version>
+		<!-- Spring AI 2.0.x is built for Spring Boot 4.0 / Spring Framework 7. Used for EmbeddingModel and chat only. -->
+		<spring-ai.version>2.0.2</spring-ai.version>
 	</properties>
+	<dependencyManagement>
+		<dependencies>
+			<dependency>
+				<groupId>org.springframework.ai</groupId>
+				<artifactId>spring-ai-bom</artifactId>
+				<version>${spring-ai.version}</version>
+				<type>pom</type>
+				<scope>import</scope>
+			</dependency>
+		</dependencies>
+	</dependencyManagement>
 	<dependencies>
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
@@ -88,6 +101,22 @@
 			<artifactId>jtreesitter</artifactId>
 			<version>0.27.0</version>
 		</dependency>
+		<!--
+			Ask AI. The non-starter modules on purpose: no auto-configuration, so no default ChatModel or ChatClient.Builder
+			exists that other code could pick up by accident. The providers and the embedding model are built explicitly in ai/.
+		-->
+		<dependency>
+			<groupId>org.springframework.ai</groupId>
+			<artifactId>spring-ai-transformers</artifactId>
+		</dependency>
+		<dependency>
+			<groupId>org.springframework.ai</groupId>
+			<artifactId>spring-ai-google-genai</artifactId>
+		</dependency>
+		<dependency>
+			<groupId>org.springframework.ai</groupId>
+			<artifactId>spring-ai-openai</artifactId>
+		</dependency>
 		<dependency>
 			<groupId>org.postgresql</groupId>
 			<artifactId>postgresql</artifactId>
@@ -134,6 +163,15 @@
 			<groupId>org.wiremock</groupId>
 			<artifactId>wiremock-standalone</artifactId>
 			<version>${wiremock.version}</version>
+			<scope>test</scope>
+		</dependency>
+		<!--
+			Testcontainers needs commons-lang3, which it used to get through commons-compress 1.28. Spring AI's ONNX
+			dependency (DJL) brings commons-compress 1.27.1 closer to the root, which wins and loses lang3, so it is declared.
+		-->
+		<dependency>
+			<groupId>org.apache.commons</groupId>
+			<artifactId>commons-lang3</artifactId>
 			<scope>test</scope>
 		</dependency>
 		<dependency>

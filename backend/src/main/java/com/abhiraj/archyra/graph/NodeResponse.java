@@ -13,6 +13,8 @@ import com.fasterxml.jackson.annotation.JsonInclude;
  * @param qualifiedName fully qualified name; for a file its path
  * @param file          declaring file; absent for repository and module nodes
  * @param line          1-based declaration line, when known
+ * @param endLine       1-based last line of the declaration (inclusive), when known (classes, interfaces, methods,
+ *                      functions); absent for analyses made before it was recorded
  * @param kind          finer declaration kind of a type ({@code CLASS}, {@code ENUM}, {@code RECORD}, ...)
  * @param language      language of a file node (display name, e.g. {@code Java}); absent for other nodes
  * @param parentId      the node that contains this one (file for a class, class for a method); absent for
@@ -27,6 +29,7 @@ public record NodeResponse(
 		String qualifiedName,
 		String file,
 		Integer line,
+		Integer endLine,
 		String kind,
 		String language,
 		String parentId,

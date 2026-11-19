@@ -83,7 +83,7 @@ public class GraphBuilder {
 				UNWIND $rows AS row
 				MERGE (n:%s {analysisId: $analysisId, nodeId: row.nodeId})
 				SET n.name = row.name, n.qualifiedName = row.qualifiedName, n.file = row.file,
-				    n.line = row.line, n.kind = row.kind, n.external = row.external
+				    n.line = row.line, n.endLine = row.endLine, n.kind = row.kind, n.external = row.external
 				""".formatted(type.label());
 		for (List<Map<String, Object>> batch : partition(rows)) {
 			neo4jClient.query(cypher)
@@ -115,6 +115,7 @@ public class GraphBuilder {
 		row.put("qualifiedName", node.qualifiedName());
 		row.put("file", node.file());
 		row.put("line", node.line());
+		row.put("endLine", node.endLine());
 		row.put("kind", node.kind());
 		row.put("external", node.external());
 		return row;

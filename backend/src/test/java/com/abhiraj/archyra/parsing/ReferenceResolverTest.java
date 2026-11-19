@@ -43,7 +43,7 @@ class ReferenceResolverTest {
 	}
 
 	private static MethodIR method(String name, List<VariableIR> parameters, List<VariableIR> locals, CallIR... calls) {
-		return new MethodIR(name, false, 1, parameters, null, locals, List.of(calls), List.of());
+		return new MethodIR(name, false, 1, 1, parameters, null, locals, List.of(calls), List.of());
 	}
 
 	private static MethodIR method(String name, CallIR... calls) {
@@ -52,7 +52,7 @@ class ReferenceResolverTest {
 
 	private static TypeIR type(TypeKind kind, String qualifiedName, List<TypeRefIR> extendsTypes,
 			List<TypeRefIR> implementsTypes, List<VariableIR> fields, List<MethodIR> methods) {
-		return new TypeIR(kind, qualifiedName.substring(qualifiedName.lastIndexOf('.') + 1), qualifiedName, 1,
+		return new TypeIR(kind, qualifiedName.substring(qualifiedName.lastIndexOf('.') + 1), qualifiedName, 1, 1,
 				extendsTypes, implementsTypes, fields, methods, List.of());
 	}
 
@@ -125,7 +125,7 @@ class ReferenceResolverTest {
 	@Test
 	void nestedTypesAreContainedInTheirEnclosingType() {
 		TypeIR inner = clazz("p.Outer.Inner", List.of());
-		TypeIR outer = new TypeIR(TypeKind.CLASS, "Outer", "p.Outer", 1, List.of(), List.of(), List.of(), List.of(),
+		TypeIR outer = new TypeIR(TypeKind.CLASS, "Outer", "p.Outer", 1, 1, List.of(), List.of(), List.of(), List.of(),
 				List.of(inner));
 
 		CodeGraphIR graph = resolve(file("p/Outer.java", "p", List.of(), outer));
@@ -256,7 +256,7 @@ class ReferenceResolverTest {
 
 	@Test
 	void instantiationsAreReferences() {
-		MethodIR make = new MethodIR("make", false, 1, List.of(), null, List.of(), List.of(), List.of(ref("B")));
+		MethodIR make = new MethodIR("make", false, 1, 1, List.of(), null, List.of(), List.of(), List.of(ref("B")));
 		CodeGraphIR graph = resolve(file("p/A.java", "p", List.of(), clazz("p.A", List.of(), make)),
 				file("p/B.java", "p", List.of(), clazz("p.B", List.of())));
 

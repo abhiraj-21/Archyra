@@ -46,7 +46,7 @@ class NodeControllerTest {
 		Map<RelationshipType, Long> outgoing = new EnumMap<>(RelationshipType.class);
 		outgoing.put(RelationshipType.DEPENDS_ON, 2L);
 		return new NodeResponse(CLASS_ID, NodeType.CLASS, "UserService", "com.foo.UserService",
-				"src/UserService.java", 12, "CLASS", null, "file:src/UserService.java", false,
+				"src/UserService.java", 12, 40, "CLASS", null, "file:src/UserService.java", false,
 				new NodeResponse.Relationships(outgoing, Map.of()));
 	}
 
@@ -63,6 +63,7 @@ class NodeControllerTest {
 				.andExpect(jsonPath("$.qualifiedName").value("com.foo.UserService"))
 				.andExpect(jsonPath("$.file").value("src/UserService.java"))
 				.andExpect(jsonPath("$.line").value(12))
+				.andExpect(jsonPath("$.endLine").value(40))
 				.andExpect(jsonPath("$.kind").value("CLASS"))
 				.andExpect(jsonPath("$.language").doesNotExist())
 				.andExpect(jsonPath("$.parentId").value("file:src/UserService.java"))
@@ -76,9 +77,9 @@ class NodeControllerTest {
 		String id = "method:com.foo.UserService#find(String, int)";
 		given(graphService.getNode(ANALYSIS_ID, "file:src/main/App.java"))
 				.willReturn(new NodeResponse("file:src/main/App.java", NodeType.FILE, "App.java", "src/main/App.java",
-						"src/main/App.java", null, null, "Java", "module:main", false, null));
+						"src/main/App.java", null, null, null, "Java", "module:main", false, null));
 		given(graphService.getNode(ANALYSIS_ID, id))
-				.willReturn(new NodeResponse(id, NodeType.METHOD, "find", null, null, null, null, null, null, false, null));
+				.willReturn(new NodeResponse(id, NodeType.METHOD, "find", null, null, null, null, null, null, null, false, null));
 
 		mockMvc.perform(get(URI.create("/api/v1/analyses/" + ANALYSIS_ID + "/nodes/file%3Asrc%2Fmain%2FApp.java")))
 				.andExpect(status().isOk())

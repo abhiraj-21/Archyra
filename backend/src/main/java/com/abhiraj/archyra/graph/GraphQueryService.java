@@ -115,7 +115,7 @@ public class GraphQueryService {
 						MATCH (n:%s {analysisId: $analysisId, nodeId: $nodeId})
 						WHERE NOT coalesce(n.external, false)
 						RETURN n.name AS name, n.qualifiedName AS qualifiedName, n.file AS file, n.line AS line,
-						       n.kind AS kind, %s AS files,
+						       n.endLine AS endLine, n.kind AS kind, %s AS files,
 						       head([(p)-[:CONTAINS]->(n) WHERE p.analysisId = $analysisId | p.nodeId]) AS parentId
 						""".formatted(label, moduleFiles(type.get())))
 				.bind(analysisId).to("analysisId")
@@ -127,6 +127,7 @@ public class GraphQueryService {
 					return new NodeResponse(nodeId, type.get(), record.get("name").asString(null),
 							record.get("qualifiedName").asString(null), record.get("file").asString(null),
 							record.get("line").isNull() ? null : record.get("line").asInt(),
+							record.get("endLine").isNull() ? null : record.get("endLine").asInt(),
 							isFile ? null : kind, isFile && kind != null ? Language.valueOf(kind).displayName() : null,
 							record.get("parentId").asString(null), isTest(type.get(), record), null);
 				})
@@ -138,7 +139,7 @@ public class GraphQueryService {
 		var relationships = new NodeResponse.Relationships(
 				countRelationships(label, analysisId, node.id(), "(n)-[r]->(m {analysisId: $analysisId})"),
 				countRelationships(label, analysisId, node.id(), "(m {analysisId: $analysisId})-[r]->(n)"));
-		return new NodeResponse(node.id(), node.type(), node.name(), node.qualifiedName(), node.file(), node.line(),
+		return new NodeResponse(node.id(), node.type(), node.name(), node.qualifiedName(), node.file(), node.line(), node.endLine(),
 				node.kind(), node.language(), node.parentId(), node.test(), relationships);
 	}
 

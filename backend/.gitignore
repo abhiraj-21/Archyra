@@ -2,6 +2,9 @@
 # Tree-sitter native libraries built by scripts/build-native.sh
 native/
 
+# Local embedding model downloaded by scripts/fetch-embedding-model.sh (or on first use)
+models/
+
 # Build output and IDE files
 target/
 .idea/
