@@ -12,13 +12,14 @@ import { useUpgrade } from '@/hooks/upgradeContext';
 import { describeError } from '@/lib/errorCopy';
 import { UsageMeter } from '@/features/usage/UsageMeter';
 import { nameError } from '@/features/auth/validation';
+import { Appearance } from './Appearance';
 import { ChangePassword } from './ChangePassword';
 import { DeleteAccount } from './DeleteAccount';
 import { SignInMethods } from './SignInMethods';
 
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
+function Section({ title, children, themeUi = false }: { title: string; children: React.ReactNode; themeUi?: boolean }) {
   return (
-    <section className="grid gap-md border-t border-rule py-lg md:grid-cols-[14rem_minmax(0,1fr)]">
+    <section className="grid gap-md border-t border-rule py-lg md:grid-cols-[14rem_minmax(0,1fr)]" data-theme-ui={themeUi || undefined}>
       <h2 className="text-lg">{title}</h2>
       <div className="grid content-start gap-md">{children}</div>
     </section>
@@ -101,6 +102,10 @@ export default function SettingsPage() {
         <div className="max-w-[24rem]">
           <UsageMeter />
         </div>
+      </Section>
+
+      <Section title="Appearance" themeUi>
+        <Appearance />
       </Section>
 
       <Section title="Sign-in methods">

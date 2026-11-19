@@ -32,6 +32,12 @@ export default tseslint.config(
     },
   },
   {
+    // The one allowed use of web storage besides the OAuth return path: the colour-theme preference (`archyra.theme`), a
+    // harmless Light/Dark/System word that is not tied to the account. These files and their tests only.
+    files: ['src/lib/theme.ts', 'src/lib/theme.test.ts', 'src/hooks/useTheme.ts', 'src/hooks/useTheme.test.tsx', 'scripts/e2e/theme.spec.ts'],
+    rules: { 'no-restricted-globals': 'off' },
+  },
+  {
     files: ['scripts/**/*.{js,mjs,ts}', '*.config.{js,ts}'],
     languageOptions: { globals: { ...globals.node } },
   },

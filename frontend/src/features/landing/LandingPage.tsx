@@ -4,6 +4,7 @@ import { ArrowRight } from 'lucide-react';
 import { Button, ButtonLink } from '@/components/ui/Button';
 import { Notice } from '@/components/ui/Notice';
 import { LogoMark } from '@/components/ui/Logo';
+import { ThemeToggle } from '@/components/ThemeToggle';
 import { useDocumentTitle } from '@/components/ui/useDocumentTitle';
 import { useSession } from '@/hooks/sessionContext';
 import { PlanComparisonTable } from '@/features/upgrade/UpgradeProvider';
@@ -92,6 +93,7 @@ export default function LandingPage() {
             <ButtonLink to={signedIn ? '/dashboard' : '/login'} variant="quiet">
               {signedIn ? 'Dashboard' : 'Sign in'}
             </ButtonLink>
+            <ThemeToggle className="ml-2xs align-middle" />
           </div>
         </div>
       </header>

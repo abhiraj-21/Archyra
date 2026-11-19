@@ -80,10 +80,10 @@
 
 .lp-plans { max-width: 60rem; }
 
-/* close: the hero's action again, on the ink board */
-.lp-close { background: var(--color-board); color: var(--color-board-type); }
+/* close: the hero's action again, on the ink board (in dark, a dark band a step above the page: --color-band) */
+.lp-close { background: var(--color-band); color: var(--color-band-type); }
 .lp-close__inner { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-lg); padding-block: var(--space-3xl); }
-.lp-close h2 { color: var(--color-board-type); max-width: 18ch; }
+.lp-close h2 { color: var(--color-band-type); max-width: 18ch; }
 
 /* footer: a colophon */
 .lp-footer { padding-block: var(--space-2xl) var(--space-xl); }

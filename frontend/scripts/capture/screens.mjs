@@ -108,7 +108,9 @@ export function adminScreens() {
   const mask = (page) => [page.locator('main table, main dl, main [role="meter"], main .stat, main .stats')];
   return [
     { name: 'admin-stats', path: '/admin/stats', mask },
-    { name: 'admin-users', path: '/admin/users', mask },
+    // The list itself is live data (it grows with every registration), so the regression test removes it (`volatile`) and holds
+    // the page around it to the baseline; the dark preview shows it.
+    { name: 'admin-users', path: '/admin/users', mask, volatile: ['main table', 'main nav[aria-label="User pages"]'] },
   ];
 }
 
@@ -148,13 +150,20 @@ export function captureOptions(screen, size, page) {
   return { fullPage: !(screen.viewportOnlyAt ?? []).includes(size.label), animations: 'disabled', caret: 'hide', ...(screen.mask ? { mask: screen.mask(page) } : {}) };
 }
 
-/** Open one screen at one width and bring it to the state that is photographed. */
-export async function openScreen(page, screen, size) {
+/** Open one screen at one width and bring it to the state that is photographed. `lightRegression` is for the light regression test only (see visual.spec.ts). */
+export async function openScreen(page, screen, size, { lightRegression = false } = {}) {
   await page.setViewportSize({ width: size.width, height: size.height });
   await page.goto(screen.path);
   await page.locator('main, #main, body').first().waitFor();
   // Test harness only: no transition or animation can be caught half-way (the graph's edges fade on hover and selection).
   await page.addStyleTag({ content: '*, *::before, *::after { transition: none !important; animation: none !important; }' });
+  // The light regression test compares against a baseline recorded before the theme controls existed (the header toggle and
+  // Settings, Appearance, both marked data-theme-ui). They are new, so they are taken out; every OTHER pixel must match.
+  if (lightRegression) {
+    await page.addStyleTag({ content: '[data-theme-ui] { display: none !important; }' });
+    // Live data (a user list that grows with every registration) cannot be held to a baseline: leave it out.
+    if (screen.volatile) await page.addStyleTag({ content: `${screen.volatile.join(', ')} { display: none !important; }` });
+  }
   if (screen.ready) await screen.ready(page);
   await settle(page);
   if (screen.act) {

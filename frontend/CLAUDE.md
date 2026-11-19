@@ -10,7 +10,12 @@ Built against the live backend (V0.1 and V0.5 APIs): landing, auth (email/passwo
 
 ```bash
 npm run dev             # Vite on :5173, proxying /api, /oauth2, /login/oauth2 to the backend
-npm run verify          # typecheck + lint + check:tokens + unit tests + build + session-boot e2e (keep it green; the e2e part skips without the running stack)
+npm run verify          # typecheck + lint + check:tokens (incl. theme parity) + check:contrast + unit tests + build + session-boot e2e (keep it green; the e2e part skips without the running stack)
+npm run check:contrast  # WCAG contrast of the UI's colour pairs in BOTH themes (4.5:1 text, 3:1 lines and rings)
+npm run screens:dark    # photograph every screen in dark into scripts/e2e/__dark-preview__/ (gitignored, for review)
+npm run e2e -- visual   # the light theme must be pixel-identical to scripts/e2e/__baseline__/ (zero tolerance; macOS Chromium, the account it was recorded with: see the header of visual.spec.ts); add --update-snapshots only when light is meant to change
+npm run e2e -- theme    # the dark theme in a browser: toggle, no flash, Settings, System, every screen
+node scripts/snapshot-tokens.mjs   # re-record src/styles/tokens.light.snapshot.json (only when a light colour is meant to change)
 npm run e2e:session     # just the session-boot regression tests (scripts/e2e/session-boot.spec.ts)
 npm run e2e             # Playwright against the running app and backend (skips without .env.local creds)
 npm run assets:capture  # regenerate src/assets/*.png from the running app (see src/assets/README.md)
@@ -27,6 +32,7 @@ npm run e2e -- -g "admin gating"            # e2e tests by name
 - The browser only uses relative URLs, so SPA and API share an origin and the `SameSite=Strict` refresh cookie works. The proxy keeps the original `Host` (`changeOrigin: false`) and adds `X-Forwarded-*` (`xfwd`), so the backend builds OAuth redirect URIs on `http://localhost:5173` (checked against the real authorization redirect; `scripts/e2e/auth-flows.spec.ts` guards it). Register `http://localhost:5173/login/oauth2/code/{google,github}` with the providers and always browse via `http://localhost:5173`, never `127.0.0.1`. **Google** can hold several redirect URIs (keep the `:8080` one next to it); a **GitHub OAuth App holds exactly one** callback URL, so it serves the proxy flow or direct `:8080` use, not both (a second OAuth App with its own `GITHUB_CLIENT_ID`/`GITHUB_CLIENT_SECRET` in `backend/.env` covers both). A `redirect_uri_mismatch` is a provider-console setting, not a code defect. In production, serve the SPA and the API on one origin behind a reverse proxy.
 - Capture and e2e scripts read test accounts from an untracked `.env.local` (`ARCHYRA_TEST_*`, `ARCHYRA_ADMIN_*`). Use dedicated test accounts, never a real person's.
 - `scripts/e2e/ask-ai.spec.ts` (Ask AI: index panels, conversations and `?c=`, failure UIs by route interception; reuses a COMPLETED analysis of the test account and never starts one or asks a question, except the one real-question test that needs `ARCHYRA_E2E_AI=1` because it spends provider quota and one AI_QUERY unit), `scripts/e2e/graph-controls.spec.ts` (scope, dragging; reuses a COMPLETED analysis of the test account that has test code, and only starts one when there is none) and `scripts/e2e/auth-flows.spec.ts` (OAuth `redirect_uri` through the dev proxy; registering the same address twice, opt-in with `ARCHYRA_E2E_REGISTER=1` because it creates an unverified dev account and spends register attempts) run against the real stack. The login endpoint allows 10 attempts a minute per IP, so a spec signs in once and shares the page.
+- **Run e2e spec files one at a time, with a pause between them.** The backend allows 10 logins a minute per IP (and throttles register/sensitive endpoints for much longer), and most specs sign in in every test, so a full `npm run e2e` run back to back fails on sign-in with nothing wrong in the code; `RATE_LIMITED_LOGIN` / `RATE_LIMITED_SENSITIVE` in the backend's `security.audit` log confirms it. A throwaway-account mail sink must return MailHog's order (newest first).
 - The register → verify-email e2e test is skipped because mail goes to a real SMTP relay. Pointing the backend at the local MailHog sink described in `backend/README.md` gives a readable dev mailbox.
 - `assets:capture` and the analysis e2e test analyse a repository as the test user: each run briefly uses one free analysis (returned on delete or when a re-run replaces the old one).
 
@@ -42,10 +48,11 @@ src/
   features/    landing, auth, dashboard, analysis-progress, repository/{overview,architecture,files,relationships,ask-ai},
                usage, upgrade, settings (profile, plan, sign-in methods, password, danger zone), admin, system (boot, 404)
   routes/      router.tsx, guards.tsx
-  lib/         url.ts (repo URL check), encode.ts (node ids in paths), errorCopy.ts, returnTo.ts, once.ts, plans.ts
-  styles/      tokens.css (THE token file), base.css, components.css, index.css (Tailwind + token mapping)
+  lib/         url.ts (repo URL check), encode.ts (node ids in paths), errorCopy.ts, returnTo.ts, once.ts, plans.ts, theme.ts (colour theme: read, write, resolve, subscribe; pure)
+  styles/      tokens.css (THE token file: light :root + dark override), tokens.light.snapshot.json, base.css, components.css, index.css (Tailwind + token mapping)
   assets/      captured PNGs + README.md
-scripts/       check-tokens.mjs, capture/, e2e/, lib/env.mjs (never imported by the app)
+public/        theme-init.js (sets data-theme before first paint; external so a CSP can stay strict; no colours)
+scripts/       check-tokens.mjs, check-contrast.mjs, snapshot-tokens.mjs, capture/ (assets, and screens.mjs: the screen list for the light regression test and the dark preview), e2e/ (incl. __baseline__/), lib/ (env.mjs, tokens.mjs) (never imported by the app)
 ```
 
 ## How the pieces fit
@@ -72,7 +79,8 @@ scripts/       check-tokens.mjs, capture/, e2e/, lib/env.mjs (never imported by 
 
 ## Design
 
-- Theme: Hallmark **Coral**, light only. **`Blueprint` and blueprint/engineering-grid aesthetics are banned**: no cyan or blue drafting paper, no grid, cross or dot pattern on any page, canvas or image (never render React Flow's `<Background>`), no drafting motifs.
+- Theme: Hallmark **Coral** in two colourways, **Light** (the original and the default) and **Dark** (a warm neutral dark, same hues, coral accent), chosen with Light / Dark / System. **`Blueprint` and blueprint/engineering-grid aesthetics are banned**: no cyan or blue drafting paper, no grid, cross or dot pattern on any page, canvas or image (never render React Flow's `<Background>`), no drafting motifs.
+- **Theme rules** (`spec/ui/spec-dark-ui.md`, `DESIGN-NOTES.md` → Dark colourway). (1) **The light theme must not change**: never edit an existing light value in `tokens.css`; `src/styles/tokens.test.ts` (against `tokens.light.snapshot.json`) and `npm run e2e -- visual` (zero-tolerance screenshots against `scripts/e2e/__baseline__/`) fail on any difference. (2) **No component branches on the theme.** No `[data-theme]` selector or `data-theme` check outside `tokens.css`, except the toggle's sun / moon swap in `components.css` and `lib/theme.ts`; a role a component needs in both colourways is a new semantic token. (3) **To add a colour token, define it in both blocks**: in the light `:root` with the value the component used before (an alias such as `var(--color-ink)` is fine, so light stays identical), and in `:root[data-theme="dark"]`. `check:tokens` fails with a list when dark lacks a colour token light has (parity) or the reverse; run `node scripts/snapshot-tokens.mjs` only if a *new light colour* should be recorded (existing entries must still match). (4) Add any new text or line pair to `scripts/check-contrast.mjs`. (5) Components get the theme only through `hooks/useTheme.ts` (`ThemeToggle`, `features/settings/Appearance`); `routes/RouteParts.tsx` mounts it once so System keeps following the device on every screen. The choice is the one harmless thing kept in `localStorage` (`archyra.theme`; ESLint's no-storage rule is lifted for the theme files only). New controls that belong to the theme UI carry `data-theme-ui`, which the light regression test removes (they were not in the baseline). (6) The landing screenshots are light product shots: never invert or filter them. (7) Textures are off in dark by tokens (`--tex-cotton: none`), not by a selector.
 - **Tokens:** every colour and font is a token in `src/styles/tokens.css`; Tailwind reads them through `@theme inline reference` in `index.css`, with the stock palette removed. `npm run check:tokens` fails on any hex, `rgb()`/`hsl()`/`oklch()`, font-family literal, font name or stock Tailwind colour class elsewhere in `src/`.
 - Graph node and edge styles are defined once in `components/graph/graphStyles.ts`, keyed by type; the legend, minimap and canvas read from it. Colour is never the only signal (glyph shapes, dash patterns, markers).
 - CSS files carry the Hallmark stamp in their first lines. Run `node ~/.claude/skills/hallmark/scripts/sloplint.mjs src --scope app` (and the landing with `--url http://localhost:5173/ --render`) before shipping UI changes.

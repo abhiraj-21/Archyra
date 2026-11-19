@@ -1,11 +1,13 @@
 #!/usr/bin/env node
 // Fails when a colour literal or a font name appears anywhere in src/ outside the token file.
 // Colours and fonts are Hallmark tokens (src/styles/tokens.css); everything else refers to them through var(--…)
-// or the Tailwind utilities generated from them. 
+// or the Tailwind utilities generated from them. Also checks theme parity: the dark colourway must define every
+// colour token the light one does (so a token added for one theme cannot silently fall back in the other), and may
+// define nothing the light one lacks.
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { SNAPSHOT_FILE } from './lib/tokens.mjs';
+import { SNAPSHOT_FILE, parity } from './lib/tokens.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const srcDir = path.join(root, 'src');
@@ -59,9 +61,14 @@ for (const file of walk(srcDir)) {
   }
 }
 
+// ---- theme parity ----
+const { required, missing, extra } = parity(fs.readFileSync(TOKEN_FILE, 'utf8'));
+for (const name of missing) findings.push(`${path.relative(root, TOKEN_FILE)}  parity: ${name} is a light colour token but the :root[data-theme="dark"] block does not define it`);
+for (const name of extra) findings.push(`${path.relative(root, TOKEN_FILE)}  parity: ${name} is defined for dark but not in the light :root block`);
+
 if (findings.length) {
   console.error(`check:tokens failed. Colours and fonts belong in ${path.relative(root, TOKEN_FILE)} only:\n`);
   for (const f of findings) console.error(`  ${f}`);
   process.exit(1);
 }
-console.log(`check:tokens passed: no colour or font literal in src/ outside ${path.relative(root, TOKEN_FILE)}.`);
+console.log(`check:tokens passed: no colour or font literal in src/ outside ${path.relative(root, TOKEN_FILE)}; dark defines all ${required.length} light colour tokens.`);

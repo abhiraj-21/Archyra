@@ -6,7 +6,12 @@
  *   npm run e2e -- visual                      compare
  *   npm run e2e -- visual --update-snapshots   re-record the baseline (only when light is meant to change)
  *
- * The baseline PNGs are rendered by the machine's Chromium (macOS font rasterisation): regenerate them on another OS.
+ * The baseline PNGs are rendered by macOS Chromium and show the account they were recorded with (display name "Dark Theme", one
+ * COMPLETED spring-petclinic analysis). On another OS or account, check out the commit before the dark theme (git worktree), record the
+ * baseline there with --update-snapshots, and compare from the current code.
+ * The theme controls (the header toggle, Settings > Appearance: everything marked data-theme-ui) did not exist when the
+ * baseline was recorded, so this test removes exactly those and holds every other pixel to the baseline.
+ * The admin user list is live data, so it is removed too (`volatile` in screens.mjs).
  * Runs against the real stack; skips, saying why, without the test account or a COMPLETED analysis.
  */
 import { expect, test, type BrowserContext, type Page } from '@playwright/test';
@@ -15,7 +20,7 @@ import { PUBLIC_SCREENS, WIDTHS, adminScreens, captureOptions, discover, openScr
 import { env } from './helpers';
 
 type Size = { label: string; width: number; height: number };
-type Screen = { name: string; path: string; mask?: (page: Page) => unknown[]; viewportOnlyAt?: string[] };
+type Screen = { name: string; path: string; mask?: (page: Page) => unknown[]; viewportOnlyAt?: string[]; volatile?: string[] };
 
 test.describe.configure({ mode: 'serial' });
 
@@ -51,7 +56,7 @@ async function lightContext(browser: import('@playwright/test').Browser) {
 async function shot(context: BrowserContext, screen: Screen, size: Size) {
   const page = await context.newPage();
   try {
-    await openScreen(page, screen, size);
+    await openScreen(page, screen, size, { lightRegression: true });
     await expect(page).toHaveScreenshot(`${screen.name}-${size.label}.png`, captureOptions(screen, size, page));
   } finally {
     await page.close();

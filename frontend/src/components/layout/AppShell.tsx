@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router';
 import { ChevronsLeft, ChevronsRight, LayoutDashboard, LogOut, Menu as MenuIcon, Settings, ShieldCheck, X } from 'lucide-react';
 import { PlanBadge } from '@/components/ui/Chips';
+import { ThemeToggle } from '@/components/ThemeToggle';
 import { LogoMark, Wordmark } from '@/components/ui/Logo';
 import { Menu } from '@/components/ui/Menu';
 import { useSession } from '@/hooks/sessionContext';
@@ -129,6 +130,7 @@ export function AppShell() {
               <Wordmark />
             </NavLink>
           )}
+          {collapsed ? null : <ThemeToggle />}
         </div>
         <SidebarBody collapsed={collapsed} />
         <button
@@ -141,6 +143,7 @@ export function AppShell() {
           {collapsed ? <ChevronsRight size={16} aria-hidden="true" /> : <ChevronsLeft size={16} aria-hidden="true" />}
           {collapsed ? null : 'Collapse'}
         </button>
+        {collapsed ? <ThemeToggle className="self-center" /> : null}
       </aside>
 
       {/* Narrow screens */}
@@ -148,9 +151,12 @@ export function AppShell() {
         <NavLink to="/dashboard" className="link-plain" aria-label="Archyra dashboard">
           <Wordmark />
         </NavLink>
-        <button type="button" className="btn btn-quiet btn-icon" aria-label="Open menu" aria-expanded={drawerOpen} onClick={() => setDrawerOpen(true)}>
-          <MenuIcon size={20} aria-hidden="true" />
-        </button>
+        <div className="flex items-center gap-2xs">
+          <ThemeToggle />
+          <button type="button" className="btn btn-quiet btn-icon" aria-label="Open menu" aria-expanded={drawerOpen} onClick={() => setDrawerOpen(true)}>
+            <MenuIcon size={20} aria-hidden="true" />
+          </button>
+        </div>
       </header>
       <dialog
         ref={drawerRef}
