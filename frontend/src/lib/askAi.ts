@@ -1,14 +1,5 @@
 import type { ChatSource, UsageEntry } from '@/api/types';
 
-/** Example questions from Architecture.md (V1, Ask AI). They fill the composer; they never send. */
-export const EXAMPLE_QUESTIONS = [
-  'How does authentication work?',
-  'Where does a request to /users go?',
-  'What classes depend on PaymentService?',
-  'Explain this class',
-  'What is the role of this module?',
-] as const;
-
 /** The backend rejects longer messages (archyra.ai.limits.message-max-chars); the counter shows near it. */
 export const MESSAGE_MAX_CHARS = 2000;
 export const COUNTER_FROM_CHARS = 1800;

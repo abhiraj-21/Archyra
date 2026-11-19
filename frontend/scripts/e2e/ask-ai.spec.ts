@@ -15,6 +15,9 @@ let skipReason: string | null = null;
 let analysisId = '';
 let indexStatus: IndexStatus = 'NOT_INDEXED';
 let indexRetryable = false;
+let token = '';
+/** A conversation of the account with at least one message (the guide is a collapsible panel there), or null. */
+let busyConversation: string | null = null;
 
 async function prepare(playwright: PlaywrightWorkerArgs['playwright'], baseURL: string): Promise<string | null> {
   const missing = ['ARCHYRA_TEST_EMAIL', 'ARCHYRA_TEST_PASSWORD'].filter((v) => !env[v]);
@@ -25,7 +28,8 @@ async function prepare(playwright: PlaywrightWorkerArgs['playwright'], baseURL: 
     if (!csrf || csrf.status() !== 200) return `backend not reachable through ${baseURL}`;
     const login = await api.post('/api/v1/auth/login', { data: { email: env.ARCHYRA_TEST_EMAIL, password: env.ARCHYRA_TEST_PASSWORD } });
     if (login.status() !== 200) return 'the test account cannot sign in';
-    const headers = { Authorization: `Bearer ${((await login.json()) as { accessToken: string }).accessToken}` };
+    token = ((await login.json()) as { accessToken: string }).accessToken;
+    const headers = { Authorization: `Bearer ${token}` };
     const list = (await (await api.get('/api/v1/analyses?page=0&size=50', { headers })).json()) as { items: { analysisId: string; status: string }[] };
     let fallback: { id: string; status: IndexStatus; retryable: boolean } | null = null;
     for (const item of list.items.filter((i) => i.status === 'COMPLETED')) {
@@ -35,6 +39,10 @@ async function prepare(playwright: PlaywrightWorkerArgs['playwright'], baseURL: 
       if (index.status === 'READY') {
         analysisId = item.analysisId;
         indexStatus = 'READY';
+        const conversations = await api.get(`/api/v1/analyses/${item.analysisId}/conversations?page=0&size=50`, { headers });
+        if (conversations.status() === 200) {
+          busyConversation = ((await conversations.json()) as { items: { id: string; messageCount: number }[] }).items.find((c) => c.messageCount > 0)?.id ?? null;
+        }
         return null;
       }
       fallback ??= { id: item.analysisId, status: index.status, retryable: index.retryable };
@@ -130,7 +138,7 @@ live('creates a conversation, keeps it in ?c= across a reload, and deletes it', 
   await page.reload();
   await expect(page).toHaveURL(new RegExp(`[?&]c=${id}`));
   await expect(page.getByRole('button', { name: /New conversation/ }).first()).toBeVisible();
-  await expect(page.getByRole('heading', { name: 'Ask about this repository' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Questions that work well' })).toBeVisible();
 
   await page.getByRole('button', { name: /Delete conversation New conversation/ }).first().click();
   await page.getByRole('dialog').getByRole('button', { name: 'Delete' }).click();
@@ -156,6 +164,95 @@ live('an example question fills the composer and sends nothing', async (page) =>
   await expect(composer(page)).toHaveValue('How does authentication work?');
   await expect(composer(page)).toBeFocused();
   expect(chats).toBe(0);
+  await page.unroute('**/api/v1/analyses/*/chat');
+}, 'ready');
+
+/** The repository's own names for the examples, derived the way the guide derives them, from the graph the API serves. */
+async function ownNames(page: Page): Promise<{ className: string; moduleName: string }> {
+  const res = await page.request.get(`/api/v1/analyses/${analysisId}/graph`, { headers: { Authorization: `Bearer ${token}` } });
+  expect(res.status()).toBe(200);
+  const graph = (await res.json()) as { nodes: { id: string; type: string; name: string; test: boolean }[]; edges: { source: string; target: string; type: string }[] };
+  const classes = new Map(graph.nodes.filter((n) => (n.type === 'CLASS' || n.type === 'INTERFACE') && !n.test && !n.id.startsWith('external:')).map((n) => [n.id, n]));
+  const dependents = new Map<string, Set<string>>();
+  for (const e of graph.edges) {
+    if (e.type !== 'DEPENDS_ON' || e.source === e.target || !classes.has(e.source) || !classes.has(e.target)) continue;
+    dependents.set(e.target, (dependents.get(e.target) ?? new Set()).add(e.source));
+  }
+  const className = [...dependents.entries()].map(([id, set]) => ({ name: classes.get(id)?.name ?? '', count: set.size })).sort((a, b) => b.count - a.count || a.name.localeCompare(b.name))[0]?.name;
+  const files = new Set(graph.nodes.filter((n) => n.type === 'FILE' && !n.test).map((n) => n.id));
+  const modules = new Map(graph.nodes.filter((n) => n.type === 'MODULE' && !n.test).map((n) => [n.id, n.name]));
+  const sizes = new Map<string, number>();
+  for (const e of graph.edges) if (e.type === 'CONTAINS' && modules.has(e.source) && files.has(e.target)) sizes.set(e.source, (sizes.get(e.source) ?? 0) + 1);
+  const moduleName = [...sizes.entries()].map(([id, count]) => ({ name: modules.get(id) ?? '', count })).sort((a, b) => b.count - a.count || a.name.localeCompare(b.name))[0]?.name;
+  test.skip(!className || !moduleName, 'the graph has no class dependencies or no module to name');
+  return { className: className as string, moduleName: moduleName as string };
+}
+
+live('the guide shows what to ask and what not to, with this repository\'s own class and module names, and an honest counting note', async (page) => {
+  const { className, moduleName } = await ownNames(page);
+  await page.goto(ASK());
+  await page.getByRole('button', { name: 'New conversation' }).click();
+  await expect(page).toHaveURL(/[?&]c=[0-9a-f-]{36}/);
+
+  await expect(page.getByRole('heading', { name: 'Questions that work well' })).toBeVisible();
+  for (const group of ['The project', 'How things work', 'Relationships', 'Explain code']) await expect(page.getByRole('heading', { name: group })).toBeVisible();
+  await expect(page.getByRole('button', { name: `What classes depend on \`${className}\`?` })).toBeVisible();
+  await expect(page.getByRole('button', { name: `Explain \`${className}\`` })).toBeVisible();
+  await expect(page.getByRole('button', { name: `What is the role of the \`${moduleName}\` module?` })).toBeVisible();
+  await expect(page.getByRole('heading', { name: /won.t work, or will waste one of your questions/ })).toBeVisible();
+  for (const text of ['Not about this repository', 'Asking the AI to change code', 'How code is tested', 'commit history', 'Swift', 'Each conversation is separate']) {
+    await expect(page.getByText(text, { exact: false }).first()).toBeVisible();
+  }
+  // the counting note beside the composer states the rule; the count itself is the server's number
+  await expect(page.getByTestId('counting-note')).toContainText("isn't counted");
+  await expect(page.getByTestId('counting-note')).toContainText('even if the answer is "I can\'t tell"');
+  await expect(page.getByRole('status').filter({ hasText: /questions? left|Unlimited questions|No questions left/ })).toBeVisible();
+
+  // an example fills the box and sends nothing
+  let chats = 0;
+  await page.route('**/api/v1/analyses/*/chat', async (route) => {
+    chats += 1;
+    await route.abort();
+  });
+  await page.getByRole('button', { name: `Explain \`${className}\`` }).click();
+  await expect(composer(page)).toHaveValue(`Explain \`${className}\``);
+  expect(chats).toBe(0);
+  await page.unroute('**/api/v1/analyses/*/chat');
+
+  await page.getByRole('button', { name: /Delete conversation New conversation/ }).first().click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Delete' }).click();
+}, 'ready');
+
+live('in a conversation with messages the guide is a "What to ask" panel that opens and closes from the keyboard', async (page) => {
+  test.skip(!busyConversation, 'the account has no conversation with messages (asking one spends a question: see ARCHYRA_E2E_AI)');
+  await page.goto(`${ASK()}?c=${busyConversation}`);
+  const toggle = page.getByRole('button', { name: 'What to ask' });
+  await expect(toggle).toBeVisible();
+  await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+  await expect(page.getByRole('heading', { name: 'Questions that work well' })).toHaveCount(0);
+
+  await toggle.focus();
+  await page.keyboard.press('Enter');
+  await expect(toggle).toHaveAttribute('aria-expanded', 'true');
+  await expect(page.getByRole('heading', { name: 'Questions that work well' })).toBeVisible();
+  await page.keyboard.press('Space');
+  await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+  await expect(page.getByRole('heading', { name: 'Questions that work well' })).toHaveCount(0);
+}, 'ready');
+
+live('QUESTION_NOT_ANSWERABLE says the question was not counted, keeps the text, opens the guide and offers no Try again', async (page) => {
+  const hits = await failChat(page, 422, 'QUESTION_NOT_ANSWERABLE');
+  await page.goto(ASK());
+  await composer(page).fill('Write me a poem about autumn');
+  await askButton(page).click();
+
+  const notice = page.getByRole('alert').or(page.getByRole('status')).filter({ hasText: 'was not sent' });
+  await expect(notice).toContainText('Not counted');
+  await expect(notice).toContainText('Write me a poem about autumn');
+  await expect(composer(page)).toHaveValue('Write me a poem about autumn'); // kept, to be edited
+  await expect(page.getByRole('button', { name: 'Try again' })).toHaveCount(0);
+  await expect(page.getByRole('heading', { name: 'Questions that work well' })).toBeVisible();
+  expect(hits()).toBe(1);
   await page.unroute('**/api/v1/analyses/*/chat');
 }, 'ready');
 
@@ -216,16 +313,14 @@ test.describe('a real question (spends provider quota and one AI_QUERY unit)', (
 
   live('gets a real answer with sources, expands one and opens it in the graph', async (page) => {
     await page.goto(ASK());
-    await composer(page).fill('What are the main classes of this repository and what do they do?');
+    await composer(page).fill('What is this project about?');
     await askButton(page).click();
     const answer = page.getByRole('article', { name: 'Answer' }).last();
     await expect(answer).toBeVisible({ timeout: 90_000 });
     await expect(page.getByText(/Answered by \S+/)).toBeVisible();
+    // an overview answer is built from the README and the project facts, so it cites at least one source (the repository node, a module or a class)
     const chips = answer.getByRole('button', { name: /^Source \d+:/ });
-    if ((await chips.count()) === 0) {
-      await expect(answer.getByText('No sources cited')).toBeVisible();
-      return;
-    }
+    await expect(chips.first()).toBeVisible();
     await chips.first().click();
     await expect(chips.first()).toHaveAttribute('aria-expanded', 'true');
     await expect(answer.getByRole('region').first()).toContainText(/\.\w+/); // a file name

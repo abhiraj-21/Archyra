@@ -16,6 +16,18 @@ describe('Ask AI error copy', () => {
   });
 });
 
+describe('QUESTION_NOT_ANSWERABLE copy', () => {
+  it('says the question was not counted, tells the user to edit it, and is not a retry', () => {
+    const copy = describeError(new ApiError(422, 'QUESTION_NOT_ANSWERABLE', 'server text'));
+
+    expect(copy).toMatchObject({ code: 'QUESTION_NOT_ANSWERABLE', retryable: false });
+    expect(copy.title).not.toBe('Something went wrong');
+    expect(copy.message).toContain('Not counted');
+    expect(copy.message).toContain('Edit the question');
+    expect(copy.message).not.toContain('server text');
+  });
+});
+
 describe('describeError', () => {
   it('has specific copy for every code the backend and client emit', () => {
     for (const code of [...SERVER_ERROR_CODES, ...CLIENT_ERROR_CODES]) {

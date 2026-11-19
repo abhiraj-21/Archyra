@@ -50,13 +50,23 @@ export const SourcePanel = forwardRef<HTMLElement, { source: ChatSource; panelId
 });
 
 /**
- * The Architecture tab can show a class or interface directly. A method goes to its owning class (its parent, read with
+ * The Architecture tab can show a class, an interface or a module directly. A method goes to its owning class (its parent, read with
  * the existing node hook). A function's parent is a file, which that view does not browse, so it gets no link.
  */
 function GraphLink({ source, analysisId }: { source: ChatSource; analysisId: string }) {
   const needsParent = source.type === 'METHOD';
   const node = useNode(analysisId, needsParent ? source.id : null, true);
   const target = source.type === 'CLASS' || source.type === 'INTERFACE' ? source.id : needsParent ? (node.data?.parentId ?? null) : null;
+  // A module is inspected on the Architecture tab too (it selects the node whether or not the module view is drawn); the repository
+  // node is the whole analysis, so there is nothing to open.
+  const isModule = source.type === 'MODULE' && source.id.startsWith('module:');
+  if (isModule) {
+    return (
+      <Link to={`../architecture?node=${encodeNodeId(source.id)}`} className="link inline-flex items-center gap-3xs text-sm">
+        Open in graph <ExternalLink size={12} aria-hidden="true" />
+      </Link>
+    );
+  }
   if (!target || (!target.startsWith('class:') && !target.startsWith('interface:'))) return null;
   return (
     <Link to={`../architecture?node=${encodeNodeId(target)}`} className="link inline-flex items-center gap-3xs text-sm">

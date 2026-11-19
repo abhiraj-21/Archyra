@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router';
 import { PanelLeft } from 'lucide-react';
 import { ApiError, hasCode, isApiError } from '@/api/errors';
@@ -9,13 +9,16 @@ import { Skeleton } from '@/components/ui/Skeleton';
 import { ErrorState } from '@/components/ui/States';
 import { useCountdown } from '@/components/ui/useCountdown';
 import { useAiUsage } from '@/hooks/useAccount';
+import { useGraph } from '@/hooks/useWorkspace';
 import { useAskQuestion, useConversationMessages, useConversations, useCreateConversation, useDeleteConversation, useRefreshAiIndex } from '@/hooks/useAskAi';
 import { questionsLabel, retrySeconds } from '@/lib/askAi';
+import { buildExamples, COUNTING_NOTE } from '@/lib/askGuide';
 import { describeError } from '@/lib/errorCopy';
 import { ChatThread } from './ChatThread';
 import { Composer, DATA_USE_NOTE } from './Composer';
 import { ConversationList } from './ConversationList';
 import { LimitPanel } from './LimitPanel';
+import { GuideToggle, QuestionGuide } from './QuestionGuide';
 
 interface Failure {
   id: number;
@@ -37,6 +40,11 @@ export function ChatWorkspace({ analysisId, index }: { analysisId: string; repos
   const ask = useAskQuestion(analysisId);
   const usage = useAiUsage();
   const refreshIndex = useRefreshAiIndex(analysisId);
+  // The examples use this repository's own names, from the graph the Architecture tab already caches (placeholders until it is there).
+  const graph = useGraph(analysisId, true);
+  const examples = useMemo(() => buildExamples(graph.data), [graph.data]);
+  const [guideOpen, setGuideOpen] = useState(false);
+  const guideId = useId();
 
   const [draft, setDraft] = useState('');
   const [pending, setPending] = useState<{ conversation: string | null; message: string } | null>(null);
@@ -102,6 +110,7 @@ export function ChatWorkspace({ analysisId, index }: { analysisId: string; repos
       return;
     }
     if (hasCode(error, 'AI_NOT_READY')) void refreshIndex();
+    if (hasCode(error, 'QUESTION_NOT_ANSWERABLE')) setGuideOpen(true); // the text stays in the box; the guide says what to ask instead
     if (hasCode(error, 'RATE_LIMITED')) setRateLimit({ id, seconds: retrySeconds(isApiError(error) ? error.retryAfter : undefined) });
     setFailure({ id, message: text, error });
   };
@@ -112,6 +121,11 @@ export function ChatWorkspace({ analysisId, index }: { analysisId: string; repos
   const limitReached = limitHit || entry?.limitReached === true;
   const disabledReason = sendingHere ? 'Waiting for the answer…' : rateLimit ? 'Too many questions. Wait for the countdown to end.' : null;
   const usageLabel = entry ? questionsLabel(entry) : null;
+  const onExample = (question: string) => {
+    setDraft(question);
+    composer.current?.focus();
+  };
+  const conversationIsEmpty = selectedId === null || (messages.data !== undefined && messages.data.items.length === 0 && pending === null);
 
   const failureNotice = failure ? (
     <FailureNotice
@@ -180,23 +194,31 @@ export function ChatWorkspace({ analysisId, index }: { analysisId: string; repos
             pendingMessage={sendingHere ? pending.message : null}
             status={failureNotice}
             loading={selectedId !== null && messages.isPending}
-            onExample={(question) => {
-              setDraft(question);
-              composer.current?.focus();
-            }}
+            emptyState={<QuestionGuide examples={examples} usage={usageLabel} onExample={onExample} />}
           />
         )}
         <div className="grid gap-xs border-t border-rule pt-sm">
-          {usageLabel ? (
-            <p className="text-xs">
-              <span className="chip" data-tone={usageLabel.tone === 'normal' ? undefined : usageLabel.tone} role="status">{usageLabel.text}</span>
-            </p>
+          {guideOpen && !conversationIsEmpty ? (
+            <div id={guideId} className="max-h-[40dvh] overflow-y-auto rounded-card border border-rule p-md">
+              <QuestionGuide examples={examples} usage={usageLabel} onExample={onExample} />
+            </div>
           ) : null}
+          <div className="flex flex-wrap items-center justify-between gap-xs">
+            {usageLabel ? (
+              <p className="text-xs">
+                <span className="chip" data-tone={usageLabel.tone === 'normal' ? undefined : usageLabel.tone} role="status">{usageLabel.text}</span>
+              </p>
+            ) : (
+              <span />
+            )}
+            {conversationIsEmpty ? null : <GuideToggle open={guideOpen} controls={guideId} onToggle={() => setGuideOpen((open) => !open)} />}
+          </div>
           {limitReached ? (
             <LimitPanel />
           ) : (
             <Composer ref={composer} value={draft} onChange={setDraft} onSend={() => void send(draft.trim())} disabledReason={disabledReason} sending={sendingHere} />
           )}
+          <p className="max-w-[80ch] text-xs text-muted" data-testid="counting-note">{COUNTING_NOTE}</p>
           <p className="max-w-[80ch] text-xs text-muted">{DATA_USE_NOTE}</p>
         </div>
       </section>
@@ -225,6 +247,16 @@ function FailureNotice({ failure, onRetry, onNewConversation, onRateLimitDone, r
     return (
       <Notice tone="warn" title={describeError(error).title} action={<Button size="sm" onClick={onNewConversation}>Start a new conversation</Button>}>
         {describeError(error).message} Your question is still in the box.
+      </Notice>
+    );
+  }
+  if (hasCode(error, 'QUESTION_NOT_ANSWERABLE')) {
+    const copy = describeError(error);
+    // No "Try again": the same question would be refused again. The text is back in the box, to be edited.
+    return (
+      <Notice tone="warn" title={copy.title}>
+        <p>&ldquo;{failure.message}&rdquo; was not sent.</p>
+        <p>{copy.message}</p>
       </Notice>
     );
   }

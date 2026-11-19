@@ -67,6 +67,12 @@ const COPY: Record<string, Entry> = {
   AI_NOT_READY: { title: 'Ask AI is not ready', message: 'This repository is still being prepared for questions. Check its status and try again.', retryable: true },
   AI_REANALYZE_REQUIRED: { title: 'Re-analyze to enable Ask AI', message: 'This analysis cannot be prepared for questions again. Re-analyze the repository to enable Ask AI.', retryable: false },
   AI_UNAVAILABLE: { title: 'The AI service is busy', message: 'The AI service is busy right now. Your question wasn\'t counted. Try again in a minute.', retryable: true },
+  QUESTION_NOT_ANSWERABLE: {
+    title: 'Nothing in this repository matches that',
+    message:
+      "Not counted: nothing was sent to the AI and it didn't use one of your questions. Edit the question to name a class, a file, or how something works. \"What to ask\" has ideas.",
+    retryable: false,
+  },
   CONVERSATION_NOT_FOUND: { title: 'Conversation not found', message: 'It may have been deleted. Start a new conversation.', retryable: false },
   CONVERSATION_FULL: { title: 'This conversation is full', message: 'Start a new conversation to keep asking.', retryable: false },
   CONVERSATION_BUSY: { title: 'Still answering', message: 'Wait for the current answer to finish.', retryable: true },
