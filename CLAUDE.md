@@ -11,6 +11,23 @@ Archyra ("the architecture behind your code") analyzes a GitHub repository, buil
 - `backend/`: Spring Boot API and analysis engine. Build commands, package conventions and backend rules are in `backend/CLAUDE.md`.
 - `frontend/`: the React app, built and talking to the real `/api/v1` backend through the Vite proxy (no mock data). Commands, structure and UI rules are in `frontend/CLAUDE.md`.
 
+## Commands (details in the two sub-guides)
+
+```bash
+cd backend  && ./mvnw clean test                      # all backend tests (Docker needed; use `clean` after signature changes)
+cd backend  && ./mvnw test -Dtest=AccountLinkingIntegrationTest   # one class (add #method for one test)
+cd frontend && npm run verify                         # typecheck + lint + check:tokens + unit tests + build + session-boot e2e
+cd frontend && npx vitest run src/lib/url.test.ts     # one unit test file
+cd frontend && npm run e2e -- -g "name"               # Playwright against the running stack (skips without .env.local credentials)
+```
+
+## Specs and workflow
+
+- Feature work is driven by a spec in `spec/<name>/spec.md` at the repository root (read it with `Architecture.md` and the sub-guides before coding). A spec that records a decision ("don't re-ask", "don't fix this back") is binding; where it disagrees with the code, follow its intent and report the difference. Investigations leave a `root-cause.md` next to the spec.
+- Existing specs: `spec/graph-controls-and-auth-fixes` (test-code filter, draggable graph nodes, OAuth redirect URIs, generic `202` on duplicate registration) and `spec/oauth-login-hydration-and-account-linking` (one session-boot path with a timeout and retry screen, account linking from Settings with a browser-bound link intent). Their durable rules are summarised in the sub-guides; do not regress them.
+- Cross-cutting rules that are easy to miss: no mock data anywhere (backend tests use real fixtures and Testcontainers, frontend tests use small inline inputs, Playwright interception only injects network faults); no test-only endpoints in production code; Hallmark "Coral" design tokens only in the frontend.
+- Commit messages carry no `Co-Authored-By` or other Claude/Anthropic trailer.
+
 ## Running the whole stack
 
 1. PostgreSQL and Neo4j running (Docker), `backend/.env` filled in (`backend/README.md`), then `./mvnw spring-boot:run` from `backend/` (port 8080).
@@ -63,7 +80,7 @@ The Neo4j model is meant to be stable ("the foundation you do not want to rebuil
 ## Roadmap
 
 - **V0.1 Codebase Understanding** (done): accept a GitHub URL, parse it, build the graph and the V0.1 endpoints (`analyses`, `repository`, `graph`, `nodes`, `files`, `classes`), and show basic technology/framework information. No AI. The backend endpoints are all implemented; technology/framework information is stored in `analysis_metadata` but not exposed by an endpoint yet.
-- **V0.5 Product Foundation**: authentication and authorization are implemented (see `backend/specs/security/spec.md` and the Security section of `backend/CLAUDE.md`): email/password, Google and GitHub login, short-lived access JWT plus rotating refresh cookie, email verification and password reset, per-user ownership of analyses, server-side premium gating, rate limiting, `/users/me`, and the admin user API (`/admin/users`). Analysis history is done (`GET`/`DELETE /analyses`, and `POST /analyses/{id}/reanalyze`, which replaces the old analysis when the re-run completes). `GET /admin/stats`, usage tracking and the free-tier analysis limit (`GET /usage`, 403 `USAGE_LIMIT_EXCEEDED`; deleting an analysis returns its credit to a free user) are implemented.
+- **V0.5 Product Foundation**: authentication and authorization are implemented (see `backend/specs/security/spec.md` and the Security section of `backend/CLAUDE.md`): email/password, Google and GitHub login, short-lived access JWT plus rotating refresh cookie, email verification and password reset, per-user ownership of analyses, server-side premium gating, rate limiting, `/users/me`, and the admin user API (`/admin/users`). Analysis history is done (`GET`/`DELETE /analyses`, and `POST /analyses/{id}/reanalyze`, which replaces the old analysis when the re-run completes). Signed-in users can link and unlink Google/GitHub from Settings (`/users/me/linked-identities`; see `Architecture.md` → Linked sign-in methods). `GET /admin/stats`, usage tracking and the free-tier analysis limit (`GET /usage`, 403 `USAGE_LIMIT_EXCEEDED`; deleting an analysis returns its credit to a free user) are implemented.
 - **V1 AI Codebase Explorer**: Spring AI, "Ask AI" chat with sources, conversations, `/architecture` interpretation, `/explain` for a node, and RAG over the graph plus pgvector. The LLM provider is undecided; the plan is to compare GPT, Gemini and Claude. Deployment happens after V1.
 - **V2 Interactive Architecture Graph** (premium): drill down from a class to its methods and then to their calls, using `nodes/{id}/relationships`, `nodes/{id}/expand`, `classes/{id}/methods` and `methods/{id}/dependencies`, plus parameters on `/graph`.
 - **V3 Adaptive Architecture**: graph views by expertise level. The free tier gets `BEGINNER` and limited `INTERMEDIATE`; `EXPERT` is premium only.
