@@ -3,7 +3,7 @@ import { useSearchParams } from 'react-router';
 import { List, Network } from 'lucide-react';
 import { hasCode } from '@/api/errors';
 import type { EdgeType, GraphResponse, NodeType } from '@/api/types';
-import { countByType, defaultFilter, isExternalId, neighbourhood, nodeSize, visibleGraph } from '@/components/graph/adapter';
+import { classicDefault, countByType, defaultFilter, isExternalId, neighbourhood, nodeSize, visibleGraph } from '@/components/graph/adapter';
 import { GraphCanvas } from '@/components/graph/GraphCanvas';
 import { Inspector } from '@/components/graph/Inspector';
 import { parseScope, SCOPE_DEFAULTS, scopeCounts, scopeParam, type Scope } from '@/components/graph/scope';
@@ -57,9 +57,15 @@ export default function ArchitecturePage() {
 
 function ArchitectureView({ analysisId, graph }: { analysisId: string; graph: GraphResponse }) {
   const [params, setParams] = useSearchParams();
-  const defaults = useMemo(() => defaultFilter(graph), [graph]);
-  const nodeTypes = parseNodeTypes(params.get('nodes')) ?? defaults.nodeTypes;
-  const edgeTypes = parseEdgeTypes(params.get('edges')) ?? defaults.edgeTypes;
+  // The module default is judged against the tab's default scope, so changing the scope filters the same view instead of swapping it.
+  const defaults = useMemo(() => defaultFilter(graph, SCOPE_DEFAULTS.architecture), [graph]);
+  const classic = useMemo(() => classicDefault(graph), [graph]);
+  // A URL with a `nodes` or `edges` parameter is an explicit view: whatever it leaves out is what it always was.
+  const explicit = params.has('nodes') || params.has('edges');
+  const nodeTypes = parseNodeTypes(params.get('nodes')) ?? (explicit ? classic : defaults).nodeTypes;
+  const edgeTypes = parseEdgeTypes(params.get('edges')) ?? (explicit ? classic : defaults).edgeTypes;
+  // Shown while the module default is what is drawn; any change to the selection writes a parameter and ends it.
+  const moduleCaption = defaults.moduleDefault && !explicit;
   const scope = parseScope(params.get('scope'), SCOPE_DEFAULTS.architecture);
   const selectedId = params.get('node');
   const listView = params.get('view') === 'list';
@@ -126,6 +132,7 @@ function ArchitectureView({ analysisId, graph }: { analysisId: string; graph: Gr
           counts={counts}
           scope={scope}
           scopeCounts={scopeOptionCounts}
+          caption={moduleCaption ? ((counts.get('CLASS') ?? 0) + (counts.get('INTERFACE') ?? 0) > 0 ? 'Modules joined by DEPENDS_ON. Turn on Classes to look inside.' : 'Modules joined by DEPENDS_ON.') : null}
           onScope={setScope}
           onNodeTypes={(t) => update({ nodes: t.join(','), node: null })}
           onEdgeTypes={(t) => update({ edges: t.join(',') })}

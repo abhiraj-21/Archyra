@@ -3,6 +3,7 @@ import { ArrowRight } from 'lucide-react';
 import type { GraphResponse } from '@/api/types';
 import { defaultFilter, nodeSize, visibleGraph } from '@/components/graph/adapter';
 import { GraphCanvas } from '@/components/graph/GraphCanvas';
+import { SCOPE_DEFAULTS } from '@/components/graph/scope';
 import { useLayout } from '@/components/graph/useLayout';
 import { ButtonLink } from '@/components/ui/Button';
 import { Skeleton } from '@/components/ui/Skeleton';
@@ -17,8 +18,8 @@ const PREVIEW_LIMIT = 24;
 
 function Preview({ analysisId, graph }: { analysisId: string; graph: GraphResponse }) {
   const view = useMemo(() => {
-    const d = defaultFilter(graph);
-    // The preview matches the Architecture tab's default (working code); a repository that is only tests shows them.
+    // The preview is the Architecture tab's default view (working code); a repository that is only tests shows them.
+    const d = defaultFilter(graph, SCOPE_DEFAULTS.architecture);
     const filter = { nodeTypes: new Set(d.nodeTypes), edgeTypes: new Set(d.edgeTypes) };
     const working = visibleGraph(graph, { ...filter, scope: 'working' });
     const full = working.nodes.length > 0 ? working : visibleGraph(graph, { ...filter, scope: 'all' });
@@ -53,6 +54,8 @@ export default function OverviewPage() {
   const { analysisId, ready } = useWorkspace();
   const repository = useRepository(analysisId, ready);
   const graph = useGraph(analysisId, ready);
+  // The same rule as the Architecture tab's initial view decides what the preview shows, and so what the sentence under it says.
+  const modulePreview = graph.data ? defaultFilter(graph.data, SCOPE_DEFAULTS.architecture).moduleDefault : false;
 
   return (
     <div className="mx-auto grid w-full max-w-[72rem] gap-xl px-md py-lg sm:px-lg">
@@ -97,7 +100,7 @@ export default function OverviewPage() {
               <Preview analysisId={analysisId} graph={graph.data} />
             )}
           </div>
-          <p className="text-sm text-muted">The most connected classes, read top to bottom. Open the graph to filter, inspect and see everything.</p>
+          <p className="text-sm text-muted">The most connected {modulePreview ? 'modules, joined by DEPENDS_ON' : 'classes'}, read top to bottom. Open the graph to filter, inspect and see everything.</p>
         </section>
 
         <section aria-labelledby="languages-heading" className="grid content-start gap-sm">

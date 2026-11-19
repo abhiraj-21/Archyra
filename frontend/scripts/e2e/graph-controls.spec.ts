@@ -96,7 +96,10 @@ async function nodeTotal(page: Page): Promise<number> {
   const text = (await counts(page).textContent()) ?? '';
   return Number(/([\d,]+) nodes?/.exec(text)?.[1]?.replace(/,/g, ''));
 }
-const ARCH = () => `/analyses/${analysisId}/architecture`;
+/** The class view, explicitly: these tests are about scope and dragging, not about which view a bare URL opens on. */
+const ARCH = () => `/analyses/${analysisId}/architecture?nodes=CLASS%2CINTERFACE`;
+/** The Architecture URL with no `nodes` and no `edges`: whatever the default view of this repository is. */
+const ARCH_BARE = () => `/analyses/${analysisId}/architecture`;
 /** The files table keeps the previous rows while a new query loads; wait until it is idle before reading rows. */
 const filesSettled = (page: Page) => expect(page.locator('table.table')).not.toHaveAttribute('aria-busy', 'true');
 
@@ -188,7 +191,7 @@ live('Architecture: each option shows how many nodes it reveals, and the control
 });
 
 live('Architecture: an unknown scope in the URL falls back to Working', async (page) => {
-  await page.goto(`${ARCH()}?scope=nonsense`);
+  await page.goto(`${ARCH()}&scope=nonsense`);
   await expect(scopeRadio(page, 'Working')).toHaveAttribute('aria-checked', 'true');
 });
 
@@ -397,4 +400,74 @@ test('Dragging: one finger drags a node and the page does not scroll', async ({ 
   } finally {
     await context.close();
   }
+});
+
+// ---------------------------------------------------------------------------------------------------------------
+// The module default (spec/graph-default-and-name-filter, Task A)
+// ---------------------------------------------------------------------------------------------------------------
+
+type ApiGraph = { nodes: { id: string; type: string; name: string; test: boolean }[]; edges: { source: string; target: string; type: string }[] };
+
+async function readGraph(page: Page): Promise<ApiGraph> {
+  const res = await page.request.get(`/api/v1/analyses/${analysisId}/graph`, { headers: { Authorization: `Bearer ${token}` } });
+  expect(res.status()).toBe(200);
+  return (await res.json()) as ApiGraph;
+}
+
+/** What the module default must draw for this graph: working modules, and the DEPENDS_ON edges between them. */
+function expectedModuleView(graph: ApiGraph) {
+  const modules = graph.nodes.filter((n) => n.type === 'MODULE' && !n.test && !n.id.startsWith('external:'));
+  const ids = new Set(modules.map((n) => n.id));
+  const edges = new Set(graph.edges.filter((e) => e.type === 'DEPENDS_ON' && ids.has(e.source) && ids.has(e.target)).map((e) => `${e.source}|${e.target}`));
+  return { modules, edges: edges.size, applies: modules.length >= 2 && edges.size >= 1 };
+}
+
+const nodeLabels = (page: Page) => page.locator('.react-flow__node').evaluateAll((els) => els.map((el) => el.getAttribute('aria-label') ?? ''));
+const relationshipTotal = async (page: Page) => Number(/([\d,]+) relationships?/.exec((await counts(page).textContent()) ?? '')?.[1]?.replace(/,/g, ''));
+const checkbox = (page: Page, name: RegExp) => page.getByRole('checkbox', { name });
+
+live('Architecture: a fresh URL opens on modules joined by DEPENDS_ON only, the chips say so, and Classes switches to the class view', async (page) => {
+  const view = expectedModuleView(await readGraph(page));
+  test.skip(!view.applies, 'the analysis has fewer than 2 working modules joined by a DEPENDS_ON edge, so the module default does not apply');
+
+  await page.goto(ARCH_BARE());
+  await expect(page.locator('.react-flow__node').first()).toBeVisible();
+  expect(page.url()).not.toMatch(/[?&](nodes|edges)=/);
+  const checkedLabels = (group: string) =>
+    page.getByRole('group', { name: group }).getByRole('checkbox').evaluateAll((els) => els.filter((el) => (el as HTMLInputElement).checked).map((el) => el.closest('label')?.textContent?.trim() ?? ''));
+  expect(await checkedLabels('Relationship types')).toEqual([expect.stringMatching(/^Depends on/)]); // DEPENDS_ON only: no inheritance edges
+  expect(await checkedLabels('Node types')).toEqual([expect.stringMatching(/^Modules/)]);
+  const caption = page.getByTestId('graph-default-caption');
+  await expect(caption).toContainText('Modules joined by DEPENDS_ON');
+  expect(await nodeTotal(page)).toBe(view.modules.length);
+  expect(await relationshipTotal(page)).toBe(view.edges);
+  expect((await nodeLabels(page)).every((label) => /, module$/.test(label))).toBe(true);
+
+  // the Overview preview shows the same kind of set
+  await page.goto(`/analyses/${analysisId}/overview`);
+  const preview = page.getByRole('application', { name: /Architecture preview/ }).or(page.locator('[aria-label="Architecture preview (not interactive)"]'));
+  await expect(preview.first()).toBeVisible();
+  await expect(page.locator('.react-flow__node').first()).toBeVisible();
+  const previewLabels = await nodeLabels(page);
+  expect(previewLabels.length).toBeGreaterThan(0);
+  expect(previewLabels.every((label) => /, module$/.test(label))).toBe(true);
+  await expect(page.getByText(/modules, joined by DEPENDS_ON/)).toBeVisible();
+
+  // choosing Classes leaves the module default: the caption goes, the selection is explicit, classes appear
+  await page.goto(ARCH_BARE());
+  await expect(caption).toBeVisible();
+  await checkbox(page, /^Classes/).click();
+  await expect(caption).toHaveCount(0);
+  await expect(page).toHaveURL(/nodes=/);
+  await expect.poll(async () => (await nodeLabels(page)).some((label) => /, class$/.test(label))).toBe(true);
+  await expect.poll(() => nodeTotal(page)).toBeGreaterThan(view.modules.length);
+});
+
+live('Architecture: an explicit nodes parameter keeps the classic edges, so old links draw what they always did', async (page) => {
+  await page.goto(`${ARCH_BARE()}?nodes=CLASS%2CINTERFACE`);
+  await expect(page.locator('.react-flow__node').first()).toBeVisible();
+  await expect(checkbox(page, /^Depends on/)).toBeChecked();
+  await expect(checkbox(page, /^Extends/)).toBeChecked();
+  await expect(checkbox(page, /^Implements/)).toBeChecked();
+  await expect(page.getByTestId('graph-default-caption')).toHaveCount(0);
 });

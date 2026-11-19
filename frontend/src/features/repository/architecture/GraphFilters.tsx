@@ -13,6 +13,8 @@ interface Props {
   counts: Map<NodeType, number>;
   scope: Scope;
   scopeCounts: Record<Scope, number>;
+  /** Explains a default view (modules joined by DEPENDS_ON); null once the selection has been changed. */
+  caption?: string | null;
   onScope: (scope: Scope) => void;
   onNodeTypes: (types: NodeType[]) => void;
   onEdgeTypes: (types: EdgeType[]) => void;
@@ -23,7 +25,7 @@ function toggle<T>(list: T[], value: T): T[] {
 }
 
 /** Live filters (applied client-side to the one fetched graph) plus the not-yet-built controls, marked as such. */
-export function GraphFilters({ nodeTypes, edgeTypes, counts, scope, scopeCounts, onScope, onNodeTypes, onEdgeTypes }: Props) {
+export function GraphFilters({ nodeTypes, edgeTypes, counts, scope, scopeCounts, caption = null, onScope, onNodeTypes, onEdgeTypes }: Props) {
   return (
     <details className="graph-filters group" open>
       <summary className="flex cursor-pointer list-none items-center gap-xs py-xs text-sm font-medium text-ink-2 lg:hidden">
@@ -65,6 +67,11 @@ export function GraphFilters({ nodeTypes, edgeTypes, counts, scope, scopeCounts,
             );
           })}
         </fieldset>
+        {caption ? (
+          <p className="text-sm text-muted lg:basis-full" data-testid="graph-default-caption">
+            {caption}
+          </p>
+        ) : null}
       </div>
     </details>
   );

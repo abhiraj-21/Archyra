@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { GraphResponse } from '@/api/types';
-import { defaultFilter, displayName, neighbourhood, nodeSize, visibleGraph } from './adapter';
+import { classicDefault, defaultFilter, displayName, neighbourhood, nodeSize, visibleGraph } from './adapter';
 
 // Small inline inputs for the pure adapter only.
 const graph: GraphResponse = {
@@ -57,21 +57,15 @@ describe('neighbourhood and defaults', () => {
     ]);
   });
 
-  it('defaults to classes and interfaces joined by DEPENDS_ON', () => {
-    expect(defaultFilter(graph)).toMatchObject({ nodeTypes: ['CLASS', 'INTERFACE'], edgeTypes: expect.arrayContaining(['DEPENDS_ON']) });
+  it('falls back to classes and interfaces joined by DEPENDS_ON and inheritance when the modules do not qualify', () => {
+    // `graph` has one module and no module edge
+    expect(defaultFilter(graph, 'working')).toEqual({ nodeTypes: ['CLASS', 'INTERFACE'], edgeTypes: ['DEPENDS_ON', 'EXTENDS', 'IMPLEMENTS'], moduleDefault: false });
   });
 
-  it('falls back to modules, then files and functions, when there are no classes', () => {
-    const modules: GraphResponse = {
-      nodes: [
-        { id: 'module:a', type: 'MODULE', name: 'a', test: false },
-        { id: 'module:b', type: 'MODULE', name: 'b', test: false },
-      ],
-      edges: [{ source: 'module:a', target: 'module:b', type: 'DEPENDS_ON' }],
-    };
-    expect(defaultFilter(modules).nodeTypes).toEqual(['MODULE']);
+  it('falls back to files and functions for a language without classes or modules that connect', () => {
     const scripts: GraphResponse = { nodes: [{ id: 'function:a.py#f()', type: 'FUNCTION', name: 'f', file: 'a.py', test: false }], edges: [] };
-    expect(defaultFilter(scripts).nodeTypes).toEqual(['FILE', 'FUNCTION']);
+    expect(defaultFilter(scripts, 'working')).toEqual({ nodeTypes: ['FILE', 'FUNCTION'], edgeTypes: ['IMPORTS', 'CALLS', 'CONTAINS'], moduleDefault: false });
+    expect(classicDefault(scripts).nodeTypes).toEqual(['FILE', 'FUNCTION']);
   });
 
   it('labels modules by their last package segment', () => {
@@ -151,5 +145,56 @@ describe('visibleGraph scope', () => {
     expect(visibleGraph(scripts, f('tests')).nodes.map((n) => n.name)).toEqual(['test_clean']);
     expect(visibleGraph(scripts, f('tests')).edges).toEqual([]);
     expect(visibleGraph(scripts, f('all')).edges).toHaveLength(1);
+  });
+});
+
+describe('defaultFilter: the module default', () => {
+  const node = (id: string, type: GraphResponse['nodes'][number]['type'], test = false): GraphResponse['nodes'][number] => ({ id, type, name: id.split(':')[1] as string, test });
+  const dep = (source: string, target: string): GraphResponse['edges'][number] => ({ source, target, type: 'DEPENDS_ON' });
+  const withClasses: GraphResponse = {
+    nodes: [node('module:web', 'MODULE'), node('module:service', 'MODULE'), node('module:data', 'MODULE'), node('class:web.Controller', 'CLASS'), node('class:service.Service', 'CLASS')],
+    edges: [dep('module:web', 'module:service'), dep('module:service', 'module:data'), dep('class:web.Controller', 'class:service.Service')],
+  };
+
+  it('is modules joined by DEPENDS_ON only (no inheritance edges) for a normal graph', () => {
+    expect(defaultFilter(withClasses, 'working')).toEqual({ nodeTypes: ['MODULE'], edgeTypes: ['DEPENDS_ON'], moduleDefault: true });
+  });
+
+  it('draws exactly the modules and the DEPENDS_ON edges between them', () => {
+    const view = defaultFilter(withClasses, 'working');
+    const v = visibleGraph(withClasses, { scope: 'working', nodeTypes: new Set(view.nodeTypes), edgeTypes: new Set(view.edgeTypes) });
+    expect(v.nodes.every((n) => n.type === 'MODULE')).toBe(true);
+    expect(v.edges.map((e) => e.type)).toEqual(['DEPENDS_ON', 'DEPENDS_ON']);
+  });
+
+  it('falls back to the classes for a repository with a single module', () => {
+    const one: GraphResponse = { nodes: [node('module:app', 'MODULE'), node('class:app.A', 'CLASS'), node('class:app.B', 'CLASS')], edges: [dep('class:app.A', 'class:app.B')] };
+    expect(defaultFilter(one, 'working')).toMatchObject({ nodeTypes: ['CLASS', 'INTERFACE'], moduleDefault: false });
+  });
+
+  it('falls back when the modules have no DEPENDS_ON edge between them', () => {
+    const lonely: GraphResponse = { nodes: [node('module:a', 'MODULE'), node('module:b', 'MODULE'), node('class:a.A', 'CLASS')], edges: [{ source: 'module:a', target: 'class:a.A', type: 'CONTAINS' }] };
+    expect(defaultFilter(lonely, 'working')).toMatchObject({ nodeTypes: ['CLASS', 'INTERFACE'], moduleDefault: false });
+  });
+
+  it('falls back when the only modules that connect are test code and the scope is working', () => {
+    const tests: GraphResponse = {
+      nodes: [node('module:app', 'MODULE'), node('module:tests', 'MODULE', true), node('module:tests.util', 'MODULE', true), node('class:app.A', 'CLASS')],
+      edges: [dep('module:tests', 'module:tests.util'), dep('module:tests', 'module:app')],
+    };
+    expect(defaultFilter(tests, 'working')).toMatchObject({ nodeTypes: ['CLASS', 'INTERFACE'], moduleDefault: false });
+    expect(defaultFilter(tests, 'all')).toMatchObject({ nodeTypes: ['MODULE'], moduleDefault: true }); // the same graph, judged without the scope
+  });
+
+  it('works for a language without classes whose modules connect, and falls back to files and functions when they do not', () => {
+    const goLike: GraphResponse = { nodes: [node('module:cmd', 'MODULE'), node('module:internal', 'MODULE'), node('function:cmd/main.go#main()', 'FUNCTION')], edges: [dep('module:cmd', 'module:internal')] };
+    expect(defaultFilter(goLike, 'working')).toMatchObject({ nodeTypes: ['MODULE'], moduleDefault: true });
+    const disconnected: GraphResponse = { nodes: [node('module:cmd', 'MODULE'), node('module:internal', 'MODULE'), node('function:cmd/main.go#main()', 'FUNCTION')], edges: [] };
+    expect(defaultFilter(disconnected, 'working')).toEqual({ nodeTypes: ['FILE', 'FUNCTION'], edgeTypes: ['IMPORTS', 'CALLS', 'CONTAINS'], moduleDefault: false });
+  });
+
+  it('ignores external modules and an edge that reaches one', () => {
+    const external: GraphResponse = { nodes: [node('module:app', 'MODULE'), node('external:module:lib', 'MODULE'), node('class:app.A', 'CLASS')], edges: [dep('module:app', 'external:module:lib')] };
+    expect(defaultFilter(external, 'working').moduleDefault).toBe(false);
   });
 });

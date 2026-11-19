@@ -61,18 +61,41 @@ export function countByType(graph: GraphResponse): Map<NodeType, number> {
   return counts;
 }
 
+/** The view a tab opens on when its URL has no `nodes` and no `edges` parameter. */
+export interface DefaultView {
+  nodeTypes: NodeType[];
+  edgeTypes: EdgeType[];
+  /** True when this is the modules-joined-by-DEPENDS_ON view (the caption under the filters explains it). */
+  moduleDefault: boolean;
+}
+
 /**
- * The default view: classes and interfaces joined by DEPENDS_ON (plus inheritance), reading controller → service →
- * repository. Languages without classes fall back to modules joined by DEPENDS_ON, then to files and functions.
+ * What a URL with an explicit `nodes` or `edges` parameter (and nothing for the other) falls back to: classes and
+ * interfaces joined by DEPENDS_ON plus inheritance, reading controller → service → repository; for languages without
+ * classes, files and functions. This is the default view of every release before the module default, kept so that
+ * links written then behave exactly as they did.
  */
-export function defaultFilter(graph: GraphResponse): { nodeTypes: NodeType[]; edgeTypes: EdgeType[] } {
+export function classicDefault(graph: GraphResponse): Pick<DefaultView, 'nodeTypes' | 'edgeTypes'> {
   const counts = countByType(graph);
   if ((counts.get('CLASS') ?? 0) + (counts.get('INTERFACE') ?? 0) > 0) {
     return { nodeTypes: ['CLASS', 'INTERFACE'], edgeTypes: ['DEPENDS_ON', 'EXTENDS', 'IMPLEMENTS'] };
   }
-  const moduleEdges = graph.edges.some((e) => e.type === 'DEPENDS_ON' && e.source.startsWith('module:'));
-  if ((counts.get('MODULE') ?? 0) > 1 && moduleEdges) return { nodeTypes: ['MODULE'], edgeTypes: ['DEPENDS_ON'] };
   return { nodeTypes: ['FILE', 'FUNCTION'], edgeTypes: ['IMPORTS', 'CALLS', 'CONTAINS'] };
+}
+
+/**
+ * The initial view: **modules joined by DEPENDS_ON** (no inheritance edges), the shape of the repository before its
+ * classes. It is used only when, **after the tab's default scope has been applied** (`working` hides test modules), there
+ * are at least two modules and at least one DEPENDS_ON edge between two of them. Otherwise the view is {@link classicDefault},
+ * so the first screen is never empty or useless: a repository with a single package still opens on its classes.
+ * This is the single source of truth for the Architecture tab and the Overview preview.
+ */
+export function defaultFilter(graph: GraphResponse, scope: Scope): DefaultView {
+  const modules = visibleGraph(graph, { nodeTypes: new Set<NodeType>(['MODULE']), edgeTypes: new Set<EdgeType>(['DEPENDS_ON']), scope });
+  if (modules.nodes.length >= 2 && modules.edges.length >= 1) {
+    return { nodeTypes: ['MODULE'], edgeTypes: ['DEPENDS_ON'], moduleDefault: true };
+  }
+  return { ...classicDefault(graph), moduleDefault: false };
 }
 
 /** The card label: a module shows its last package segment (the full name stays in the tooltip and inspector). */
