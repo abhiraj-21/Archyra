@@ -1,0 +1,2 @@
+A repo you didn't write. Where does it all connect? Paste a GitHub URL into Archyra and get the architecture as a graph: foundations on top, dependents below, every class one click from what it depends on.
+The architecture behind your code. Open source, MIT.
