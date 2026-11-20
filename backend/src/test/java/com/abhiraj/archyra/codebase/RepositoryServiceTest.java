@@ -40,10 +40,24 @@ class RepositoryServiceTest {
 	void combinesLanguagesFromMetadataWithNameAndCountsFromTheGraph() {
 		when(analysisService.requireCompleted(ID.toString())).thenReturn(ID);
 		when(metadataService.getLanguages(ID)).thenReturn(List.of(new LanguageStat("Java", 140), new LanguageStat("SQL", 3)));
+		when(metadataService.getTechnologies(ID)).thenReturn(List.of(
+				new AnalysisMetadataService.TechnologyStat("Spring Boot", "BACKEND_FRAMEWORK"),
+				new AnalysisMetadataService.TechnologyStat("Maven", "BUILD_TOOL")));
 		when(graphQueryService.getCounts(ID.toString())).thenReturn(Optional.of(new GraphCounts("payment-service", 87, 412)));
 
 		assertThat(service.getRepository(ID.toString()))
-				.isEqualTo(new RepositoryResponse("payment-service", List.of("Java", "SQL"), 143, 87, 412));
+				.isEqualTo(new RepositoryResponse("payment-service", List.of("Java", "SQL"), 143, 87, 412,
+						List.of(new TechnologyResponse("Spring Boot", "BACKEND_FRAMEWORK"), new TechnologyResponse("Maven", "BUILD_TOOL"))));
+	}
+
+	@Test
+	void noDetectedTechnologiesGiveAnEmptyListNeverNull() {
+		when(analysisService.requireCompleted(ID.toString())).thenReturn(ID);
+		when(metadataService.getLanguages(ID)).thenReturn(List.of(new LanguageStat("Java", 1)));
+		when(metadataService.getTechnologies(ID)).thenReturn(List.of());
+		when(graphQueryService.getCounts(ID.toString())).thenReturn(Optional.of(new GraphCounts("tiny", 1, 1)));
+
+		assertThat(service.getRepository(ID.toString()).technologies()).isNotNull().isEmpty();
 	}
 
 	@Test

@@ -6,6 +6,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doThrow;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -13,6 +14,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.UUID;
 
 import org.junit.jupiter.api.BeforeEach;
@@ -63,12 +66,21 @@ class RepositoryEndpointIntegrationTest {
 	@MockitoBean
 	GitCloner gitCloner;
 
+	/** Files a test adds to the cloned repository (path to content), on top of the sample repository. */
+	private final Map<String, String> extraFiles = new LinkedHashMap<>();
+
 	@BeforeEach
 	void cloneTheSampleRepository() {
+		extraFiles.clear();
 		doAnswer(invocation -> {
 			Path target = invocation.getArgument(1);
 			FileSystemUtils.copyRecursively(SAMPLE_REPO, target);
 			Files.writeString(target.resolve("schema.sql"), "CREATE TABLE orders (id int);"); // counted, not in the graph
+			for (Map.Entry<String, String> file : extraFiles.entrySet()) {
+				Path path = target.resolve(file.getKey());
+				Files.createDirectories(path.getParent());
+				Files.writeString(path, file.getValue());
+			}
 			return null;
 		}).when(gitCloner).clone(anyString(), any(Path.class));
 	}
@@ -87,7 +99,66 @@ class RepositoryEndpointIntegrationTest {
 				.andExpect(jsonPath("$.files").value(11))                     // 9 Java + script.py + schema.sql
 				.andExpect(jsonPath("$.classes").value(count(id, "Class")))
 				.andExpect(jsonPath("$.methods").value(count(id, "Method") + count(id, "Function")))
-				.andExpect(jsonPath("$.length()").value(5));
+				.andExpect(jsonPath("$.technologies").isArray())
+				.andExpect(jsonPath("$.length()").value(6));
+	}
+
+	@Test
+	void returnsTheDetectedTechnologiesWithTheirCategoriesByCategoryThenName() throws Exception {
+		extraFiles.put("pom.xml", """
+				<project>
+				  <modelVersion>4.0.0</modelVersion>
+				  <groupId>com.example</groupId>
+				  <artifactId>sample-shop</artifactId>
+				  <dependencies>
+				    <dependency><groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter-web</artifactId></dependency>
+				    <dependency><groupId>org.postgresql</groupId><artifactId>postgresql</artifactId></dependency>
+				    <dependency><groupId>org.junit.jupiter</groupId><artifactId>junit-jupiter</artifactId></dependency>
+				  </dependencies>
+				</project>
+				""");
+		extraFiles.put(".github/workflows/ci.yml", "name: ci\non: push\n");
+		extraFiles.put("Dockerfile", "FROM scratch\n");
+		UUID id = completedAnalysis();
+
+		mockMvc.perform(get("/api/v1/analyses/{id}/repository", id))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.technologies.length()").value(6))
+				.andExpect(jsonPath("$.technologies[0].name").value("Spring Boot"))
+				.andExpect(jsonPath("$.technologies[0].category").value("BACKEND_FRAMEWORK"))
+				.andExpect(jsonPath("$.technologies[1].name").value("Maven"))
+				.andExpect(jsonPath("$.technologies[1].category").value("BUILD_TOOL"))
+				.andExpect(jsonPath("$.technologies[2].name").value("GitHub Actions"))
+				.andExpect(jsonPath("$.technologies[2].category").value("CI_CD"))
+				.andExpect(jsonPath("$.technologies[3].name").value("PostgreSQL"))
+				.andExpect(jsonPath("$.technologies[3].category").value("DATABASE"))
+				.andExpect(jsonPath("$.technologies[4].name").value("Docker"))
+				.andExpect(jsonPath("$.technologies[4].category").value("INFRASTRUCTURE"))
+				.andExpect(jsonPath("$.technologies[5].name").value("JUnit"))
+				.andExpect(jsonPath("$.technologies[5].category").value("TESTING"))
+				.andExpect(jsonPath("$.technologies[0].length()").value(2)); // name and category only, no evidence or ecosystem
+	}
+
+	@Test
+	void aRepositoryWithNoDetectedTechnologiesHasAnEmptyListNotNullAndNotMissing() throws Exception {
+		UUID id = completedAnalysis();
+
+		mockMvc.perform(get("/api/v1/analyses/{id}/repository", id))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.technologies").isArray())
+				.andExpect(jsonPath("$.technologies.length()").value(0))
+				.andExpect(jsonPath("$.technologies").exists());
+	}
+
+	@Test
+	void anotherUsersAnalysisIsNotFoundEvenWhenItHasTechnologies() throws Exception {
+		extraFiles.put("Dockerfile", "FROM scratch\n");
+		UUID id = completedAnalysis();
+
+		mockMvc.perform(get("/api/v1/analyses/{id}/repository", id).with(user("00000000-0000-4000-8000-0000000000b2")))
+				.andExpect(status().isNotFound())
+				.andExpect(jsonPath("$.code").value("ANALYSIS_NOT_FOUND"))
+				.andExpect(jsonPath("$.technologies").doesNotExist());
 	}
 
 	@Test

@@ -13,9 +13,12 @@ import { ErrorState } from '@/components/ui/States';
 import { useDocumentTitle } from '@/components/ui/useDocumentTitle';
 import { useGraph, useRepository } from '@/hooks/useWorkspace';
 import { formatNumber } from '@/lib/format';
+import { countTechnologies, groupTechnologies } from '@/lib/technologies';
 import { useWorkspace } from '../workspaceContext';
+import { TechnologyGroups } from './TechnologyGroups';
 
 const PREVIEW_LIMIT = 24;
+const TECHNOLOGY_NOTE = 'Detected from manifests, files and imports. Best effort, it can miss things.';
 
 function Preview({ analysisId, graph }: { analysisId: string; graph: GraphResponse }) {
   const view = useMemo(() => {
@@ -55,6 +58,7 @@ export default function OverviewPage() {
   const { analysisId, ready } = useWorkspace();
   const repository = useRepository(analysisId, ready);
   const graph = useGraph(analysisId, ready);
+  const technologies = useMemo(() => groupTechnologies(repository.data?.technologies ?? []), [repository.data]);
   // The same rule as the Architecture tab's initial view decides what the preview shows, and so what the sentence under it says.
   const modulePreview = graph.data ? defaultFilter(graph.data, SCOPE_DEFAULTS.architecture).moduleDefault : false;
 
@@ -67,12 +71,13 @@ export default function OverviewPage() {
         ) : repository.isError ? (
           <ErrorState error={repository.error} onRetry={() => void repository.refetch()} />
         ) : (
-          <dl className="stats">
+          <dl className="stats stats--five">
             {[
               ['Files', repository.data.files, 'in every language found'],
               ['Classes', repository.data.classes, 'enums and records included'],
               ['Methods and functions', repository.data.methods, 'of the repository’s own code'],
               ['Languages', repository.data.languages.length, 'detected'],
+              ['Technologies', countTechnologies(technologies), 'detected'],
             ].map(([label, value, note]) => (
               <div key={label as string} className="stat">
                 <dt className="text-sm text-muted">{label}</dt>
@@ -104,26 +109,45 @@ export default function OverviewPage() {
           <p className="text-sm text-muted">The most connected {modulePreview ? 'modules, joined by DEPENDS_ON' : 'classes'}, read top to bottom. Open the graph to filter, inspect and see everything.</p>
         </section>
 
-        <section aria-labelledby="languages-heading" className="grid content-start gap-sm">
-          <h2 id="languages-heading" className="text-xl">Languages</h2>
-          {repository.isPending ? (
-            <Skeleton className="h-32 w-full" />
-          ) : repository.isError ? null : repository.data.languages.length === 0 ? (
-            <p className="text-muted">No languages were detected.</p>
-          ) : (
-            <>
-              <ol className="grid">
-                {repository.data.languages.map((lang, i) => (
-                  <li key={lang} className="flex items-baseline gap-sm border-b border-rule py-xs text-sm">
-                    <span className="num w-6 text-xs text-muted">{i + 1}</span>
-                    <span className="text-ink">{lang}</span>
-                  </li>
-                ))}
-              </ol>
-              <p className="text-xs text-muted">Ordered by number of files. Analysed languages add classes and functions to the graph; the rest are only counted.</p>
-            </>
-          )}
-        </section>
+        <div className="grid content-start gap-xl">
+          <section aria-labelledby="languages-heading" className="grid content-start gap-sm">
+            <h2 id="languages-heading" className="text-xl">Languages</h2>
+            {repository.isPending ? (
+              <Skeleton className="h-32 w-full" />
+            ) : repository.isError ? null : repository.data.languages.length === 0 ? (
+              <p className="text-muted">No languages were detected.</p>
+            ) : (
+              <>
+                <ol className="grid">
+                  {repository.data.languages.map((lang, i) => (
+                    <li key={lang} className="flex items-baseline gap-sm border-b border-rule py-xs text-sm">
+                      <span className="num w-6 text-xs text-muted">{i + 1}</span>
+                      <span className="text-ink">{lang}</span>
+                    </li>
+                  ))}
+                </ol>
+                <p className="text-xs text-muted">Ordered by number of files. Analysed languages add classes and functions to the graph; the rest are only counted.</p>
+              </>
+            )}
+          </section>
+
+          <section aria-labelledby="technologies-heading" className="grid content-start gap-sm">
+            <h2 id="technologies-heading" className="text-xl">Technologies</h2>
+            {repository.isPending ? (
+              <Skeleton className="h-32 w-full" />
+            ) : repository.isError ? null : technologies.length === 0 ? (
+              <>
+                <p className="text-muted">No frameworks, libraries or tools were detected.</p>
+                <p className="text-xs text-muted">{TECHNOLOGY_NOTE}</p>
+              </>
+            ) : (
+              <>
+                <TechnologyGroups groups={technologies} />
+                <p className="text-xs text-muted">{TECHNOLOGY_NOTE}</p>
+              </>
+            )}
+          </section>
+        </div>
       </div>
     </div>
   );

@@ -6,6 +6,7 @@ import java.util.UUID;
 import org.springframework.stereotype.Service;
 
 import com.abhiraj.archyra.analysis.AnalysisMetadataService;
+import com.abhiraj.archyra.analysis.AnalysisMetadataService.TechnologyStat;
 import com.abhiraj.archyra.analysis.AnalysisService;
 import com.abhiraj.archyra.analysis.LanguageStat;
 import com.abhiraj.archyra.graph.GraphCounts;
@@ -22,8 +23,8 @@ public class RepositoryService {
 	private final GraphQueryService graphQueryService;
 
 	/**
-	 * Describes the repository of a completed analysis: languages and file count from PostgreSQL, name and
-	 * class/method counts from the graph.
+	 * Describes the repository of a completed analysis: languages, file count and detected technologies from
+	 * PostgreSQL, name and class/method counts from the graph.
 	 *
 	 * @throws com.abhiraj.archyra.common.AnalysisNotFoundException     if the id is malformed or unknown
 	 * @throws com.abhiraj.archyra.common.AnalysisNotCompletedException if the analysis is not {@code COMPLETED}
@@ -31,6 +32,9 @@ public class RepositoryService {
 	public RepositoryResponse getRepository(String analysisId) {
 		UUID id = analysisService.requireCompleted(analysisId);
 		List<LanguageStat> languages = metadataService.getLanguages(id);
+		List<TechnologyResponse> technologies = metadataService.getTechnologies(id).stream()
+				.map(RepositoryService::toResponse)
+				.toList();
 		GraphCounts counts = graphQueryService.getCounts(id.toString())
 				.orElseThrow(() -> new IllegalStateException("Analysis " + id + " is COMPLETED but has no graph"));
 
@@ -39,6 +43,11 @@ public class RepositoryService {
 				languages.stream().map(LanguageStat::name).toList(),
 				languages.stream().mapToLong(LanguageStat::files).sum(),
 				counts.classes(),
-				counts.methods());
+				counts.methods(),
+				technologies);
+	}
+
+	private static TechnologyResponse toResponse(TechnologyStat stat) {
+		return new TechnologyResponse(stat.name(), stat.category());
 	}
 }

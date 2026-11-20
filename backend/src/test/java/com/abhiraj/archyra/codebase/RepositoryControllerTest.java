@@ -40,7 +40,8 @@ class RepositoryControllerTest {
 	@Test
 	void returnsTheRepositoryInformation() throws Exception {
 		given(repositoryService.getRepository(ANALYSIS_ID))
-				.willReturn(new RepositoryResponse("payment-service", List.of("Java", "SQL"), 143, 87, 412));
+				.willReturn(new RepositoryResponse("payment-service", List.of("Java", "SQL"), 143, 87, 412,
+						List.of(new TechnologyResponse("Spring Boot", "BACKEND_FRAMEWORK"), new TechnologyResponse("Maven", "BUILD_TOOL"))));
 
 		mockMvc.perform(get(URL))
 				.andExpect(status().isOk())
@@ -51,7 +52,23 @@ class RepositoryControllerTest {
 				.andExpect(jsonPath("$.files").value(143))
 				.andExpect(jsonPath("$.classes").value(87))
 				.andExpect(jsonPath("$.methods").value(412))
-				.andExpect(jsonPath("$.length()").value(5));
+				.andExpect(jsonPath("$.technologies.length()").value(2))
+				.andExpect(jsonPath("$.technologies[0].name").value("Spring Boot"))
+				.andExpect(jsonPath("$.technologies[0].category").value("BACKEND_FRAMEWORK"))
+				.andExpect(jsonPath("$.technologies[1].name").value("Maven"))
+				.andExpect(jsonPath("$.technologies[1].category").value("BUILD_TOOL"))
+				.andExpect(jsonPath("$.length()").value(6));
+	}
+
+	@Test
+	void noTechnologiesIsAnEmptyArray() throws Exception {
+		given(repositoryService.getRepository(ANALYSIS_ID))
+				.willReturn(new RepositoryResponse("tiny", List.of("Python"), 1, 0, 2, List.of()));
+
+		mockMvc.perform(get(URL))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.technologies").isArray())
+				.andExpect(jsonPath("$.technologies.length()").value(0));
 	}
 
 	@Test

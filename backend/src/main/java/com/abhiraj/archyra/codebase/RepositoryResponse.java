@@ -5,10 +5,13 @@ import java.util.List;
 /**
  * Response body of {@code GET /api/v1/analyses/{analysisId}/repository}.
  *
- * @param languages every language found, the most used first
- * @param files     files in those languages, including ones that are only counted and not in the graph
- * @param classes   classes of the repository's own code (see {@code GraphCounts})
- * @param methods   methods and functions of the repository's own code (see {@code GraphCounts})
+ * @param languages    every language found, the most used first
+ * @param files        files in those languages, including ones that are only counted and not in the graph
+ * @param classes      classes of the repository's own code (see {@code GraphCounts})
+ * @param methods      methods and functions of the repository's own code (see {@code GraphCounts})
+ * @param technologies the frameworks, libraries and tools detected (best effort), by category and then name;
+ *                     always present, empty when nothing was detected
  */
-public record RepositoryResponse(String name, List<String> languages, long files, long classes, long methods) {
+public record RepositoryResponse(String name, List<String> languages, long files, long classes, long methods,
+		List<TechnologyResponse> technologies) {
 }

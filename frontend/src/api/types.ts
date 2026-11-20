@@ -111,6 +111,29 @@ export interface Page<T> {
 }
 
 // ---- repository, graph, nodes ----
+/** What a detected technology is for; the backend's `ir/TechnologyCategory` (`lib/technologies.ts` handles a value this list does not have). */
+export const TECHNOLOGY_CATEGORIES = [
+  'FRONTEND_FRAMEWORK',
+  'BACKEND_FRAMEWORK',
+  'MOBILE',
+  'DESKTOP',
+  'AI_ML',
+  'DATA',
+  'BLOCKCHAIN',
+  'DATABASE',
+  'INFRASTRUCTURE',
+  'CI_CD',
+  'BUILD_TOOL',
+  'TESTING',
+  'LIBRARY',
+] as const;
+export type TechnologyCategory = (typeof TECHNOLOGY_CATEGORIES)[number];
+
+/** A framework, library or tool detected in the repository (best effort). Name and category only. */
+export interface RepositoryTechnology {
+  name: string;
+  category: TechnologyCategory;
+}
 export interface RepositoryResponse {
   name: string;
   /** Every language found, most files first, analysed or only counted. Names only: no counts or flags. */
@@ -118,6 +141,8 @@ export interface RepositoryResponse {
   files: number;
   classes: number;
   methods: number;
+  /** Always present; empty when nothing was detected. Ordered by category, then name. */
+  technologies: RepositoryTechnology[];
 }
 export interface GraphNode {
   id: string;

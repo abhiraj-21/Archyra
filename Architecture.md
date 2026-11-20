@@ -16,7 +16,7 @@
 - [x]  Identify relationships between classes/files
 - [x]  Build the internal code graph
 - [x]  Portray the relationships visually
-- [ ]  Show basic technology/framework information (detected and stored in `analysis_metadata`, not exposed by an endpoint yet)
+- [x]  Show basic technology/framework information (detected during analysis, returned as `technologies` by `GET /analyses/{id}/repository` and shown on the repository Overview)
 
 ---
 
@@ -291,7 +291,7 @@
 - **Imports:** `IMPORTS` links a file to the files it imports in any language, following re-exports (Python `__init__`, JS barrels). An unresolved import becomes an external **Module** node (`external:module:numpy`, `external:module:react`) in languages that import modules, and an external Class node in languages that import types (Java, Kotlin, C#, PHP). A call into an external module becomes an external `Function` node.
 - **Module dependencies:** `DEPENDS_ON` also connects Module nodes (derived from imports across modules), so function-oriented languages still get an architecture view. Class `DEPENDS_ON` remains class to class within the repository.
 - **Resolution limits (static, no type checker):** receivers are typed from declarations, annotations, constructor-parameter properties, `new`/constructor calls and the declared return type of the called function; dynamic languages (Python, JS, Ruby) resolve less than typed ones. Calls on unknown receivers are counted and skipped. Python `self.x` fields are typed from `__init__`; Ruby `@x` from `X.new`.
-- **Technologies:** frameworks, libraries and tools are detected from manifests, files, framework languages and imports, using `technologies.tsv` (a data file, one row per library). Languages (with file counts and an `analysed` flag) and technologies (with category, ecosystem and evidence file) are stored in the PostgreSQL `analysis_metadata` table for the repository information endpoint. Detection is best effort and never fails an analysis.
+- **Technologies:** frameworks, libraries and tools are detected from manifests, files, framework languages and imports, using `technologies.tsv` (a data file, one row per library). Languages (with file counts and an `analysed` flag) and technologies (with category, ecosystem and evidence file) are stored in the PostgreSQL `analysis_metadata` table for the repository information endpoint, which returns the technologies as `name` and `category` (the evidence file and ecosystem stay internal). Detection is best effort and never fails an analysis.
 
 ### Decision: One session-boot path (2026-11-19)
 
@@ -613,7 +613,12 @@ Returns things such as:
   ],
   "files": 143,
   "classes": 87,
-  "methods": 412
+  "methods": 412,
+  "technologies": [
+    { "name": "Spring Boot", "category": "BACKEND_FRAMEWORK" },
+    { "name": "Maven", "category": "BUILD_TOOL" },
+    { "name": "PostgreSQL", "category": "DATABASE" }
+  ]
 }
 ```
 
@@ -622,7 +627,8 @@ Semantics (V0.1):
 - Only a `COMPLETED` analysis has a repository: unknown or malformed ids return `404 ANALYSIS_NOT_FOUND`; an analysis that is still running or `FAILED` returns `409 ANALYSIS_NOT_COMPLETED`.
 - `languages`: every language found, whether or not it has an extractor (SQL above has no code nodes), most files first. `files` is the number of files in those languages, from PostgreSQL (`analysis_metadata`).
 - `name`, `classes` and `methods` come from the graph and count the repository's own code only (external nodes excluded). `classes` counts `Class` nodes (enums and records included, interfaces not). `methods` counts `Method` and `Function` nodes, because languages without classes have functions only.
-- `languages` is names only. The per-language file counts, the `analysed` flag and the detected technologies are stored in `analysis_metadata` but not returned yet, so clients cannot show a per-language breakdown or a technologies list. Exposing them here (extending this response) is the planned fix.
+- `technologies`: the frameworks, libraries and tools detected from manifests, files and imports (see Technologies), each `{ name, category }`. `category` is the `TechnologyCategory` name: `FRONTEND_FRAMEWORK`, `BACKEND_FRAMEWORK`, `MOBILE`, `DESKTOP`, `AI_ML`, `DATA`, `BLOCKCHAIN`, `DATABASE`, `INFRASTRUCTURE`, `CI_CD`, `BUILD_TOOL`, `TESTING`, `LIBRARY`. The order is stable: by category name, then technology name. The field is always present: an empty array when nothing was detected, never `null` or missing. The evidence file and the ecosystem are not returned. Detection is best effort, so a client must not present the list as complete; one that meets a category it does not know should treat it as `LIBRARY`.
+- `languages` is names only. The per-language file counts and the `analysed` flag are stored in `analysis_metadata` but not returned yet, so clients cannot show a per-language breakdown. Exposing them here (extending this response) is the planned fix.
 
 ---
 

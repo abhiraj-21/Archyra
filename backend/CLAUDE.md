@@ -62,7 +62,7 @@ com.abhiraj.archyra
 ├── technology/    # Frameworks, libraries, tools: technologies.tsv catalog, manifest reader, detector
 ├── ir/            # Archyra Intermediate Representation: plain language-agnostic model
 ├── graph/         # IR → Neo4j builder, graph queries, /graph and /nodes endpoints, premium gate
-├── codebase/      # Read endpoints: /repository, /files, /classes
+├── codebase/      # Read endpoints: /repository (languages, counts and the detected technologies as `TechnologyResponse { name, category }`), /files, /classes
 ├── user/          # Accounts, linked social identities, /users/me, admin API (/admin/users, incl. PUT /{id}/plan); UserService is the entry point
 ├── auth/          # /api/v1/auth, refresh-token rotation, email flows, password change (/users/me/password), token purge, admin bootstrap
 │   └── oauth2/    # Google and GitHub login: second filter chain, account resolver, handlers; account linking (link intents, binding cookie, link-mode handler, /users/me/linked-identities)
@@ -186,7 +186,7 @@ Repository-aware chat. Full design: `spec/ask-ai-backend/spec.md`; decisions and
 - Extractors implement only the hooks their language has; never force one language's concepts into another (free functions are `Function` nodes, not fake classes).
 - **IR contract:** a file has a `moduleName` (what qualifies its symbols and what imports name) and a `packageName` (the Module node grouping). A type is `FULL`, `PARTIAL` (C# `partial`, Ruby open classes) or `EXTENSION` (Go receivers, Rust `impl`). `ModuleResolver`s map import specifiers to modules; `ReferenceResolver` itself has no language rules.
 - **To add a language:** (1) a row in `GRAMMARS_TABLE` of `scripts/build-native.sh`; (2) the `Language` value and extensions in `ingestion/LanguageDetector`; (3) an extractor `@Component` in `parsing/lang/`; (4) a `ModuleResolver` only if imports differ from "the import names the module"; (5) a fixture under `src/test/resources/fixtures/polyglot/<language>/`, a test on `FixtureAnalysis`, and the new classes in the test helper `Languages`; (6) rows in `src/main/resources/technologies.tsv`.
-- **Technologies** are detected best-effort (and can never fail an analysis) from files, manifests, framework languages and imports. A framework is a tab-separated row in `technologies.tsv`, not code. They are stored in `analysis_metadata`.
+- **Technologies** are detected best-effort (and can never fail an analysis) from files, manifests, framework languages and imports. A framework is a tab-separated row in `technologies.tsv`, not code. They are stored in `analysis_metadata` and returned by `GET /repository` as `technologies` (`codebase/RepositoryService` maps `AnalysisMetadataService.getTechnologies`, already ordered by category then name, to the feature's own `TechnologyResponse`; name and category only, never the evidence file or ecosystem; always a list, empty when nothing was detected). `RepositoryEndpointIntegrationTest` pins the shape, the order, the empty list and the 404 for another user's analysis.
 
 ## Security
 
