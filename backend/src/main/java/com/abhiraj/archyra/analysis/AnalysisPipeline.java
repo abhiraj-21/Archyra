@@ -189,7 +189,7 @@ public class AnalysisPipeline {
 
 	private static String describe(AnalysisStatus stage) {
 		return switch (stage) {
-			case QUEUED -> "starting the analysis";
+			case QUEUED, NOT_ANALYZED -> "starting the analysis";
 			case CLONING -> "cloning the repository";
 			case PARSING -> "parsing the source code";
 			case ANALYZING -> "analyzing the code";

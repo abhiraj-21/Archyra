@@ -19,8 +19,8 @@ import lombok.NoArgsConstructor;
 /**
  * What a deleted account had consumed ({@code usage_ledger}): one row per identity key and usage type, holding only a
  * keyed hash and a count. No email, name, repository URL or content, and nothing that can be reversed without the
- * secret. Written only by {@link UsageLedgerRepository#raiseTo} and {@link UsageLedgerRepository#raiseToInWindow}; within a
- * window counts only go up, and a newer window replaces an older one.
+ * secret. Written only by {@link UsageLedgerService#record}, which overwrites a key's counts with the deleted account's
+ * current state (a restore or a merge reads the ledger and takes the larger value; it never writes it).
  */
 @Entity
 @Table(name = "usage_ledger",

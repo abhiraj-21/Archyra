@@ -41,6 +41,16 @@ public class AnalysisController {
 		return analysisService.reanalyze(analysisId);
 	}
 
+	/**
+	 * Analyses a restored entry ({@code NOT_ANALYZED}) of the caller with the credit already spent; same answer shape as
+	 * {@code POST /analyses}. {@code 409 ANALYSIS_NOT_RESTORABLE} for any other status.
+	 */
+	@PostMapping("/{analysisId}/analyze")
+	@ResponseStatus(HttpStatus.ACCEPTED)
+	public CreateAnalysisResponse analyzeRestored(@PathVariable String analysisId) {
+		return analysisService.analyze(analysisId);
+	}
+
 	@DeleteMapping("/{analysisId}")
 	@ResponseStatus(HttpStatus.NO_CONTENT)
 	public void deleteAnalysis(@PathVariable String analysisId) {

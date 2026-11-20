@@ -8,6 +8,7 @@ export const STATUS_LABEL: Record<AnalysisStatus, string> = {
   BUILDING_GRAPH: 'Building graph',
   COMPLETED: 'Completed',
   FAILED: 'Failed',
+  NOT_ANALYZED: 'Not analysed',
 };
 
 export function statusLabel(status: AnalysisStatus): string {

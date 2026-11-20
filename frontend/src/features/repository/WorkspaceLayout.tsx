@@ -12,6 +12,7 @@ import { useRepository } from '@/hooks/useWorkspace';
 import { repoLabel, safeGithubHref } from '@/lib/url';
 import { NotFoundPage } from '@/features/system/NotFoundPage';
 import { DeleteDialog, ReanalyzeDialog } from '@/features/dashboard/AnalysisActions';
+import { NotAnalysedPanel } from './NotAnalysedPanel';
 import type { WorkspaceContext } from './workspaceContext';
 
 const TABS = [
@@ -22,7 +23,10 @@ const TABS = [
   { to: 'ask-ai', label: 'Ask AI', icon: MessageSquareText },
 ] as const;
 
-/** /analyses/:analysisId/<tab>: only for a COMPLETED analysis; anything else goes to the progress view. */
+/**
+ * /analyses/:analysisId/<tab>: a COMPLETED analysis shows its results; a restored NOT_ANALYZED entry shows the same header and
+ * tabs with the "not analysed" panel on every tab (nothing is requested for it); anything else goes to the progress view.
+ */
 export default function WorkspaceLayout() {
   const { analysisId = '' } = useParams();
   const navigate = useNavigate();
@@ -30,10 +34,11 @@ export default function WorkspaceLayout() {
   useAnalysesPage(0); // fills the history cache, which knows the repository URL
   const url = useKnownRepositoryUrl(analysisId);
   const ready = status.data?.status === 'COMPLETED';
+  const notAnalysed = status.data?.status === 'NOT_ANALYZED';
   const repository = useRepository(analysisId, ready);
   const [dialog, setDialog] = useState<'reanalyze' | 'delete' | null>(null);
   // The graph fills the viewport on wide screens; other tabs scroll as pages.
-  const fillViewport = useMatch('/analyses/:analysisId/architecture') !== null;
+  const fillViewport = useMatch('/analyses/:analysisId/architecture') !== null && !notAnalysed;
 
   if (status.isPending) {
     return (
@@ -53,7 +58,7 @@ export default function WorkspaceLayout() {
       </div>
     );
   }
-  if (!ready) return <Navigate to={`/analyses/${analysisId}`} replace />;
+  if (!ready && !notAnalysed) return <Navigate to={`/analyses/${analysisId}`} replace />;
 
   const name = url ? repoLabel(url) : (repository.data?.name ?? 'Repository');
   const href = url ? safeGithubHref(url) : null;
@@ -67,7 +72,7 @@ export default function WorkspaceLayout() {
           <div className="grid min-w-0 gap-2xs">
             <div className="flex flex-wrap items-center gap-sm">
               <h1 className="min-w-0 max-w-none truncate text-xl">{name}</h1>
-              <StatusChip status="COMPLETED" />
+              <StatusChip status={notAnalysed ? 'NOT_ANALYZED' : 'COMPLETED'} />
             </div>
             <div className="flex flex-wrap items-center gap-xs text-sm text-muted">
               {href ? (
@@ -83,6 +88,7 @@ export default function WorkspaceLayout() {
               {repository.data && repository.data.languages.length > 6 ? <span className="text-xs">and {repository.data.languages.length - 6} more</span> : null}
             </div>
           </div>
+          {notAnalysed ? null : (
           <div className="flex items-center gap-xs">
             <Button size="sm" icon={<RefreshCw size={14} aria-hidden="true" />} onClick={() => setDialog('reanalyze')}>
               Re-analyze
@@ -101,6 +107,7 @@ export default function WorkspaceLayout() {
               )}
             </Menu>
           </div>
+          )}
         </div>
         <nav aria-label="Repository sections" className="tabbar -mx-md px-md sm:-mx-lg sm:px-lg">
           {TABS.map(({ to, label, icon: Icon }) => (
@@ -112,10 +119,14 @@ export default function WorkspaceLayout() {
         </nav>
       </header>
       <div className="flex min-h-0 flex-1 flex-col">
-        <Outlet context={context} />
+        {notAnalysed ? <NotAnalysedPanel analysisId={analysisId} repositoryUrl={summary.repositoryUrl} /> : <Outlet context={context} />}
       </div>
-      <ReanalyzeDialog analysis={summary} open={dialog === 'reanalyze'} onClose={() => setDialog(null)} />
-      <DeleteDialog analysis={summary} open={dialog === 'delete'} onClose={() => setDialog(null)} onDeleted={() => navigate('/dashboard', { replace: true })} />
+      {notAnalysed ? null : (
+        <>
+          <ReanalyzeDialog analysis={summary} open={dialog === 'reanalyze'} onClose={() => setDialog(null)} />
+          <DeleteDialog analysis={summary} open={dialog === 'delete'} onClose={() => setDialog(null)} onDeleted={() => navigate('/dashboard', { replace: true })} />
+        </>
+      )}
     </div>
   );
 }

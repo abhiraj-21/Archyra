@@ -15,33 +15,32 @@ interface UsageLedgerRepository extends JpaRepository<UsageLedgerEntry, UUID> {
 
 	List<UsageLedgerEntry> findByIdentityKeyIn(Collection<String> identityKeys);
 
-	/** Inserts the row or raises it: the stored count is the maximum ever seen, whatever the order of concurrent calls. */
+	/**
+	 * Replaces the stored count of a lifetime type with the account's current one (deleting an account overwrites; only a
+	 * restore or a merge takes the larger value, and those read the ledger, never write it).
+	 */
 	@Modifying(flushAutomatically = true)
 	@Query(value = """
 			insert into usage_ledger (id, identity_key, usage_type, used_count, updated_at)
 			values (:id, :key, :type, :count, now())
 			on conflict (identity_key, usage_type)
-			do update set used_count = greatest(usage_ledger.used_count, excluded.used_count), updated_at = now()
+			do update set used_count = excluded.used_count, window_start = null, updated_at = now()
 			""", nativeQuery = true)
-	int raiseTo(@Param("id") UUID id, @Param("key") String key, @Param("type") String type, @Param("count") int count);
+	int overwrite(@Param("id") UUID id, @Param("key") String key, @Param("type") String type, @Param("count") int count);
 
-	/**
-	 * {@link #raiseTo} for a weekly type, with the window the count belongs to. Counts of the same window keep the larger
-	 * one, a newer window replaces an older (or missing) one, and an older window never replaces a newer one.
-	 */
+	/** {@link #overwrite} for a weekly type, with the window the account's count belongs to. */
 	@Modifying(flushAutomatically = true)
 	@Query(value = """
 			insert into usage_ledger (id, identity_key, usage_type, used_count, window_start, updated_at)
 			values (:id, :key, :type, :count, :window, now())
 			on conflict (identity_key, usage_type)
-			do update set
-				used_count = case
-					when usage_ledger.window_start = excluded.window_start then greatest(usage_ledger.used_count, excluded.used_count)
-					when usage_ledger.window_start is null or usage_ledger.window_start < excluded.window_start then excluded.used_count
-					else usage_ledger.used_count end,
-				window_start = greatest(usage_ledger.window_start, excluded.window_start),
-				updated_at = now()
+			do update set used_count = excluded.used_count, window_start = excluded.window_start, updated_at = now()
 			""", nativeQuery = true)
-	int raiseToInWindow(@Param("id") UUID id, @Param("key") String key, @Param("type") String type, @Param("count") int count,
+	int overwriteInWindow(@Param("id") UUID id, @Param("key") String key, @Param("type") String type, @Param("count") int count,
 			@Param("window") Instant window);
+
+	/** An account that no longer has a count of this type leaves no row for it. */
+	@Modifying(flushAutomatically = true)
+	@Query("delete from UsageLedgerEntry e where e.identityKey = :key and e.usageType = :type")
+	int deleteByKeyAndType(@Param("key") String key, @Param("type") String type);
 }

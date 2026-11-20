@@ -13,6 +13,7 @@ import java.util.UUID;
 import com.abhiraj.archyra.common.AnalysisInProgressException;
 import com.abhiraj.archyra.common.AnalysisNotCompletedException;
 import com.abhiraj.archyra.common.AnalysisNotFoundException;
+import com.abhiraj.archyra.common.AnalysisNotRestorableException;
 import com.abhiraj.archyra.common.InvalidRequestException;
 import com.abhiraj.archyra.common.RateLimitedException;
 import com.abhiraj.archyra.common.ServiceBusyException;
@@ -64,6 +65,10 @@ public class AnalysisService {
 	 */
 	public CreateAnalysisResponse reanalyze(String analysisId) {
 		Analysis source = findOwned(analysisId);
+		if (source.getStatus() == AnalysisStatus.NOT_ANALYZED) {
+			// would charge a second credit for a repository whose credit is already attached to this entry
+			throw new AnalysisNotCompletedException("This repository has not been analysed yet. Analyse it to use the credit you already spent.");
+		}
 		return start(source.getRepositoryUrl(), source.isFinished() ? source.getId() : null);
 	}
 
@@ -98,6 +103,50 @@ public class AnalysisService {
 			throw new ServiceBusyException("Too many analyses are running. Please try again later.");
 		}
 		return new CreateAnalysisResponse(analysis.getId().toString(), analysis.getStatus());
+	}
+
+	/**
+	 * Analyses a restored {@link AnalysisStatus#NOT_ANALYZED} entry of the caller. It moves the <b>same row</b> to
+	 * {@code QUEUED} and starts the pipeline <b>without charging</b>: the credit was spent by the deleted account and came
+	 * back with the entry. One guarded UPDATE decides who starts, so two simultaneous calls run one pipeline and the
+	 * other gets the conflict. It is a repository clone like any analysis, so it uses the same per-user rate limit. If the
+	 * queue is full the entry returns to {@code NOT_ANALYZED} (nothing lost, nothing refunded); if the run later fails the
+	 * ordinary rule applies (the credit goes back once and the row ends {@code FAILED}).
+	 *
+	 * @throws AnalysisNotFoundException if the id is malformed, unknown or someone else's
+	 * @throws AnalysisNotRestorableException if the analysis is not a NOT_ANALYZED entry (running, completed or failed)
+	 * @throws ServiceBusyException if the analysis queue is full, or other requests of the same user hold the quota lock
+	 */
+	public CreateAnalysisResponse analyze(String analysisId) {
+		Analysis entry = findOwned(analysisId);
+		UUID owner = access.callerId();
+		if (entry.getStatus() != AnalysisStatus.NOT_ANALYZED) {
+			throw new AnalysisNotRestorableException("Only a repository that has not been analysed yet can be analysed this way");
+		}
+		RateLimiter.Decision decision = rateLimiter.tryConsume(RateLimiter.Rule.CREATE_ANALYSIS, owner.toString());
+		if (!decision.allowed()) {
+			throw new RateLimitedException(decision.retryAfterSeconds());
+		}
+		boolean started;
+		try {
+			started = registrar.startRestored(entry.getId(), owner);
+		}
+		catch (PessimisticLockingFailureException ex) {
+			log.warn("Gave up waiting for the usage lock of a user: {}", ex.getClass().getSimpleName());
+			throw new ServiceBusyException("Too many requests are being processed for your account. Please try again.");
+		}
+		if (!started) {
+			throw new AnalysisNotRestorableException("Only a repository that has not been analysed yet can be analysed this way");
+		}
+		log.info("Restored analysis {} is being analysed; its credit was already spent", entry.getId());
+		try {
+			analysisPipeline.run(entry.getId());
+		}
+		catch (RejectedExecutionException ex) {
+			registrar.returnRestored(entry.getId());
+			throw new ServiceBusyException("Too many analyses are running. Please try again later.");
+		}
+		return new CreateAnalysisResponse(entry.getId().toString(), AnalysisStatus.QUEUED);
 	}
 
 	/** The row stays as FAILED, as before, and the unit goes back. A failure here must not hide the 503. */
@@ -142,14 +191,15 @@ public class AnalysisService {
 	}
 
 	/**
-	 * Deletes one of the caller's analyses with its graph and metadata.
+	 * Deletes one of the caller's analyses with its graph and metadata. A restored {@code NOT_ANALYZED} entry goes through
+	 * the same path (there is nothing to remove but the row) and, like any analysis, returns exactly one credit to a free user.
 	 *
 	 * @throws AnalysisNotFoundException   if it does not exist or belongs to someone else
 	 * @throws AnalysisInProgressException if it is still queued or running
 	 */
 	public void delete(String analysisId) {
 		Analysis analysis = findOwned(analysisId);
-		if (!analysis.isFinished()) {
+		if (analysis.isInProgress()) { // a NOT_ANALYZED entry can be deleted: it holds a credit and nothing else
 			throw new AnalysisInProgressException("The analysis is still running; try again when it has finished");
 		}
 		cleanup.delete(analysis);
@@ -162,13 +212,15 @@ public class AnalysisService {
 	 *
 	 * @return the analysis id, which is also the {@code analysisId} of its graph
 	 * @throws AnalysisNotFoundException     if the id is malformed, no such analysis exists, or it is someone else's
-	 * @throws AnalysisNotCompletedException if the analysis is still running or FAILED
+	 * @throws AnalysisNotCompletedException if the analysis is still running, FAILED, or a restored NOT_ANALYZED entry
 	 */
 	public UUID requireCompleted(String analysisId) {
 		Analysis analysis = findOwned(analysisId);
 		return switch (analysis.getStatus()) {
 			case COMPLETED -> analysis.getId();
 			case FAILED -> throw new AnalysisNotCompletedException("The analysis failed, so it has no results");
+			case NOT_ANALYZED -> throw new AnalysisNotCompletedException(
+					"This repository has not been analysed yet. Analyse it to see its results");
 			default -> throw new AnalysisNotCompletedException(
 					"The analysis has not completed yet (status: " + analysis.getStatus() + ")");
 		};

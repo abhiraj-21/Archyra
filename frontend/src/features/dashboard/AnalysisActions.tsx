@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router';
 import { MoreHorizontal, RefreshCw, Trash2 } from 'lucide-react';
 import { hasCode } from '@/api/errors';
-import { isRunning, type AnalysisSummary } from '@/api/types';
+import { isNotAnalysed, isRunning, type AnalysisSummary } from '@/api/types';
 import { Button } from '@/components/ui/Button';
 import { Dialog } from '@/components/ui/Dialog';
 import { Menu } from '@/components/ui/Menu';
@@ -10,6 +10,7 @@ import { Notice } from '@/components/ui/Notice';
 import { useAnalysisUsage } from '@/hooks/useAccount';
 import { useDeleteAnalysis, useReanalyze } from '@/hooks/useAnalyses';
 import { describeError } from '@/lib/errorCopy';
+import { creditReturnNote } from '@/lib/restoredEntry';
 import { repoLabel } from '@/lib/url';
 
 /** Re-run an analysis. The new run gets a new id; it replaces this one only when it completes. */
@@ -49,7 +50,8 @@ export function ReanalyzeDialog({ analysis, open, onClose }: { analysis: Pick<An
 
 export function DeleteDialog({ analysis, open, onClose, onDeleted }: { analysis: Pick<AnalysisSummary, 'analysisId' | 'repositoryUrl' | 'status'>; open: boolean; onClose: () => void; onDeleted?: () => void }) {
   const remove = useDeleteAnalysis();
-  const { plan } = useAnalysisUsage();
+  const { plan, entry } = useAnalysisUsage();
+  const notAnalysed = isNotAnalysed(analysis.status);
   const running = isRunning(analysis.status) || hasCode(remove.error, 'ANALYSIS_IN_PROGRESS');
   const copy = remove.error && !hasCode(remove.error, 'ANALYSIS_IN_PROGRESS') ? describeError(remove.error) : null;
   return (
@@ -67,7 +69,7 @@ export function DeleteDialog({ analysis, open, onClose, onDeleted }: { analysis:
             icon={<Trash2 size={16} aria-hidden="true" />}
             onClick={() => remove.mutate(analysis.analysisId, { onSuccess: () => { onClose(); onDeleted?.(); } })}
           >
-            Delete analysis
+            {notAnalysed ? 'Delete repository' : 'Delete analysis'}
           </Button>
         </>
       }
@@ -75,10 +77,13 @@ export function DeleteDialog({ analysis, open, onClose, onDeleted }: { analysis:
       <div className="grid gap-sm">
         {running ? (
           <Notice tone="warn" title="This analysis is still running">A running analysis cannot be deleted. Wait until it completes or fails.</Notice>
+        ) : notAnalysed ? (
+          <p>This repository has not been analysed, so there is no graph to delete. The saved link is removed. This cannot be undone.</p>
         ) : (
           <p>The graph, files and relationships of this analysis are deleted. This cannot be undone.</p>
         )}
-        {!running && plan === 'FREE' ? <p className="text-muted">On the free plan, deleting it gives you back one free analysis.</p> : null}
+        {!running && notAnalysed ? <p className="text-muted">{creditReturnNote(plan, entry)}</p> : null}
+        {!running && !notAnalysed && plan === 'FREE' ? <p className="text-muted">On the free plan, deleting it gives you back one free analysis.</p> : null}
         {copy ? <Notice tone="error" title={copy.title}>{copy.message}</Notice> : null}
       </div>
     </Dialog>

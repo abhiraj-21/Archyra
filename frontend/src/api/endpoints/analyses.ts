@@ -23,6 +23,8 @@ export const listAnalyses = (page: number, size: number, signal?: AbortSignal) =
   http<Page<AnalysisSummary>>('/analyses', { query: { page, size }, signal });
 export const getAnalysisStatus = (analysisId: string, signal?: AbortSignal) => http<AnalysisStatusResponse>(a(analysisId), { signal });
 export const deleteAnalysis = (analysisId: string) => http<void>(a(analysisId), { method: 'DELETE' });
+/** Analyses a restored (NOT_ANALYZED) entry with the credit already spent: the same row runs, nothing is charged. */
+export const analyzeRestored = (analysisId: string) => http<CreateAnalysisResponse>(`${a(analysisId)}/analyze`, { method: 'POST' });
 export const reanalyze = (analysisId: string) => http<CreateAnalysisResponse>(`${a(analysisId)}/reanalyze`, { method: 'POST' });
 
 export const getRepository = (analysisId: string, signal?: AbortSignal) => http<RepositoryResponse>(`${a(analysisId)}/repository`, { signal });

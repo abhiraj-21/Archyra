@@ -4,11 +4,19 @@
  * the backend leaves out (`@JsonInclude(NON_NULL)`); nullable ones are always present and may be null.
  */
 
-export const ANALYSIS_STATUSES = ['QUEUED', 'CLONING', 'PARSING', 'ANALYZING', 'BUILDING_GRAPH', 'COMPLETED', 'FAILED'] as const;
+export const ANALYSIS_STATUSES = ['QUEUED', 'CLONING', 'PARSING', 'ANALYZING', 'BUILDING_GRAPH', 'COMPLETED', 'FAILED', 'NOT_ANALYZED'] as const;
 export type AnalysisStatus = (typeof ANALYSIS_STATUSES)[number];
 export const RUNNING_STATUSES: readonly AnalysisStatus[] = ['QUEUED', 'CLONING', 'PARSING', 'ANALYZING', 'BUILDING_GRAPH'];
+/** Finished: nothing will change by itself any more (COMPLETED or FAILED). */
 export const isTerminal = (status: AnalysisStatus): boolean => status === 'COMPLETED' || status === 'FAILED';
-export const isRunning = (status: AnalysisStatus): boolean => !isTerminal(status);
+/**
+ * Idle: a repository restored from a previous account. Its credit is spent and there is no graph; nothing runs until the
+ * owner analyses it. It is neither running nor finished, so it is never polled and never shows progress.
+ */
+export const isNotAnalysed = (status: AnalysisStatus): boolean => status === 'NOT_ANALYZED';
+export const isRunning = (status: AnalysisStatus): boolean => RUNNING_STATUSES.includes(status);
+/** Nothing to wait for: polling stops (COMPLETED, FAILED or NOT_ANALYZED). */
+export const isSettled = (status: AnalysisStatus): boolean => isTerminal(status) || isNotAnalysed(status);
 
 export const NODE_TYPES = ['REPOSITORY', 'MODULE', 'FILE', 'CLASS', 'INTERFACE', 'METHOD', 'FUNCTION'] as const;
 export type NodeType = (typeof NODE_TYPES)[number];

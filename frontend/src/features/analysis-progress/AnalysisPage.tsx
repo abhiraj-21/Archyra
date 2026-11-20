@@ -38,6 +38,8 @@ export default function AnalysisPage() {
       </div>
     );
   }
+  // A restored entry has nothing to show progress for: its workspace explains it and offers Analyse and Delete.
+  if (status.data?.status === 'NOT_ANALYZED') return <Navigate to={`/analyses/${analysisId}/overview`} replace />;
   if (status.data?.status === 'COMPLETED' && !moment) return <Navigate to={`/analyses/${analysisId}/overview`} replace />;
   return status.data ? <ProgressView status={status.data} repositoryUrl={repositoryUrl} justCompleted={moment} /> : null;
 }

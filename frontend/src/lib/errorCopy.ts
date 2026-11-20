@@ -45,6 +45,11 @@ const COPY: Record<string, Entry> = {
     message: 'A running analysis cannot be deleted. Wait until it completes or fails.',
     retryable: false,
   },
+  ANALYSIS_NOT_RESTORABLE: {
+    title: 'Already analysed or running',
+    message: 'Only a repository that has not been analysed yet can be analysed with its saved credit. Reload to see its current state.',
+    retryable: false,
+  },
   CANNOT_DISABLE_SELF: { title: 'You cannot disable yourself', message: 'Ask another administrator to do it.', retryable: false },
   LAST_ADMIN: { title: 'Last administrator', message: 'At least one enabled administrator must remain.', retryable: false },
   PROVIDER_ALREADY_LINKED: { title: 'Already linked', message: 'A sign-in of that provider is already linked to your account.', retryable: false },

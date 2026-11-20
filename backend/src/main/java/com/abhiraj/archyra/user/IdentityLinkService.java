@@ -19,6 +19,7 @@ import com.abhiraj.archyra.common.UserNotFoundException;
 import com.abhiraj.archyra.mail.EmailService;
 import com.abhiraj.archyra.security.SecurityAuditLogger;
 import com.abhiraj.archyra.security.SecurityProperties;
+import com.abhiraj.archyra.analysis.AnalysisRestoreService;
 import com.abhiraj.archyra.usage.UsageLedgerService;
 
 import lombok.RequiredArgsConstructor;
@@ -54,6 +55,7 @@ public class IdentityLinkService {
 	private final UserRepository users;
 	private final LinkedIdentityRepository identities;
 	private final UsageLedgerService usageLedger;
+	private final AnalysisRestoreService analysisRestore;
 	private final EmailService emailService;
 	private final SecurityProperties properties;
 	private final SecurityAuditLogger audit;
@@ -110,7 +112,10 @@ public class IdentityLinkService {
 		identities.saveAndFlush(new LinkedIdentity(userId, details.provider(), details.providerUserId(),
 				clean(details.email()), clean(details.login())));
 		// Merge, never lower: a person who deleted an account must not shed their usage by linking the old identity to a new one.
-		usageLedger.restoreInto(userId, Set.of(usageLedger.identityKey(details.provider(), details.providerUserId())));
+		// (and the repositories those credits were spent on come back as entries, never one the account already holds)
+		Set<String> keys = Set.of(usageLedger.identityKey(details.provider(), details.providerUserId()));
+		usageLedger.restoreInto(userId, keys);
+		analysisRestore.restoreFor(userId, keys);
 		audit.event("IDENTITY_LINKED_" + details.provider(), userId, null);
 		Instant now = clock.instant();
 		afterCommit(() -> emailService.sendIdentityLinkedNotice(user.getEmail(), user.getName(),

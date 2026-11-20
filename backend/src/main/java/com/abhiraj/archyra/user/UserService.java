@@ -1,5 +1,6 @@
 package com.abhiraj.archyra.user;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
@@ -10,11 +11,13 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
 
+import com.abhiraj.archyra.analysis.AnalysisRestoreService;
 import com.abhiraj.archyra.usage.UsageLedgerService;
 
 import lombok.RequiredArgsConstructor;
@@ -30,6 +33,11 @@ public class UserService {
 	private final UserRepository userRepository;
 	private final LinkedIdentityRepository linkedIdentityRepository;
 	private final UsageLedgerService usageLedger;
+	/**
+	 * Looked up when needed, not injected: restoring entries goes through the analysis registrar, whose usage service reaches
+	 * the entitlement service, which reads accounts through this class. A constructor dependency would be a bean cycle.
+	 */
+	private final ObjectProvider<AnalysisRestoreService> analysisRestore;
 	private final TransactionTemplate transactions;
 	private final Clock clock;
 
@@ -84,7 +92,7 @@ public class UserService {
 		try {
 			return Optional.of(transactions.execute(status -> {
 				User saved = userRepository.saveAndFlush(User.registered(normalized, name, passwordHash, now));
-				usageLedger.restoreInto(saved.getId(), Set.of(usageLedger.emailKey(normalized)));
+				restoreUsage(saved.getId(), Set.of(usageLedger.emailKey(normalized)));
 				return saved;
 			}));
 		}
@@ -140,7 +148,7 @@ public class UserService {
 	public User createSocialUser(String email, String name, Provider provider, String providerUserId) {
 		User created = userRepository.saveAndFlush(User.fromSocialLogin(normalizeEmail(email), name));
 		linkedIdentityRepository.save(new LinkedIdentity(created.getId(), provider, providerUserId, normalizeEmail(email)));
-		usageLedger.restoreInto(created.getId(), usageLedger.keysFor(created.getEmail(),
+		restoreUsage(created.getId(), usageLedger.keysFor(created.getEmail(),
 				java.util.List.of(new UsageLedgerService.IdentityRef(provider, providerUserId))));
 		return created;
 	}
@@ -152,7 +160,16 @@ public class UserService {
 	 */
 	@Transactional(propagation = org.springframework.transaction.annotation.Propagation.MANDATORY)
 	public void mergeLedgerUsage(UUID userId, Provider provider, String providerUserId) {
-		usageLedger.restoreInto(userId, Set.of(usageLedger.identityKey(provider, providerUserId)));
+		restoreUsage(userId, Set.of(usageLedger.identityKey(provider, providerUserId)));
+	}
+
+	/**
+	 * What a returning person gets back, in the caller's transaction: the counts first (only ever raised), then the
+	 * repositories those credits were spent on as not-analysed entries. Silent: nothing here is returned or logged.
+	 */
+	private void restoreUsage(UUID userId, Collection<String> identityKeys) {
+		usageLedger.restoreInto(userId, identityKeys);
+		analysisRestore.getObject().restoreFor(userId, identityKeys);
 	}
 
 	/**

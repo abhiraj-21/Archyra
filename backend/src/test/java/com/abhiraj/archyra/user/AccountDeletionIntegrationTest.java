@@ -554,6 +554,9 @@ class AccountDeletionIntegrationTest {
 		User user = passwordUser(remembered);
 		consume(user, UsageType.REPOSITORY_ANALYSIS, 2);
 		assertThat(deleteWithPassword(user, PASSWORD).getResponse().getStatus()).isEqualTo(204);
+		// the ledger also remembers a repository link for this address: it must change nothing a caller can see
+		jdbc.update("INSERT INTO usage_ledger_repository (id, identity_key, repository_url, created_at) VALUES (?, ?, ?, now())",
+				UUID.randomUUID(), ledger.emailKey(remembered), "https://github.com/example/remembered-" + hex());
 
 		MvcResult withMatch = register(remembered);
 		MvcResult withoutMatch = register(uniqueEmail());
@@ -567,6 +570,8 @@ class AccountDeletionIntegrationTest {
 				.extracting(RecordingEmailService.Sent::kind).containsExactly("VERIFY");
 		User registered = userService.findByEmail(remembered).orElseThrow();
 		assertThat(used(registered.getId(), UsageType.REPOSITORY_ANALYSIS)).isEqualTo(2);
+		assertThat(withMatch.getResponse().getContentAsString()).doesNotContain("github.com");
+		assertThat(jdbc.queryForObject("SELECT count(*) FROM analyses WHERE user_id = ? AND status = 'NOT_ANALYZED'", Integer.class, registered.getId())).isEqualTo(1);
 	}
 
 	@Test

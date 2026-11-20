@@ -92,4 +92,45 @@ class AnalysisTest {
 		assertThatThrownBy(() -> analysis.advanceTo(AnalysisStatus.COMPLETED, 100)).isInstanceOf(IllegalArgumentException.class);
 		assertThatThrownBy(() -> analysis.advanceTo(AnalysisStatus.FAILED, 0)).isInstanceOf(IllegalArgumentException.class);
 	}
+
+	@Test
+	void aRestoredEntryIsNotAnalysedChargedAndIdleUntilTheRegistrarQueuesIt() {
+		java.util.UUID owner = java.util.UUID.randomUUID();
+		Analysis entry = Analysis.restored("https://github.com/owner/repo", owner);
+
+		assertThat(entry.getStatus()).isEqualTo(AnalysisStatus.NOT_ANALYZED);
+		assertThat(entry.getProgress()).isZero();
+		assertThat(entry.isQuotaCharged()).isTrue();
+		assertThat(entry.isQuotaRefunded()).isFalse();
+		assertThat(entry.getOwnerId()).isEqualTo(owner);
+		assertThat(entry.isFinished()).isFalse();
+		assertThat(entry.isInProgress()).isFalse(); // idle: neither running nor finished
+		assertThatThrownBy(() -> Analysis.restored("https://github.com/owner/repo", null)).isInstanceOf(IllegalArgumentException.class);
+	}
+
+	@Test
+	void aPipelineNeverMovesOrFinishesAnEntryNobodyStarted() {
+		Analysis entry = Analysis.restored("https://github.com/owner/repo", java.util.UUID.randomUUID());
+
+		assertThatThrownBy(() -> entry.advanceTo(AnalysisStatus.CLONING, 5)).isInstanceOf(IllegalStateException.class);
+		assertThatThrownBy(entry::markCompleted).isInstanceOf(IllegalStateException.class);
+		assertThatThrownBy(() -> entry.markFailed("x")).isInstanceOf(IllegalStateException.class);
+		assertThat(entry.getStatus()).isEqualTo(AnalysisStatus.NOT_ANALYZED);
+	}
+
+	@Test
+	void advancingCanNeverTargetNotAnalysed() {
+		Analysis analysis = Analysis.queued("https://github.com/owner/repo", java.util.UUID.randomUUID());
+
+		assertThatThrownBy(() -> analysis.advanceTo(AnalysisStatus.NOT_ANALYZED, 0)).isInstanceOf(IllegalArgumentException.class);
+	}
+
+	@Test
+	void everyStatusFitsTheStatusColumn() throws Exception {
+		int length = Analysis.class.getDeclaredField("status").getAnnotation(jakarta.persistence.Column.class).length();
+
+		for (AnalysisStatus status : AnalysisStatus.values()) {
+			assertThat(status.name().length()).isLessThanOrEqualTo(length);
+		}
+	}
 }

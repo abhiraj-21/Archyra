@@ -101,6 +101,11 @@ public class GlobalExceptionHandler {
 		return ResponseEntity.status(HttpStatus.CONFLICT).body(new ErrorResponse("ANALYSIS_IN_PROGRESS", ex.getMessage()));
 	}
 
+	@ExceptionHandler(AnalysisNotRestorableException.class)
+	public ResponseEntity<ErrorResponse> handleAnalysisNotRestorable(AnalysisNotRestorableException ex) {
+		return ResponseEntity.status(HttpStatus.CONFLICT).body(new ErrorResponse("ANALYSIS_NOT_RESTORABLE", ex.getMessage()));
+	}
+
 	@ExceptionHandler(RateLimitedException.class)
 	public ResponseEntity<ErrorResponse> handleRateLimited(RateLimitedException ex) {
 		return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)

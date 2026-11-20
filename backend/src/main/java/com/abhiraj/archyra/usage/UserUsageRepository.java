@@ -18,6 +18,10 @@ interface UserUsageRepository extends JpaRepository<UserUsage, UUID> {
 
 	List<UserUsage> findByUserId(UUID userId);
 
+	/** The stored count read straight from the database (a scalar query, so never a stale cached entity). */
+	@Query("select u.usedCount from UserUsage u where u.userId = :userId and u.usageType = :type")
+	Optional<Integer> findUsedCount(@Param("userId") UUID userId, @Param("type") UsageType type);
+
 	/** {@code SELECT ... FOR UPDATE}: serializes everything that consumes this user's quota until the transaction ends. */
 	@Lock(LockModeType.PESSIMISTIC_WRITE)
 	@Query("select u from UserUsage u where u.userId = :userId and u.usageType = :type")

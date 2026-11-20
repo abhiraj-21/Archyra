@@ -1,5 +1,5 @@
-import { expect, test, type APIRequestContext, type Page } from '@playwright/test';
-import { env, requireLive, signIn, usedAnalyses } from './helpers';
+import { expect, test, type Page } from '@playwright/test';
+import { env, registerAndVerify, requireLive, signIn, usedAnalyses } from './helpers';
 
 /**
  * Settings → Danger zone (spec/account-deletion). Two groups:
@@ -108,36 +108,6 @@ test.describe('Settings → Danger zone: the confirm dialog', () => {
 
 // ---- the throwaway account ---------------------------------------------------------------------
 
-/** The newest mail to {@code to} from a MailHog sink, as plain text with quoted-printable decoded. */
-async function lastMailBody(request: APIRequestContext, api: string, to: string): Promise<string> {
-  let body = '';
-  await expect
-    .poll(
-      async () => {
-        const res = await request.get(`${api}/api/v2/search`, { params: { kind: 'to', query: to, limit: '50' } });
-        const items = ((await res.json()) as { items: { Content: { Body: string } }[] }).items;
-        body = items[0]?.Content.Body ?? '';
-        return body;
-      },
-      { timeout: 30_000, message: `no mail for ${to} reached the sink` },
-    )
-    .not.toBe('');
-  return body.replace(/=\r?\n/g, '').replace(/=3D/g, '=');
-}
-
-async function registerAndVerify(page: Page, request: APIRequestContext, api: string, email: string) {
-  await page.goto('/register');
-  await page.getByLabel('Name').fill('E2E Throwaway');
-  await page.getByLabel('Email').fill(email);
-  await page.getByLabel('Password', { exact: true }).fill(PASSWORD);
-  await page.getByRole('button', { name: /create account|register|sign up/i }).click();
-  await expect(page).toHaveURL(/\/register\/check-email$/);
-  const link = /https?:\/\/\S+\/verify-email\?token=[A-Za-z0-9_-]+/.exec(await lastMailBody(request, api, email));
-  expect(link, 'the verification link').toBeTruthy();
-  await page.goto(new URL(link?.[0] as string).pathname + new URL(link?.[0] as string).search);
-  await expect(page.getByRole('heading', { name: 'Email verified' })).toBeVisible();
-}
-
 test('a throwaway account deletes itself, cannot sign in, and returns with the usage it had used', async ({ page, request }, info) => {
   const api = env.ARCHYRA_E2E_MAIL_API;
   info.skip(env.ARCHYRA_E2E_DELETE !== '1' || !api, 'opt in with ARCHYRA_E2E_DELETE=1 and ARCHYRA_E2E_MAIL_API=<MailHog address>: it registers an account and spends one free analysis of it');
@@ -145,7 +115,7 @@ test('a throwaway account deletes itself, cannot sign in, and returns with the u
   const email = `e2e-delete-${Date.now()}@example.com`;
   const repo = env.ARCHYRA_E2E_SMALL_REPO || 'https://github.com/spring-guides/gs-rest-service';
 
-  await registerAndVerify(page, request, api as string, email);
+  await registerAndVerify(page, request, api as string, email, PASSWORD);
   await signIn(page, email, PASSWORD);
   await page.getByLabel('Paste a GitHub URL').fill(repo);
   await page.getByRole('button', { name: 'Analyze' }).click();
@@ -176,7 +146,7 @@ test('a throwaway account deletes itself, cannot sign in, and returns with the u
   await expect(page).toHaveURL(/\/login$/);
 
   // registering the same address again keeps what it had used
-  await registerAndVerify(page, request, api as string, email);
+  await registerAndVerify(page, request, api as string, email, PASSWORD);
   await signIn(page, email, PASSWORD);
   expect(await usedAnalyses(page)).toBe(1);
 });

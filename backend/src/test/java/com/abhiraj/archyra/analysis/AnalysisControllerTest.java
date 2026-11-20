@@ -310,4 +310,37 @@ class AnalysisControllerTest {
 				.andExpect(status().isServiceUnavailable())
 				.andExpect(jsonPath("$.code").value("SERVICE_BUSY"));
 	}
+
+	// ---- analyze a restored entry --------------------------------------------------------------
+
+	private static final String ANALYZE = URL + "/" + ANALYSIS_ID + "/analyze";
+
+	@Test
+	void analyzeReturns202InTheSameShapeAsCreate() throws Exception {
+		given(analysisService.analyze(ANALYSIS_ID)).willReturn(new CreateAnalysisResponse(ANALYSIS_ID, AnalysisStatus.QUEUED));
+
+		mockMvc.perform(post(ANALYZE))
+				.andExpect(status().isAccepted())
+				.andExpect(jsonPath("$.length()").value(2))
+				.andExpect(jsonPath("$.analysisId").value(ANALYSIS_ID))
+				.andExpect(jsonPath("$.status").value("QUEUED"));
+	}
+
+	@Test
+	void analyzeOfAnythingButANotAnalysedEntryIs409AnalysisNotRestorable() throws Exception {
+		given(analysisService.analyze(ANALYSIS_ID)).willThrow(new com.abhiraj.archyra.common.AnalysisNotRestorableException("no"));
+
+		mockMvc.perform(post(ANALYZE))
+				.andExpect(status().isConflict())
+				.andExpect(jsonPath("$.code").value("ANALYSIS_NOT_RESTORABLE"));
+	}
+
+	@Test
+	void analyzeOfAnUnknownOrForeignAnalysisIs404AndAFullQueueIs503() throws Exception {
+		given(analysisService.analyze(ANALYSIS_ID)).willThrow(new AnalysisNotFoundException("Analysis not found"))
+				.willThrow(new ServiceBusyException("busy"));
+
+		mockMvc.perform(post(ANALYZE)).andExpect(status().isNotFound()).andExpect(jsonPath("$.code").value("ANALYSIS_NOT_FOUND"));
+		mockMvc.perform(post(ANALYZE)).andExpect(status().isServiceUnavailable()).andExpect(jsonPath("$.code").value("SERVICE_BUSY"));
+	}
 }

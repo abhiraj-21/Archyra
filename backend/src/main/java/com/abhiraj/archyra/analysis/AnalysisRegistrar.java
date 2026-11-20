@@ -5,8 +5,10 @@ import java.util.Optional;
 import java.util.UUID;
 
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.abhiraj.archyra.common.AnalysisInProgressException;
 import com.abhiraj.archyra.usage.UsageService;
 import com.abhiraj.archyra.usage.UsageType;
 
@@ -71,6 +73,39 @@ class AnalysisRegistrar {
 	}
 
 	/**
+	 * Creates a restored entry for a returning user: the link of a repository whose credit an earlier, deleted account had
+	 * spent. <b>Charges nothing</b>: the usage count restored from the ledger already includes this credit, which is why
+	 * the row is created charged ({@link Analysis#restored}). Joins the caller's transaction (the one that creates the user
+	 * or links the identity), so the user, the counts and the entries commit together.
+	 */
+	@Transactional(propagation = Propagation.MANDATORY)
+	Analysis registerRestored(UUID userId, String repositoryUrl) {
+		return analysisRepository.save(Analysis.restored(repositoryUrl, userId));
+	}
+
+	/**
+	 * Moves a restored entry to {@code QUEUED} so the pipeline can run it, <b>without charging</b>: the credit is already
+	 * attached. Under the same row lock of the user's counter as a registration and an account deletion, so an account
+	 * cannot be deleted between the update and the start of the run. The guarded UPDATE makes it single-shot.
+	 *
+	 * @return false when the row is not (or no longer) a {@code NOT_ANALYZED} entry of this user: the caller reports the conflict
+	 */
+	@Transactional
+	boolean startRestored(UUID analysisId, UUID userId) {
+		usageService.lock(userId, QUOTA);
+		return analysisRepository.queueRestored(analysisId, userId) == 1;
+	}
+
+	/**
+	 * The queue refused the run: the entry goes back to {@code NOT_ANALYZED}. No refund and no failure, so the user keeps
+	 * the entry and loses nothing (the credit never left it).
+	 */
+	@Transactional
+	void returnRestored(UUID analysisId) {
+		analysisRepository.unqueueRestored(analysisId);
+	}
+
+	/**
 	 * Ends an analysis as FAILED and returns its unit, in one transaction: nobody can see FAILED and still be
 	 * charged, and if the refund fails the status is not written either (the caller then falls back, see
 	 * {@link AnalysisPipeline}).
@@ -116,7 +151,11 @@ class AnalysisRegistrar {
 		if (owner != null && usageService.isHeldToFreeLimit(owner)) {
 			refundQuota(analysis.getId());
 		}
-		analysisRepository.delete(analysis);
+		// The row goes only if nothing has started on it since the caller looked: a restored entry that was just queued is
+		// running now, and deleting it (with the refund above, rolled back by this throw) would pull the row from under the run.
+		if (analysisRepository.deleteIfIdle(analysis.getId()) == 0 && analysisRepository.existsById(analysis.getId())) {
+			throw new AnalysisInProgressException("The analysis is running; try again when it has finished");
+		}
 	}
 
 	/**

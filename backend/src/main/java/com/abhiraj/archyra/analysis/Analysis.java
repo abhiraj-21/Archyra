@@ -103,6 +103,23 @@ public class Analysis {
 		return new Analysis(repositoryUrl, ownerId);
 	}
 
+	/**
+	 * A restored entry: the repository link of an analysis whose account was deleted, given back to the person who returned.
+	 * It is {@link AnalysisStatus#NOT_ANALYZED}, 0%, with the credit already attached ({@code quotaCharged}, not refunded)
+	 * because the restored usage count already includes it. Only the registrar creates it. Moving it to
+	 * {@link AnalysisStatus#QUEUED} is the guarded UPDATE {@link AnalysisRepository#queueRestored}, which keeps
+	 * {@code quotaCharged}, so two simultaneous requests start one run.
+	 */
+	static Analysis restored(String repositoryUrl, UUID ownerId) {
+		if (ownerId == null) {
+			throw new IllegalArgumentException("An analysis must have an owner");
+		}
+		Analysis analysis = new Analysis(repositoryUrl, ownerId);
+		analysis.status = AnalysisStatus.NOT_ANALYZED;
+		analysis.quotaCharged = true;
+		return analysis;
+	}
+
 	/** Records that this analysis consumed a unit. Only the registrar charges, in the same transaction as the insert. */
 	void markQuotaCharged() {
 		this.quotaCharged = true;
@@ -118,10 +135,15 @@ public class Analysis {
 		return status == AnalysisStatus.COMPLETED || status == AnalysisStatus.FAILED;
 	}
 
+	/** Queued or running: a pipeline run owns the row. A {@link AnalysisStatus#NOT_ANALYZED} entry is neither this nor finished. */
+	public boolean isInProgress() {
+		return status != AnalysisStatus.NOT_ANALYZED && !isFinished();
+	}
+
 	/** Moves the pipeline to the next stage. {@code progress} is a percentage from 0 to 100. */
 	public void advanceTo(AnalysisStatus nextStatus, int nextProgress) {
-		requireNotFinished();
-		if (nextStatus == AnalysisStatus.COMPLETED || nextStatus == AnalysisStatus.FAILED) {
+		requireInProgress();
+		if (nextStatus == AnalysisStatus.COMPLETED || nextStatus == AnalysisStatus.FAILED || nextStatus == AnalysisStatus.NOT_ANALYZED) {
 			throw new IllegalArgumentException("Use markCompleted() or markFailed() to finish an analysis");
 		}
 		this.status = nextStatus;
@@ -129,7 +151,7 @@ public class Analysis {
 	}
 
 	public void markCompleted() {
-		requireNotFinished();
+		requireInProgress();
 		this.status = AnalysisStatus.COMPLETED;
 		this.progress = 100;
 		this.failureReason = null;
@@ -137,15 +159,16 @@ public class Analysis {
 
 	/** Ends the analysis as FAILED, keeping the progress reached so far. The reason is cut to fit its column. */
 	public void markFailed(String reason) {
-		requireNotFinished();
+		requireInProgress();
 		this.status = AnalysisStatus.FAILED;
 		this.failureReason = reason == null || reason.length() <= FAILURE_REASON_LENGTH
 				? reason : reason.substring(0, FAILURE_REASON_LENGTH);
 	}
 
-	private void requireNotFinished() {
-		if (isFinished()) {
-			throw new IllegalStateException("Analysis " + id + " is already " + status);
+	/** A pipeline only ever changes a queued or running analysis: not a finished one, and not an entry nobody started. */
+	private void requireInProgress() {
+		if (!isInProgress()) {
+			throw new IllegalStateException("Analysis " + id + " is " + status + " and is not running");
 		}
 	}
 }

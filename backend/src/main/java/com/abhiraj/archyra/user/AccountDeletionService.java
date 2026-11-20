@@ -29,15 +29,17 @@ import lombok.extern.slf4j.Slf4j;
  * does the rest in one transaction, in this order:
  * <ol>
  * <li>lock the user, refuse the last enabled administrator ({@code 409 LAST_ADMIN});</li>
- * <li>write the consumption into the usage ledger, <b>first</b>, so nothing below can lower it;</li>
+ * <li>write the consumption into the usage ledger, <b>first</b>: the current count per type and the links of the
+ *     repositories that still hold a credit (nothing else about them), <b>overwriting</b> what the account's keys held
+ *     before, so nothing below can change it;</li>
  * <li>remove every analysis through {@link AnalysisPurgeService}, which never refunds a credit and, because the
  *     graph is in Neo4j (outside this transaction), records the ids and drops the graphs after the commit;</li>
  * <li>delete the refresh, one-time and link-intent tokens, the linked identities, the counters and the user.</li>
  * </ol>
  * After the commit ({@link #afterDeletion}, called by the caller outside any transaction): the account's access token
  * stops working, the graphs are dropped, an audit line (user id, no email) is written and a "your account was deleted"
- * email goes to the address held before the deletion. None of those can fail the deletion. Only keyed hashes and counts
- * remain; nothing logged here names a key or an email.
+ * email goes to the address held before the deletion. None of those can fail the deletion. Only keyed hashes, counts and
+ * repository links remain; nothing logged here names a key or an email.
  */
 @Slf4j
 @Service
@@ -89,7 +91,8 @@ public class AccountDeletionService {
 		// Serialize with a request that starts an analysis for this user, then record the counts before anything is touched.
 		usage.lock(userId, UsageType.REPOSITORY_ANALYSIS);
 		ledger.record(userId, ledger.keysFor(email, linked.stream()
-				.map(identity -> new UsageLedgerService.IdentityRef(identity.getProvider(), identity.getProviderUserId())).toList()));
+				.map(identity -> new UsageLedgerService.IdentityRef(identity.getProvider(), identity.getProviderUserId())).toList()),
+				analyses.retainableRepositories(userId));
 
 		List<UUID> analysisIds = analyses.purgeAllOf(userId);
 		tokens.deleteAllOf(userId);

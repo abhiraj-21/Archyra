@@ -1,4 +1,4 @@
-import { CircleAlert, CircleCheck, Clock, Hourglass, Lock, Sparkles } from 'lucide-react';
+import { CircleAlert, CircleCheck, CircleDashed, Clock, Hourglass, Lock, Sparkles } from 'lucide-react';
 import type { AnalysisStatus, Plan } from '@/api/types';
 import { statusLabel } from '@/lib/status';
 
@@ -16,6 +16,13 @@ export function StatusChip({ status, progress }: { status: AnalysisStatus; progr
       <span className="chip" data-tone="error">
         <CircleAlert size={13} aria-hidden="true" />
         Failed
+      </span>
+    );
+  if (status === 'NOT_ANALYZED')
+    return (
+      <span className="chip" data-tone="quiet">
+        <CircleDashed size={13} aria-hidden="true" />
+        Not analysed
       </span>
     );
   const Icon = status === 'QUEUED' ? Clock : Hourglass;

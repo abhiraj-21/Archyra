@@ -202,7 +202,7 @@ class AnalysisRegistrarTest {
 		InOrder order = inOrder(analyses, usage);
 		order.verify(analyses).markQuotaRefunded(analysis.getId());
 		order.verify(usage).release(user, QUOTA);
-		order.verify(analyses).delete(analysis);
+		order.verify(analyses).deleteIfIdle(analysis.getId());
 	}
 
 	@Test
@@ -214,7 +214,7 @@ class AnalysisRegistrarTest {
 		registrar.deleteAndCredit(analysis);
 
 		verify(usage, never()).release(any(), any());
-		verify(analyses).delete(analysis);
+		verify(analyses).deleteIfIdle(analysis.getId());
 	}
 
 	@Test
@@ -226,7 +226,7 @@ class AnalysisRegistrarTest {
 
 		verify(analyses, never()).markQuotaRefunded(any());
 		verify(usage, never()).release(any(), any());
-		verify(analyses).delete(analysis);
+		verify(analyses).deleteIfIdle(analysis.getId());
 	}
 
 	@Test
@@ -237,6 +237,17 @@ class AnalysisRegistrarTest {
 		registrar.deleteAndCredit(analysis);
 
 		verifyNoInteractions(usage);
-		verify(analyses).delete(analysis);
+		verify(analyses).deleteIfIdle(analysis.getId());
+	}
+
+	@Test
+	void anEntryThatWasQueuedMeanwhileIsNotDeletedAndTheRefundRollsBackWithTheThrow() {
+		Analysis analysis = stored(AnalysisStatus.NOT_ANALYZED);
+		given(usage.isHeldToFreeLimit(user)).willReturn(false);
+		given(analyses.deleteIfIdle(analysis.getId())).willReturn(0); // a run owns the row now
+		given(analyses.existsById(analysis.getId())).willReturn(true);
+
+		org.assertj.core.api.Assertions.assertThatThrownBy(() -> registrar.deleteAndCredit(analysis))
+				.isInstanceOf(com.abhiraj.archyra.common.AnalysisInProgressException.class);
 	}
 }

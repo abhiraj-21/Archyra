@@ -12,6 +12,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import com.abhiraj.archyra.common.AnalysisInProgressException;
 import com.abhiraj.archyra.graph.GraphBuilder;
+import com.abhiraj.archyra.usage.UsageLedgerService;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -39,6 +40,16 @@ public class AnalysisPurgeService {
 	private final Clock clock;
 
 	/**
+	 * The repository links of the analyses that still hold a credit (charged, not refunded), one per analysis, for the
+	 * usage ledger to keep when the account is deleted. Only the canonical URL and the creation time, never any content.
+	 */
+	@Transactional(propagation = Propagation.MANDATORY)
+	public List<UsageLedgerService.RepositoryRef> retainableRepositories(UUID userId) {
+		return analysisRepository.findByOwnerIdAndQuotaChargedTrueAndQuotaRefundedFalse(userId).stream()
+				.map(analysis -> new UsageLedgerService.RepositoryRef(analysis.getRepositoryUrl(), analysis.getCreatedAt())).toList();
+	}
+
+	/**
 	 * Deletes all analyses of the user without refunding anything.
 	 *
 	 * @return their ids, to be passed to {@link #dropGraphs} after the transaction commits
@@ -47,7 +58,7 @@ public class AnalysisPurgeService {
 	@Transactional(propagation = Propagation.MANDATORY)
 	public List<UUID> purgeAllOf(UUID userId) {
 		List<Analysis> owned = analysisRepository.findByOwnerId(userId);
-		if (owned.stream().anyMatch(analysis -> !analysis.isFinished())) {
+		if (owned.stream().anyMatch(Analysis::isInProgress)) { // a restored NOT_ANALYZED entry is idle and is simply removed
 			throw new AnalysisInProgressException("An analysis is still running. Try again when it has finished.");
 		}
 		for (Analysis analysis : owned) {

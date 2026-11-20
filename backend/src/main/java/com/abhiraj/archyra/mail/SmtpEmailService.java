@@ -121,10 +121,13 @@ class SmtpEmailService implements EmailService {
 		send(to, "Confirm deleting your Archyra account", """
 				Hi %s,
 
-				You asked to delete your Archyra account. Open this link to confirm. It permanently deletes your repositories,
+				You asked to delete your Archyra account. Open this link to confirm. It permanently deletes your analyses,
 				graphs and Ask AI conversations:
 
 				%s
+
+				We keep your usage counts and the links of the repositories you had analysed, so they can be restored if you
+				come back. No code, graph or conversation is kept.
 
 				The link works once and expires in 15 minutes. If you did not ask for this, ignore this email and
 				your account stays as it is.
@@ -137,7 +140,10 @@ class SmtpEmailService implements EmailService {
 		send(to, "Your Archyra account was deleted", """
 				Hi %s,
 
-				Your Archyra account was deleted on %s, together with your repositories, graphs and Ask AI conversations.
+				Your Archyra account was deleted on %s, together with your analyses, graphs and Ask AI conversations.
+
+				Your usage counts and the links of the repositories you had analysed are kept so they can be restored if you
+				come back. No code, graph or conversation is kept.
 
 				If this wasn't you, contact us right away.
 				""".formatted(greeting(name), WHEN.format(at)));

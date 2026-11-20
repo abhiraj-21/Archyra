@@ -27,8 +27,9 @@ class AnalysisRecovery {
 
 	@EventListener(ApplicationReadyEvent.class)
 	void failInterruptedAnalyses() {
+		// A restored NOT_ANALYZED entry is idle, not interrupted: no run ever owned it.
 		List<Analysis> interrupted = analysisRepository.findByStatusNotIn(
-				List.of(AnalysisStatus.COMPLETED, AnalysisStatus.FAILED));
+				List.of(AnalysisStatus.COMPLETED, AnalysisStatus.FAILED, AnalysisStatus.NOT_ANALYZED));
 		for (Analysis analysis : interrupted) {
 			analysis.markFailed("The analysis was interrupted by a server restart");
 		}

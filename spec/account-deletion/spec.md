@@ -1,5 +1,7 @@
 # Spec: Delete account, without resetting usage limits
 
+> **Amendment (2026-11-20): the repositories come back too.** The ledger also keeps the canonical URL of each repository whose credit the account still holds (`usage_ledger_repository`: key, URL, created-at; nothing else), and a returning user gets them back as `NOT_ANALYZED` entries (no graph, index or conversation) that they can analyse with the credit already spent (`POST /analyses/{id}/analyze`, no second charge) or delete (a FREE user gets the credit back). **Deleting an account now overwrites** what its keys remember (current counts, window and repository set) instead of taking the maximum; the maximum rule stays for restore and identity-link merge. The "What is kept" row and the Retention row above therefore also include these links, and the delete dialog says so. Old ledger rows restore counts only. Details and decisions: `Architecture.md` → "Decision: A returning user gets their repositories back as not-analysed entries"; the rest of this spec is unchanged.
+
 Location: `spec/account-deletion/spec.md` (repository root). Backend first, then frontend.
 
 Read first: `CLAUDE.md`, `Architecture.md` (User, Linked sign-in methods, Change password, Usage, Ask AI), `backend/CLAUDE.md` (usage rules, `AnalysisRegistrar` is the only way to delete analyses, one-time tokens, audit log, "emails after commit never fail the operation", generic 202 on register), `frontend/CLAUDE.md` (Settings, error copy by `code`, session boot).

@@ -17,15 +17,17 @@ import { canConfirmDeletion, DELETE_WORD } from './deleteGate';
 export function DeletionConsequences() {
   return (
     <ul className="grid list-disc gap-2xs pl-md text-sm text-ink-2">
-      <li>Your repositories, their graphs and your Ask AI conversations are deleted permanently.</li>
+      <li>Your analyses, their graphs and your Ask AI conversations are deleted permanently.</li>
       <li>
         <strong className="font-medium text-ink">Your usage is not reset.</strong> Creating a new account later keeps the analyses and
         questions you already used.
       </li>
       <li>Paid plans are not carried over: a new account starts on the free plan.</li>
       <li>
-        To make that possible Archyra keeps only the number of analyses and questions you used, under a one-way hash of your email and
-        linked sign-in methods. It holds no name, email address or repository.
+        To make that possible Archyra keeps the number of analyses and questions you used and the links of the repositories you had
+        analysed, under a one-way hash of your email and linked sign-in methods. If you come back, those repositories return as
+        &ldquo;Not analysed&rdquo; entries that you can analyse or delete. No code, graph or conversation is kept, and no name or
+        email address.
       </li>
     </ul>
   );

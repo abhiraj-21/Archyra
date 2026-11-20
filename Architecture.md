@@ -324,6 +324,22 @@ Spec: `spec/account-deletion/spec.md`.
 - **Chosen where the spec left room:** an analysis that is still queued or running makes the deletion `409 ANALYSIS_IN_PROGRESS` (its pipeline would otherwise write into a deleted row); the access token of a deleted account is rejected at once (`security/RevokedSubjects`, in memory like the rate limiter, one hour) because a stateless token would otherwise live out its 15 minutes and let a "deleted" user start analyses and ask questions with fresh counters the ledger never sees; a database from before `ACCOUNT_DELETE` gets its `one_time_tokens.purpose` CHECK widened at startup (`OneTimeTokenSchemaUpgrade`).
 - **Rejected:** keeping the user row as a tombstone (it would keep the email); a per-email cooldown before re-registering (the restore makes it unnecessary and the spec asks for none); storing the plan in the ledger.
 
+### Decision: A returning user gets their repositories back as not-analysed entries (2026-11-20)
+
+Amends "Decision: Deleting an account keeps a usage ledger"; spec: `spec/account-deletion/spec.md` (amendment note at its top).
+
+- **Problem:** restoring only the count made a returning user feel the loss: credits spent, nothing to show for them. They should get back the repositories those credits were spent on, without any analysed content, and decide what to do with each.
+- **Retained data (`usage_ledger_repository`, entity `usage/RetainedRepository`):** `id`, `identity_key` varchar(64) (indexed), `repository_url` varchar(200), `created_at` (when the analysis was created, to restore the newest first). Only the canonical repository URL: no graph, code, chunks, answers, conversations, email, user id or analysis id. One row per analysis **per identity key**, so a repository paid for twice appears twice. URLs are never logged next to a user id or a key hash.
+- **Which repositories:** at deletion, one entry per analysis of the user with `quota_charged = true` and `quota_refunded = false` (completed ones, and restored entries that were never analysed; a `FAILED` analysis was refunded and does not qualify; a running one already blocks the deletion with `409 ANALYSIS_IN_PROGRESS`; a `NOT_ANALYZED` entry does not).
+- **Deletion overwrites, it does not merge.** The ledger rows of the deleted account's keys are replaced with the account's current state: the stored count per type becomes the current `used_count` (the row is deleted when the count is 0), a weekly count is stored with its window, and the key's repository set is deleted and re-inserted. The maximum rule (`greatest(...)`) stays for the **restore** and the identity-link **merge** only. Without this, "restore, delete an entry (a credit comes back), delete the account again" would bring the old higher count back with the repository gone. Pinned by `RestoredEntriesIntegrationTest`.
+- **Restore (`analysis/AnalysisRestoreService`, called in the same transaction that creates the user or links the identity, right after the counts are raised):** the union over all the user's keys; for each URL the largest number of rows any **single** key holds (the same repository under the email key and the Google key is not doubled); minus the repositories the account already holds (never a duplicate); capped at `used REPOSITORY_ANALYSIS count - credits the account already has an analysis for`, newest first. Fewer links than credits: the remaining credits stay spent. More links than credits: only the newest are restored. Entries are created only through `AnalysisRegistrar.registerRestored`, which charges nothing (the restored count already includes the credit). Silent like the counts: registration stays the generic `202`, and no response, email or log reveals earlier data (a log line carries only a number).
+- **A new status, `NOT_ANALYZED`** (12 characters, fits `varchar(20)`): `quota_charged = true`, `quota_refunded = false`, progress 0, no graph, metadata, index or conversation. It is not in `AnalysisRegistrar.IN_PROGRESS`, so duplicate detection, startup recovery (`AnalysisRecovery` excludes it) and the pipeline never touch it, and it does not block an account deletion. `Analysis.isInProgress()` (queued or running) is what "still running" means now; `isFinished()` is still COMPLETED/FAILED.
+- **Owner's two choices.** *Delete* goes through the normal path (`AnalysisCleanup.delete` → `deleteAndCredit`): exactly one credit back for a FREE user, nothing for PREMIUM, never twice, no second refund path. *Analyse* is `POST /analyses/{id}/analyze` (see Analysis history): the same row moves to `QUEUED` without a charge. A delete racing an analyse cannot pull the row from under a run: `deleteAndCredit` deletes with a guard on the status and, when a run owns the row, throws `ANALYSIS_IN_PROGRESS` and rolls its refund back.
+- **The status CHECK.** Hibernate creates `CHECK (status IN (...))` on `analyses.status` and `ddl-auto=update` never relaxes it. A development database created before this change really has `analyses_status_check` listing the seven old values (inspected in `archyra-postgres`), which would refuse the first restored row. `analysis/AnalysisSchemaUpgrade` (an `ApplicationRunner` in the style of `LinkedIdentitySchemaUpgrade`) drops every status check on `analyses` that does not list all current enum values and creates `analyses_status_check` from the enum, in one transaction; it does nothing when the constraint is already complete, so it is safe on every start, and a fresh database already has the right one. No other column or constraint enumerates analysis statuses.
+- **Old ledger rows** (written before this change) have counts and no repositories: they restore counts only, as before.
+- **Disclosure.** The delete-account dialog, the emailed confirmation and the deleted notice, and the README say: usage counts and the links of the repositories you had analysed are kept so they can be restored if you come back; no code, graph or conversation is kept. The restored entry says "Restored from your previous account. Analyse it to use the credit you already spent, or delete it to get the credit back."
+- **Not done:** a brand-new analysis of a URL that has a `NOT_ANALYZED` entry is a new analysis and a new charge (the entry is not a duplicate of it); the user is at their limit and sees the entry in the list, where Analyse is free. Ledger rows are not removed when a user is restored, so unlinking and linking the same identity again after deleting entries brings the count back up to the remembered one (as it always did for counts).
+
 ### Decision: Ask AI backend (2026-11-19)
 
 Full design and the decision table: `backend/spec/ask-ai-backend/spec.md`. As built:
@@ -559,7 +575,10 @@ ANALYZING
 BUILDING_GRAPH
 COMPLETED
 FAILED
+NOT_ANALYZED
 ```
+
+`NOT_ANALYZED` is not a stage of the pipeline: it is a **restored entry** (see "Decision: A returning user gets their repositories back as not-analysed entries"), the link of a repository whose credit an earlier, deleted account had spent. It is neither running nor finished: `progress` is 0, no graph, metadata, AI index or conversation exists, nothing runs, and it is never polled. Every result endpoint (`/repository`, `/files`, `/classes`, `/nodes`, `/graph`, `/ai-index`, `/chat`, `/conversations`) answers it with `409 ANALYSIS_NOT_COMPLETED` ("This repository has not been analysed yet…"), never a 500 or "still running". `POST /api/v1/analyses/{analysisId}/analyze` starts it; `DELETE` removes it.
 
 ---
 
@@ -1004,7 +1023,7 @@ Get current user.
 >
 > - **Errors:** `401 INVALID_CREDENTIALS` (wrong password; counts towards the lockout, and while locked the password is not checked), `400 DELETE_METHOD_MISMATCH` (the wrong route for the account type), `400 INVALID_OR_EXPIRED_TOKEN` (unknown, expired, used, voided by a newer request, or someone else's token, which stays usable for its owner), `409 LAST_ADMIN` (the last enabled administrator), `409 ANALYSIS_IN_PROGRESS` (an analysis is still running), `401` for a repeated call after the account is gone, `403 ACCOUNT_DISABLED`.
 > - **The link** goes to the account's verified address: `{frontend-base-url}/settings/delete-confirm?token=…`; a newer request voids the older link.
-> - **What is deleted:** the user row, linked identities, refresh tokens, one-time tokens, OAuth link intents, `user_usage`, and every analysis with its Neo4j graph, metadata, AI index, chunks, conversations and messages. **What is kept:** the usage ledger (see "Decision: Deleting an account keeps a usage ledger"), only keyed hashes and counts. A "your account was deleted" email goes to the address held before the deletion (after commit; a mail failure never fails the deletion).
+> - **What is deleted:** the user row, linked identities, refresh tokens, one-time tokens, OAuth link intents, `user_usage`, and every analysis with its Neo4j graph, metadata, AI index, chunks, conversations and messages. **What is kept:** the usage ledger (see "Decision: Deleting an account keeps a usage ledger"): keyed hashes, the used counts, and the canonical URL of each repository that still holds a credit (the link only: no graph, code, chunks, answers, conversations, email, user id or analysis id). If the person comes back, those repositories return as not-analysed entries. A "your account was deleted" email goes to the address held before the deletion (after commit; a mail failure never fails the deletion).
 > - Audit: `ACCOUNT_DELETED` (user id, no email), `ACCOUNT_DELETE_REQUESTED`, `ACCOUNT_DELETE_REFUSED`, `ACCOUNT_LOCKED`.
 
 ---
@@ -1029,6 +1048,15 @@ Returns the user's previous analyses.
 
 Deletes an analysis.
 
+### `POST /api/v1/analyses/{analysisId}/analyze`
+
+Analyses a restored `NOT_ANALYZED` entry with the credit it already holds. Owner only (another user's id and an unknown id are the same `404 ANALYSIS_NOT_FOUND`). Returns `202 { "analysisId", "status": "QUEUED" }`; `analysisId` is the **same** row, not a new one.
+
+- **Charges nothing:** the credit was spent by the deleted account and came back with the entry (`quota_charged` stays true), so the used count does not change and no headroom is needed (a user at the limit can analyse every entry). It still goes through the `CREATE_ANALYSIS` rate limiter and the executor queue handling.
+- **Atomic:** one guarded `UPDATE ... SET status = QUEUED WHERE id = ? AND owner = ? AND status = NOT_ANALYZED`, under the user's usage-row lock (so it cannot interleave with a registration or an account deletion). Of two simultaneous calls exactly one starts a pipeline run; the other gets `409 ANALYSIS_NOT_RESTORABLE`, as does any analysis that is not `NOT_ANALYZED` (queued, running, completed or failed).
+- **Queue full:** the entry is put back to `NOT_ANALYZED` (nothing refunded, nothing failed) and the answer is `503 SERVICE_BUSY`; the user keeps the entry. If the run later fails, the ordinary rule applies unchanged: the credit goes back once and the row ends `FAILED`.
+- `POST .../reanalyze` of a `NOT_ANALYZED` entry is refused (`409 ANALYSIS_NOT_COMPLETED`): it would charge a second credit.
+
 ### `POST /api/v1/analyses/{analysisId}/reanalyze`
 
 Starts another analysis of the repository.
@@ -1047,6 +1075,8 @@ This is enough. You don't need a massive "repository management" subsystem.
 >   "page": 0, "size": 20, "totalElements": 1, "totalPages": 1
 > }
 > ```
+>
+> A restored entry appears in the list with `"status": "NOT_ANALYZED"` and `"progress": 0`. `DELETE /analyses/{id}` accepts it (it is not in progress) and, like any deletion, returns exactly one credit to a FREE user through the guarded refund; PREMIUM returns nothing (still counted).
 >
 > Items carry no repository name or languages; neither does `GET /analyses/{analysisId}`, which has no `repositoryUrl` either, so a client that opens an analysis directly finds its URL in the history list. 
 >
@@ -1094,7 +1124,7 @@ For a PREMIUM user `limit` and `remaining` are `null` (present, not omitted, not
 > - **Premium.** A PREMIUM user (from `User.effectivePlan`, read from the database, never the token) is never blocked, and the counter is still kept. Premium feature gating (`PREMIUM_FEATURE`) is unchanged.
 > - **Downgrade (intentional).** `used_count` is everything the user ever consumed. A former premium user with 12 analyses who is back on FREE is already over the limit: `used: 12, limit: 5, remaining: 0, limitReached: true`, and blocked until the limit is raised. For Ask AI the same holds within the current week (a former premium user who asked 20 questions this week is over the limit until Monday 00:00 in the reset zone, then at 0).
 > - **Deleting gives the credit back (FREE users).** When an analysis is deleted (`DELETE /analyses/{id}`, or replaced by a completed re-run), a user who is held to the free limit (FREE, or an expired PREMIUM) gets its credit back: `used` goes from 4 to 3 and they can analyze another repository. It is the same guarded refund as above, in the same transaction as the row delete, so it returns at most one credit per analysis: an analysis that did not consume one (a `FAILED` one, whose credit already came back, one from before usage tracking, or one that was never charged) returns nothing, and neither does deleting it again. A PREMIUM user's delete returns nothing, so their recorded count stays true if they later downgrade. The counter therefore equals the number of kept, charged analyses of a free user. Re-running at the limit is still refused, because the new analysis is charged before the old one is replaced.
-> - **Deleting the account keeps the consumption.** `usage_ledger` remembers the per-type `used_count` under keyed hashes of the email and linked identities, and a user created later (registration, a first social sign-in, or an identity linked to an existing account) gets at least those counts back. A returning user is FREE. See "Decision: Deleting an account keeps a usage ledger" and User → Delete account.
+> - **Deleting the account keeps the consumption.** `usage_ledger` remembers the per-type `used_count` under keyed hashes of the email and linked identities, and a user created later (registration, a first social sign-in, or an identity linked to an existing account) gets at least those counts back, plus the repositories those credits were spent on as `NOT_ANALYZED` entries (analysing one uses its credit and charges nothing; deleting one returns it to a FREE user). A returning user is FREE. See "Decision: Deleting an account keeps a usage ledger", "Decision: A returning user gets their repositories back as not-analysed entries" and User → Delete account.
 > - **Refunds.** A unit goes back exactly once when the pipeline ends an analysis as `FAILED` (every failure path), when the executor rejects the submission (`503 SERVICE_BUSY`; the row stays as `FAILED`), and, at startup, for analyses interrupted by a restart or failed with a refund that did not go through. `FAILED` and the refund are written in one transaction, so a client that sees `FAILED` already has its unit back. `analyses.quota_charged` and `quota_refunded` make it idempotent: `UPDATE analyses SET quota_refunded = true WHERE id = ? AND quota_charged AND NOT quota_refunded` lets only the first caller go on to the guarded `used_count - 1` (`used_count > 0`, plus a `used_count >= 0` check constraint). A `COMPLETED` analysis is never refunded by the pipeline. Analyses from before this feature have `quota_charged = false`, so they can never trigger a refund, and users start at `used = 0` (no backfill).
 
 ---
@@ -1688,6 +1718,7 @@ By V3, your API could look roughly like this:
 │   ├── GET /{analysisId}
 │   ├── DELETE /{analysisId}
 │   ├── POST /{analysisId}/reanalyze
+│   ├── POST /{analysisId}/analyze      (a restored NOT_ANALYZED entry, with its saved credit)
 │   │
 │   ├── GET /{analysisId}/repository
 │   ├── GET /{analysisId}/files
