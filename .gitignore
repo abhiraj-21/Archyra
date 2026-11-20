@@ -1,0 +1,2 @@
+# Maven build output (compiled classes, test reports). It once leaked local paths into history; never track it.
+backend/target/
