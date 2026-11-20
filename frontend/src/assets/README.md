@@ -12,9 +12,9 @@ once for the progress shot. Settings, menus and admin screens are never captured
 
 | File | Pixels | Shows | Used on |
 | --- | --- | --- | --- |
-| `hero.png` | 1640 x 1016 | spring-petclinic's module graph (DEPENDS_ON), cropped to the connected modules. **Drawn in the old orientation** (dependent on top, arrowhead at the dependency); re-run `assets:capture` to show foundations on top | Landing hero |
-| `workspace-preview.png` | 2880 x 1800 | Full workspace: sidebar, header, tabs, class graph, inspector on OwnerController | Landing, workspace showcase |
-| `graph-layered.png` | 2384 x 1230 | The Architecture canvas alone, classes joined by Depends on and Implements. **Old orientation**; re-capture to show foundations on top | Landing tour |
+| `hero.png` | 1640 x 1016 | spring-petclinic's module graph (DEPENDS_ON), cropped to the connected modules. Foundations on top: `model` above `owner` and `vet`, `petclinic` at the bottom, arrowheads at the dependents | Landing hero |
+| `workspace-preview.png` | 2880 x 1800 | Full workspace: sidebar, header, tabs, the class view (classes and interfaces joined by Depends on, Extends and Implements) with OwnerController selected, and its inspector | Landing, workspace showcase |
+| `graph-layered.png` | 2384 x 1226 | The Architecture canvas alone, classes joined by Depends on and Implements. Foundations on top (entities), controllers at the bottom | Landing tour |
 | `inspector-panel.png` | 704 x 1230 | Node inspector for OwnerController with relationship counts | Landing tour |
 | `files-table.png` | 2880 x 1800 | Files tab with OwnerController.java open in the drawer | Landing tour |
 | `relationships-browser.png` | 2880 x 1800 | Class browser with OwnerController selected | Landing tour |

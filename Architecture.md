@@ -229,6 +229,7 @@
 - Graph database
     - Neo4j (the code graph; Cypher through Spring Data Neo4j's `Neo4jClient`)
 - Frontend
+    - Node.js 22 or newer (`engines` in `frontend/package.json`)
     - React
     - Typescript
     - Vite
@@ -419,6 +420,17 @@ Spec: `frontend/spec/ui/spec-dark-ui.md`. Frontend only: no endpoint, no column,
 - **Where it shows:** a toggle button on the landing page, the auth pages and the app shell, and Settings → Appearance. Final palette and contrast figures: `frontend/DESIGN-NOTES.md` → Dark colourway.
 - **Rejected:** deriving dark by inverting or filtering light (shadows, hues and the graph inks need their own values); a `prefers-color-scheme` media query as the only mechanism (it cannot offer an explicit choice); a per-component `[data-theme]` selector (each would be a second place to keep in step); an inline pre-paint script (blocks a strict CSP); storing the choice in the account (needs an endpoint and a request before first paint for no benefit); dark screenshots for the landing page (out of scope: capture them later with `scripts/capture`).
 - **Consequences:** every new colour token must be written twice; the light baseline images are recorded per OS and account (see the header of `frontend/scripts/e2e/visual.spec.ts`).
+
+### Decision: Public README, licence and screenshots (2026-11-20)
+
+No endpoint, column or application code changed.
+
+- **Licence: MIT.** `LICENSE` at the root, copyright 2026 abhirajsingh (the git author; change it to a full name if wanted). Without a licence others would have no right to reuse the code. The bundled fonts keep their own licence files under `frontend/src/styles/fonts/`.
+- **A root `README.md`** is the repository's public page: what Archyra is, screenshots, built features, a separate "Roadmap (not built yet)" list, how it works (two Mermaid diagrams: the analysis pipeline and the Ask AI path, checked against "Code graph semantics" and "Ask AI backend" above), the tech stack with versions from `pom.xml` and `package.json`, quick start, the environment variable **names** (never values; `.env` files are not committed), structure, documentation, testing, contributing and licence. It states only what the repository contains: no CI, coverage or licence badge that does not exist, no `docker-compose` (there is none; the databases are started with the `docker run` commands of `backend/README.md`). It repeats facts that live elsewhere, so a change to a run command, a port, a version, a variable or a feature's status updates it in the same change.
+- **Screenshots are captured, never drawn.** The README uses the PNGs in `frontend/src/assets/` (`assets:capture`, a real spring-petclinic analysis by a throwaway account). Four of them (`hero`, `graph-layered`, `workspace-preview`, and the tab bars of `files-table` and `relationships-browser`) had been recorded before the graph orientation change and while Ask AI was still "Coming soon", and were re-captured: foundations on top, Ask AI built. `workspace-preview` now opens the **class view** with `OwnerController` selected (the default Architecture view is the module graph, which does not contain a class). `analysis-progress` and `inspector-panel` are older captures that the README does not use.
+- **Consequence for tests.** The images are imported only by the landing page, so the two light landing baselines (`landing-1440`, `landing-390`) were re-recorded on purpose (`visual -g "landing at" --update-snapshots`); no other baseline changed.
+- **Node.js 22 or newer** is declared as `engines` in `frontend/package.json` (there is no root or backend `package.json`; the backend is Maven) and stated in the README.
+- **Not done:** a social preview image (`social-preview.png`), a contributing guide, issue templates and CI workflows.
 
 ---
 

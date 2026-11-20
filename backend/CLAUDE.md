@@ -2,7 +2,7 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository. It covers `backend/`.
 
-System-wide architecture, database boundaries, API standards and the roadmap are in the root `CLAUDE.md` and `Architecture.md`. Setup, environment variables and provider configuration are in `README.md`. How the security works is in `spec/security/design.md`; the usage limits are specified in `spec/usage/spec-usage.md` (the weekly Ask AI allowance in `spec/weekly-ask-ai-limit/spec.md`) and Ask AI in `spec/ask-ai-backend/spec.md`. There is no linter or formatter configured: `./mvnw clean test` is the only check.
+System-wide architecture, database boundaries, API standards and the roadmap are in the root `CLAUDE.md` and `Architecture.md`. Setup, environment variables and provider configuration are in `README.md` (this folder's; the repository root `README.md` is the public overview and repeats the run steps and the variable **names**, so a new or renamed variable goes into `.env.example`, `backend/README.md` and the root README together). How the security works is in `spec/security/design.md`; the usage limits are specified in `spec/usage/spec-usage.md` (the weekly Ask AI allowance in `spec/weekly-ask-ai-limit/spec.md`) and Ask AI in `spec/ask-ai-backend/spec.md`. There is no linter or formatter configured: `./mvnw clean test` is the only check.
 
 ## Gotchas
 

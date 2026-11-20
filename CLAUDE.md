@@ -8,6 +8,7 @@ Archyra ("the architecture behind your code") analyzes a GitHub repository, buil
 
 ## Repository layout
 
+- `README.md` and `LICENSE` (MIT, copyright 2026 abhirajsingh): the public face of the repository. The README is the page GitHub shows: what Archyra is, screenshots (from `frontend/src/assets/`), features, quick start, the environment variable **names**, project structure and testing. **Keep it true:** when you change a run command, a port, a required version, an environment variable (also `backend/.env.example`, `backend/README.md`), a built feature or the roadmap, update the README in the same change. It lists only built features, with unbuilt ones under "Roadmap"; never describe planned work as working, and never put a value or secret in it.
 - `backend/`: Spring Boot API and analysis engine. Build commands, package conventions and backend rules are in `backend/CLAUDE.md`.
 - `frontend/`: the React app, built and talking to the real `/api/v1` backend through the Vite proxy (no mock data). Commands, structure and UI rules are in `frontend/CLAUDE.md`.
 
@@ -16,7 +17,7 @@ Archyra ("the architecture behind your code") analyzes a GitHub repository, buil
 ```bash
 cd backend  && ./mvnw clean test                      # all backend tests (Docker needed; use `clean` after signature changes)
 cd backend  && ./mvnw test -Dtest=AccountLinkingIntegrationTest   # one class (add #method for one test)
-cd frontend && npm run verify                         # typecheck + lint + check:tokens + unit tests + build + session-boot e2e
+cd frontend && npm run verify                         # (Node 22+, `engines` in package.json) typecheck + lint + check:tokens + unit tests + build + session-boot e2e
 cd frontend && npx vitest run src/lib/url.test.ts     # one unit test file
 cd frontend && npm run e2e -- -g "name"               # Playwright against the running stack (skips without .env.local credentials)
 ```
@@ -27,6 +28,7 @@ cd frontend && npm run e2e -- -g "name"               # Playwright against the r
 - Existing specs: `spec/weekly-ask-ai-limit` (Ask AI questions are a weekly allowance: lazy reset on `user_usage.window_start`, window-aware refunds and ledger, `resetsAt` in `GET /usage` and the 403, the "Out of credits" message), `spec/ask-ai-providers` (the provider chain: config-driven providers, safety rules, cool-downs), `spec/graph-controls-and-auth-fixes` (test-code filter, draggable graph nodes, OAuth redirect URIs, generic `202` on duplicate registration) and `spec/oauth-login-hydration-and-account-linking` (one session-boot path with a timeout and retry screen, account linking from Settings with a browser-bound link intent). `spec/account-deletion` (delete an account without resetting usage: the usage ledger, restore on registration and linking, no refunds on purge; amended: the links of the repositories that held a credit are kept too and come back as `NOT_ANALYZED` entries that the owner can analyse with the credit already spent or delete for a refund; deletion overwrites the ledger, the maximum rule is for restore and merge only), `spec/graph-default-and-name-filter`, `spec/ask-ai-overview-and-guidance` and `spec/razorpay-premium` (Premium through Razorpay: one-time or auto-renew, the signed webhook as the source of truth with `BillingService.applyPayment` as the one place that extends Premium, reminder and expiry emails, and after a 3-day grace period only the 5 most recently used repositories are kept). Also `backend/spec/ask-ai-backend` (Ask AI: indexing, retrieval, chat, conversations; built) and `frontend/spec/ask-ai-frontend` (its UI; built after the backend, against the real API). Also `frontend/spec/ui/spec-dark-ui.md` (the dark theme; its hard rule is that the light theme stays pixel-identical, guarded by a token snapshot and zero-tolerance screenshots). Their durable rules are summarised in the sub-guides; do not regress them.
 - Cross-cutting rules that are easy to miss: no mock data anywhere (backend tests use real fixtures and Testcontainers, frontend tests use small inline inputs, Playwright interception only injects network faults); no test-only endpoints in production code; Hallmark "Coral" design tokens only in the frontend, in two colourways (Light is the default and must stay pixel-identical; Dark is an override block in `frontend/src/styles/tokens.css`, the only file with colours; components never branch on the theme; see `frontend/CLAUDE.md` → Design).
 - Commit messages carry no `Co-Authored-By` or other Claude/Anthropic trailer.
+- The README's screenshots are the landing page's images too (`frontend/src/assets/`, captured from the real app, never drawn or mocked). Re-capturing one changes the landing page, so re-record the two landing baselines in the same change (`frontend/CLAUDE.md` → Assets). Decision and rules: `Architecture.md` → "Decision: Public README, licence and screenshots".
 
 ## Running the whole stack
 

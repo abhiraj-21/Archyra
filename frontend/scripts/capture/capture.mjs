@@ -145,7 +145,9 @@ const focusParam = `node=${encodeURIComponent(focus.id)}`;
 
 // Workspace with the inspector open: sidebar, header, tabs, graph.
 if (want('workspace-preview') || want('inspector-panel')) {
-  await page.goto(`${base}/architecture?${focusParam}`);
+  // Class view (classes and interfaces joined by Depends on, Extends and Implements): the default view is the module graph,
+  // which would not contain the selected class.
+  await page.goto(`${base}/architecture?nodes=CLASS,INTERFACE&edges=DEPENDS_ON,EXTENDS,IMPLEMENTS&${focusParam}`);
   await page.locator('.react-flow__node').first().waitFor();
   await page.locator('.inspector dl').first().waitFor();
   await settle();
