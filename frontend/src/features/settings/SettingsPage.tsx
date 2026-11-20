@@ -8,7 +8,6 @@ import { Notice } from '@/components/ui/Notice';
 import { useDocumentTitle } from '@/components/ui/useDocumentTitle';
 import { useSession } from '@/hooks/sessionContext';
 import { useUpdateName } from '@/hooks/useAccount';
-import { useUpgrade } from '@/hooks/upgradeContext';
 import { describeError } from '@/lib/errorCopy';
 import { AiUsageMeter } from '@/features/usage/AiUsageMeter';
 import { UsageMeter } from '@/features/usage/UsageMeter';
@@ -16,11 +15,12 @@ import { nameError } from '@/features/auth/validation';
 import { Appearance } from './Appearance';
 import { ChangePassword } from './ChangePassword';
 import { DeleteAccount } from './DeleteAccount';
+import { SubscriptionSection } from '@/features/billing/SubscriptionSection';
 import { SignInMethods } from './SignInMethods';
 
-function Section({ title, children, themeUi = false }: { title: string; children: React.ReactNode; themeUi?: boolean }) {
+function Section({ title, children, themeUi = false, id }: { title: string; children: React.ReactNode; themeUi?: boolean; id?: string }) {
   return (
-    <section className="grid gap-md border-t border-rule py-lg md:grid-cols-[14rem_minmax(0,1fr)]" data-theme-ui={themeUi || undefined}>
+    <section id={id} className="grid scroll-mt-lg gap-md border-t border-rule py-lg md:grid-cols-[14rem_minmax(0,1fr)]" data-theme-ui={themeUi || undefined}>
       <h2 className="text-lg">{title}</h2>
       <div className="grid content-start gap-md">{children}</div>
     </section>
@@ -31,7 +31,6 @@ export default function SettingsPage() {
   useDocumentTitle('Settings');
   const { me, signOut } = useSession();
   const navigate = useNavigate();
-  const { openUpgrade } = useUpgrade();
   const update = useUpdateName();
   const [name, setName] = useState(me?.name ?? '');
   const [touched, setTouched] = useState(false);
@@ -95,7 +94,7 @@ export default function SettingsPage() {
         </div>
         {me.plan === 'FREE' ? (
           <div>
-            <Button icon={<Sparkles size={16} aria-hidden="true" />} onClick={() => openUpgrade()}>
+            <Button icon={<Sparkles size={16} aria-hidden="true" />} onClick={() => navigate('/upgrade')}>
               Upgrade
             </Button>
           </div>
@@ -104,6 +103,10 @@ export default function SettingsPage() {
           <UsageMeter />
           <AiUsageMeter />
         </div>
+      </Section>
+
+      <Section title="Subscription" id="subscription">
+        <SubscriptionSection />
       </Section>
 
       <Section title="Appearance" themeUi>

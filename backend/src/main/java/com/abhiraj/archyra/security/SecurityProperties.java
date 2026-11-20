@@ -117,13 +117,19 @@ public record SecurityProperties(
 	 * @param sensitivePerIpPerHour      register, forgot-password and resend-verification per client IP
 	 * @param createAnalysisPerUserPerHour {@code POST /analyses} per signed-in user (it triggers a git clone)
 	 * @param linkIntentPerUserPerHour   starting an account link ({@code .../link-intent}) per signed-in user
+	 * @param billingCreatePerUserPerHour creating a Razorpay order or subscription per signed-in user
+	 * @param billingVerifyPerUserPerHour verifying a checkout per signed-in user (a wrong signature counts too)
+	 * @param billingWebhookPerIpPerMinute the Razorpay webhook per client IP; generous, Razorpay retries
 	 */
 	public record RateLimit(
 			@DefaultValue("10") @Min(1) int loginPerIpPerMinute,
 			@DefaultValue("5") @Min(1) int sensitivePerIpPerHour,
 			@DefaultValue("10") @Min(1) int createAnalysisPerUserPerHour,
 			@DefaultValue("10") @Min(1) int linkIntentPerUserPerHour,
-			@DefaultValue("10") @Min(1) int aiChatPerUserPerMinute) {
+			@DefaultValue("10") @Min(1) int aiChatPerUserPerMinute,
+			@DefaultValue("20") @Min(1) int billingCreatePerUserPerHour,
+			@DefaultValue("30") @Min(1) int billingVerifyPerUserPerHour,
+			@DefaultValue("600") @Min(1) int billingWebhookPerIpPerMinute) {
 	}
 
 	public record Lockout(

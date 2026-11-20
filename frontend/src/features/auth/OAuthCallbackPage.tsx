@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router';
 import { Spinner } from '@/components/ui/Spinner';
 import { useSession } from '@/hooks/sessionContext';
 import { takeReturnTo } from '@/lib/returnTo';
+import { markSignedIn } from '@/lib/signInNotice';
 import { AuthLayout } from './AuthLayout';
 
 /**
@@ -16,7 +17,11 @@ export function OAuthCallbackPage() {
   const navigate = useNavigate();
 
   useEffect(() => {
-    if (status === 'authenticated') navigate(takeReturnTo(), { replace: true });
+    if (status === 'authenticated') {
+      // the boot found the session the provider login created: this is where a Google or GitHub sign-in completes
+      markSignedIn();
+      navigate(takeReturnTo(), { replace: true });
+    }
     // The provider login did not produce a session.
     else if (status === 'anonymous') navigate('/login?error=oauth_failed', { replace: true });
   }, [status, navigate]);

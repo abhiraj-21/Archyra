@@ -141,3 +141,26 @@ describe('describeDeleteError', () => {
     expect(describeError(new ApiError(400, 'DELETE_METHOD_MISMATCH', 'x')).title).not.toBe('Something went wrong');
   });
 });
+
+describe('billing errors (spec/razorpay-premium)', () => {
+  it('says payments are unavailable and nothing was charged, and lets the user retry', () => {
+    expect(describeError(new ApiError(503, 'BILLING_UNAVAILABLE', 'server text'))).toMatchObject({
+      title: 'Payments are not available right now',
+      message: expect.stringContaining('Nothing was charged'),
+      retryable: true,
+    });
+  });
+
+  it('never tells someone whose verification failed to pay again', () => {
+    const copy = describeError(new ApiError(400, 'PAYMENT_VERIFICATION_FAILED', 'server text'));
+    expect(copy.message).toContain('as soon as Razorpay confirms');
+    expect(copy.message).not.toMatch(/pay again/i);
+    expect(copy.retryable).toBe(false);
+  });
+
+  it('explains the subscription conflicts and the period without echoing the server', () => {
+    expect(describeError(new ApiError(409, 'SUBSCRIPTION_ACTIVE', 'x')).message).toContain('Cancel auto-renew first');
+    expect(describeError(new ApiError(409, 'NO_ACTIVE_SUBSCRIPTION', 'x')).title).toBe('Nothing to cancel');
+    expect(describeError(new ApiError(400, 'INVALID_PERIOD', 'server text')).message).not.toContain('server text');
+  });
+});

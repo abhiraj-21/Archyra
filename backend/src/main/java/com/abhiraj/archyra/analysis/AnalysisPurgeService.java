@@ -68,6 +68,29 @@ public class AnalysisPurgeService {
 		return owned.stream().map(Analysis::getId).toList();
 	}
 
+	/**
+	 * Deletes the given analyses of one user without refunding anything, for billing's retention when Premium lapses (the
+	 * rule "a downgrade keeps the full count" stands; only a deletion the user chooses returns a credit). The same internals as
+	 * {@link #purgeAllOf}: metadata, the Ask AI data (index, chunks, conversations, through {@code AnalysisDeleting}) and the
+	 * row in the caller's transaction, the ids recorded for {@link #dropGraphs} after the commit. An id that is not the user's,
+	 * is gone, or is queued or running now is skipped (the next sweep sees it finished). {@code user_usage} is never touched.
+	 *
+	 * @return the ids actually deleted, to be passed to {@link #dropGraphs} after the commit
+	 */
+	@Transactional(propagation = Propagation.MANDATORY)
+	public List<UUID> purgeSelected(UUID userId, Collection<UUID> analysisIds) {
+		List<UUID> purged = new java.util.ArrayList<>();
+		for (UUID id : analysisIds) {
+			analysisRepository.findById(id).filter(analysis -> userId.equals(analysis.getOwnerId()) && !analysis.isInProgress())
+					.ifPresent(analysis -> {
+						pending.save(new PendingGraphPurge(analysis.getId(), clock.instant()));
+						cleanup.purge(analysis);
+						purged.add(analysis.getId());
+					});
+		}
+		return List.copyOf(purged);
+	}
+
 	/** After commit; never throws. A graph Neo4j could not drop now is left in the table for {@link #sweep}. */
 	public void dropGraphs(Collection<UUID> analysisIds) {
 		for (UUID id : analysisIds) {

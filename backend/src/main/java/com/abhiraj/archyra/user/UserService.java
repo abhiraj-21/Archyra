@@ -50,6 +50,31 @@ public class UserService {
 		return userRepository.findById(id);
 	}
 
+	/**
+	 * Locks the account row until the caller's transaction ends, for code that changes the plan (billing): a payment confirmed
+	 * twice at the same moment, or a renewal racing the end of a grace period, serialises on it.
+	 */
+	@Transactional(propagation = org.springframework.transaction.annotation.Propagation.MANDATORY)
+	public Optional<User> lockForUpdate(UUID id) {
+		return userRepository.findByIdForUpdate(id);
+	}
+
+	/** A Premium end date, for billing's lifecycle job. */
+	public record PlanEnd(UUID userId, Instant end) {
+	}
+
+	/** Users whose PREMIUM plan ends after {@code from} and at or before {@code to}. Never one without an end. */
+	@Transactional(readOnly = true)
+	public List<PlanEnd> premiumEndingBetween(Instant from, Instant to) {
+		return userRepository.findPremiumEndingBetween(from, to).stream().map(user -> new PlanEnd(user.getId(), user.getPlanExpiresAt())).toList();
+	}
+
+	/** Users whose stored plan is still PREMIUM although its end is at or before {@code now}. */
+	@Transactional(readOnly = true)
+	public List<PlanEnd> premiumEndedBy(Instant now) {
+		return userRepository.findPremiumEndedBy(now).stream().map(user -> new PlanEnd(user.getId(), user.getPlanExpiresAt())).toList();
+	}
+
 	public Optional<User> findByEmail(String email) {
 		return userRepository.findByEmail(normalizeEmail(email));
 	}

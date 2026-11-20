@@ -390,6 +390,22 @@ Full spec and the provider research: `spec/ask-ai-providers/spec.md`. Only the p
 - **Rejected:** a second per-provider Java class for each provider (config blocks do the same job with less code); the OpenAI SDK for the generic client (the safety rules need exact control of headers and errors); persisting the daily and monthly counters (not worth a table: the provider's 429 is the backstop).
 
 
+### Decision: Premium through Razorpay (2026-11-20)
+
+Spec: `spec/razorpay-premium/spec.md` (its decision table is binding). As built:
+
+- **Prices and modes.** 700 INR a month, 7000 INR a year, inclusive of taxes (`archyra.billing.prices.*`, paise; the client never sends an amount). The user chooses a **one-time payment** (Razorpay Orders + Standard Checkout: one period, renewed by hand) or **auto-renew** (Razorpay Subscriptions on a Plan per period, `total_count` 120 monthly or 10 yearly). One create, one verify and one webhook route per mode; Checkout shows the methods enabled on the Razorpay account.
+- **Razorpay client.** A plain `RestClient` with HTTP Basic behind `billing/RazorpayGateway`, not the `razorpay-java` SDK: the SDK hard-codes `https://api.razorpay.com` (tests could not point it at a WireMock fake) and brings OkHttp 3.10 and an HTTP logging interceptor into a Boot 4 application that has `RestClient`. Four calls (create order, create, cancel and fetch a subscription).
+- **Source of truth.** The signed webhook. The checkout's verify call (order: `HMAC(key_secret, orderId|paymentId)`; subscription: `HMAC(key_secret, paymentId|subscriptionId)`, then the subscription is fetched and its first charge applied once Razorpay reports it active and charged) does the same idempotent work. `BillingService.applyPayment` is the single place that extends Premium: amount and currency must equal our `payments` row, the user row is locked, a guarded `UPDATE ... SET status = PAID WHERE status IN (CREATED, FAILED)` lets exactly one confirmation through (FAILED too, because Razorpay lets a customer retry an order), then `User.changePlan`. Webhook deliveries are deduplicated by `X-Razorpay-Event-Id` in the same transaction as their work.
+- **Extension.** New end = `max(now, current end)` + one calendar month or year in `archyra.billing.zone` (`Asia/Kolkata`), with `ZonedDateTime` (31 January + 1 month = the last day of February). Entitlement is unchanged: `users.plan` and `plan_expires_at`, read by `User.effectivePlan`, so an expiry still needs no job.
+- **One active subscription.** While a subscription will charge again (`AUTHENTICATED`, `ACTIVE` or `PENDING` and not cancelled), a new subscription or order is `409 SUBSCRIPTION_ACTIVE`. Cancelling is at the end of the cycle; Premium stays until `plan_expires_at`. A halted subscription counts as none. Starting a new subscription replaces the user's row; an abandoned `CREATED` one is cancelled at Razorpay.
+- **The end of Premium** (`PremiumLifecycleJob`, every 15 minutes, injected clock). Three days before the end a reminder to users who will not auto-renew; at the end an "expired" email with the deletion date; **three days after the end** (`grace-days`) the 5 most recently used repositories (`keep-repositories`) stay and the rest, plus every FAILED analysis, are deleted (PostgreSQL, Neo4j, Ask AI index, chunks, conversations), without a refund, and the plan becomes FREE with no end. Five or fewer lose nothing. Running analyses are skipped. Every step is claimed through `billing_notices (user_id, kind, period_end)` before it acts, so two nodes or two runs act once; the deletion re-reads the end under the user's row lock, so a renewal that lands meanwhile stops it. Users whose subscription will charge again are skipped (their charge moves the end).
+- **Chosen where the spec left room:** (1) the grace period runs from the expiry email when that email went out more than an hour after the end (the job was down, or an administrator set an end in the past), so nobody loses a repository without having been told the date; (2) a notice is claimed before it is sent, so a crash loses an email rather than sending two; (3) payments are kept when an account is deleted (ids and amounts only) and the subscription is cancelled at Razorpay at once (best effort; the sweep retries); (4) a payment by a user whose Premium has no end is recorded and changes nothing; (5) emails are plain text like every other email of the application (the spec mentioned Thymeleaf templates, which this codebase does not have).
+- **Activity.** `analyses.last_activity_at` is written at most once per 10 minutes by `AnalysisActivity.touch`: on creation and completion, re-analysis (a new analysis), every open through `requireCompleted` (after the ownership check), and every answered or cached Ask AI question. A startup step fills old rows with `coalesce(updated_at, created_at)`. `AnalysisRetention` ranks by it (ties: newest created first) and is the one choice behind the warning, the emails and the deletion.
+- **Not configured.** Without `RAZORPAY_KEY_ID`/`RAZORPAY_KEY_SECRET` the app starts; `GET /billing/plans` and `/billing/status` answer and everything else is `503 BILLING_UNAVAILABLE`. Refunds and chargebacks are recorded (`REFUNDED`) and never shorten Premium; an administrator uses `PUT /admin/users/{id}/plan`.
+- **Frontend.** `/upgrade` (period and mode controls, the comparison from `GET /billing/plans` and `PLAN_ROWS`, Razorpay Checkout loaded lazily on that screen only: the one third-party script, see `frontend/DESIGN-NOTES.md`), the expiry banner on every page, a dialog once after each interactive sign-in, and Settings → Subscription with the exact end date and time. Time is worded by the same helper as the Ask AI reset (`lib/resetTime.ts`, `timeUntil`).
+- **Rejected:** shortening Premium automatically on a refund (an administrator decides); deleting repositories at the moment of expiry (the grace period exists so a late renewal loses nothing); one endpoint per payment method; trusting the checkout's callback alone.
+
 ### Decision: Dark theme (2026-11-19)
 
 Spec: `frontend/spec/ui/spec-dark-ui.md`. Frontend only: no endpoint, no column, no backend change.
@@ -934,8 +950,9 @@ Full spec: `backend/spec/security/spec.md`. How it works, as built:
     - 401: `AUTHENTICATION_REQUIRED` (with `WWW-Authenticate: Bearer`), `INVALID_CREDENTIALS`, `REFRESH_TOKEN_INVALID` (refresh failed; the cookie is cleared)
     - 403: `ACCESS_DENIED`, `CSRF_TOKEN_INVALID`, `EMAIL_NOT_VERIFIED`, `ACCOUNT_DISABLED`, `PREMIUM_FEATURE`, `USAGE_LIMIT_EXCEEDED`
     - 404: `ANALYSIS_NOT_FOUND`, `NODE_NOT_FOUND`, `USER_NOT_FOUND`, `IDENTITY_NOT_FOUND`
-    - 409: `ANALYSIS_NOT_COMPLETED`, `ANALYSIS_IN_PROGRESS`, `CANNOT_DISABLE_SELF`, `LAST_ADMIN`, `PROVIDER_ALREADY_LINKED`, `LAST_LOGIN_METHOD`
-    - 429: `RATE_LIMITED` (with `Retry-After` in seconds); 503: `SERVICE_BUSY`
+    - 409: `ANALYSIS_NOT_COMPLETED`, `ANALYSIS_IN_PROGRESS`, `CANNOT_DISABLE_SELF`, `LAST_ADMIN`, `PROVIDER_ALREADY_LINKED`, `LAST_LOGIN_METHOD`, `SUBSCRIPTION_ACTIVE`, `NO_ACTIVE_SUBSCRIPTION`
+    - 400 (billing): `PAYMENT_VERIFICATION_FAILED`, `INVALID_PERIOD`
+    - 429: `RATE_LIMITED` (with `Retry-After` in seconds); 503: `SERVICE_BUSY`, `BILLING_UNAVAILABLE`
 - **Request and response bodies:** `POST /register` takes `{ name, email, password }`; `POST /login` takes `{ email, password }` and returns `{ accessToken, tokenType: "Bearer", expiresIn }` (seconds); `/refresh` returns the same. `POST /verify-email` takes `{ token }`; `/resend-verification` and `/forgot-password` take `{ email }`; `/reset-password` takes `{ token, newPassword }`. Register, verify, resend, forgot and reset answer `{ message }`. `GET /csrf` returns `{ headerName: "X-XSRF-TOKEN", token }`.
 - **Passwords** are hashed with the delegating encoder (bcrypt), so they are limited to 8 to 72 **bytes** (not the 8 to 128 characters of the security spec; the validation message still says 128 characters). A password equal to the email or on a short common list is refused.
 - **Deployment notes:** the SPA and the API must share a registrable domain (the refresh cookie is `SameSite=Strict`); behind a proxy use `server.forward-headers-strategy=native`.
@@ -1129,6 +1146,29 @@ For a PREMIUM user `limit` and `remaining` are `null` (present, not omitted, not
 
 ---
 
+# Billing
+
+Premium through Razorpay (see "Decision: Premium through Razorpay"). Every route needs a bearer token and acts on the caller, except the webhook. Times are ISO-8601 instants; amounts are paise.
+
+| Method and path | Purpose |
+| --- | --- |
+| `GET /api/v1/billing/plans` | `{ enabled, keyId (null while off), currency, prices: [{ period, amountPaise, display, autoRenewAvailable }], free: { repositoryAnalyses, aiQuestionsPerWeek }, premium: { ... null = unlimited }, aiQuestionsPerMinute, keepRepositories, graceDays, reminderDays }` |
+| `GET /api/v1/billing/status` | `{ plan, effectivePlan, planExpiresAt, state, autoRenew: { active, period, cancelAtCycleEnd, nextChargeAt }, grace: { endsAt, repositoriesAtRisk } \| null }`. `state`: `NONE` (never had Premium), `ACTIVE`, `EXPIRING` (ends within `reminderDays` and will not renew), `GRACE` (ended, repositories not deleted yet), `LAPSED` (had Premium, the grace period is over). `grace` only for EXPIRING and GRACE |
+| `GET /api/v1/billing/retention` | `{ keep, kept: [...], atRisk: [...] }`, items `{ analysisId, repositoryUrl, lastActivityAt, status }`: the same choice the deletion makes |
+| `GET /api/v1/billing/payments?page&size` | The caller's payments, newest first (`size` 1 to 100): `{ items: [{ id, mode, period, amountPaise, currency, status, createdAt, paidAt, extendedTo }], page, size, totalElements, totalPages }` |
+| `POST /api/v1/billing/orders` | `{ "period": "MONTHLY" \| "YEARLY" }` → `{ orderId, amount, currency, keyId, paymentId }`. The amount is the configured price |
+| `POST /api/v1/billing/orders/verify` | `{ razorpayOrderId, razorpayPaymentId, razorpaySignature }` → the new status. Wrong signature, unknown or someone else's order: `400 PAYMENT_VERIFICATION_FAILED` (each call counts towards a rate limit) |
+| `POST /api/v1/billing/subscriptions` | `{ "period" }` → `{ subscriptionId, keyId, period, amount, currency }`. `409 SUBSCRIPTION_ACTIVE` while one will charge again |
+| `POST /api/v1/billing/subscriptions/verify` | `{ razorpaySubscriptionId, razorpayPaymentId, razorpaySignature }` → the status; the first charge is applied here or by the webhook, once |
+| `POST /api/v1/billing/subscriptions/cancel` | At the end of the cycle → the status. `409 NO_ACTIVE_SUBSCRIPTION` when none |
+| `POST /api/v1/billing/webhook` | Public (no token, CSRF-exempt). Signature over the raw body first (`X-Razorpay-Signature`), at most 64 KiB, deduplicated by `X-Razorpay-Event-Id`; `200` at once, a bare `400` for anything refused, unknown events acknowledged. Handles `payment.captured`, `order.paid`, `payment.failed`, `subscription.authenticated`, `.activated`, `.charged`, `.pending`, `.halted`, `.cancelled`, `.completed`, `refund.processed` |
+
+Errors: `503 BILLING_UNAVAILABLE` (Razorpay not configured or unreachable; nothing charged), `400 PAYMENT_VERIFICATION_FAILED`, `409 SUBSCRIPTION_ACTIVE`, `409 NO_ACTIVE_SUBSCRIPTION`, `400 INVALID_PERIOD`; `429 RATE_LIMITED` (order and subscription creation and verify per user, the webhook per IP).
+
+Tables: `payments` (`id` = the Razorpay receipt, `user_id`, `mode`, `period`, `amount_paise`, `currency`, `status` CREATED/PAID/FAILED/REFUNDED, unique `razorpay_order_id` and `razorpay_payment_id`, `razorpay_subscription_id`, `paid_at`, `extended_from`, `extended_to`, `created_at`), `subscriptions` (one per user: `razorpay_subscription_id` unique, `razorpay_plan_id`, `period`, `status`, `cancel_at_cycle_end`, `current_end`), `webhook_events` (`event_id`, `type`, `received_at`, `processed_at`), `billing_notices` (unique `user_id, kind, period_end`; kind REMINDER, EXPIRED, DELETED), and `analyses.last_activity_at`.
+
+---
+
 # Admin APIs
 
 These should be protected by an `ADMIN` role.
@@ -1185,6 +1225,10 @@ ADMIN only (the route rule, re-checked in the database like the other admin rout
 `state` is `AVAILABLE`, `COOLING_DOWN` (with `coolingUntil`), `RATE_LIMITED_LOCALLY` (one of its own limits is used up) or `DISABLED` (not enabled or not configured: not in the chain). The request counters are in memory and reset on restart. Never a key, a key fragment or a URL.
 
 ### `GET /api/v1/admin/users/{userId}`
+
+### `PUT /api/v1/admin/users/{userId}/plan`
+
+> **Built (billing):** `{ "plan": "FREE" | "PREMIUM", "expiresAt": "<instant>" | null }`, ADMIN only (re-checked in the database), audited as `PLAN_CHANGED` with the administrator as actor; returns the admin user item. PREMIUM may end at a future instant or never (null); FREE takes no end; an end in the past is `400 VALIDATION_ERROR`. The user row is locked, so it serialises with a payment being applied. The tool for refunds, chargebacks (Razorpay refunds never shorten Premium by themselves) and manual grants.
 
 ### `PATCH /api/v1/admin/users/{userId}/status`
 
@@ -1749,8 +1793,15 @@ By V3, your API could look roughly like this:
 │
 ├── /usage
 │
+├── /billing
+│   ├── GET /plans, GET /status, GET /retention, GET /payments
+│   ├── POST /orders, POST /orders/verify
+│   ├── POST /subscriptions, POST /subscriptions/verify, POST /subscriptions/cancel
+│   └── POST /webhook                    (public: Razorpay, signature-checked)
+│
 └── /admin
     ├── /users
     ├── /users/{userId}
+    ├── /users/{userId}/plan (PUT)
     └── /stats
 ```

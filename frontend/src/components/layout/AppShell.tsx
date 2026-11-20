@@ -1,12 +1,14 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router';
-import { ChevronsLeft, ChevronsRight, LayoutDashboard, LogOut, Menu as MenuIcon, Settings, ShieldCheck, X } from 'lucide-react';
+import { ChevronsLeft, ChevronsRight, LayoutDashboard, LogOut, Menu as MenuIcon, Settings, ShieldCheck, Sparkles, X } from 'lucide-react';
 import { PlanBadge } from '@/components/ui/Chips';
 import { ThemeToggle } from '@/components/ThemeToggle';
 import { LogoMark, Wordmark } from '@/components/ui/Logo';
 import { Menu } from '@/components/ui/Menu';
 import { useSession } from '@/hooks/sessionContext';
 import { UsageMeter } from '@/features/usage/UsageMeter';
+import { ExpiryBanner } from '@/features/billing/ExpiryBanner';
+import { SignInExpiryDialog } from '@/features/billing/SignInExpiryDialog';
 
 function NavItems({ collapsed, onNavigate }: { collapsed: boolean; onNavigate?: () => void }) {
   const { isAdmin } = useSession();
@@ -64,6 +66,9 @@ function UserMenu({ collapsed }: { collapsed: boolean }) {
             <p className="truncate font-medium text-ink">{me.name}</p>
             <p className="truncate">{me.email}</p>
           </div>
+          <button type="button" role="menuitem" className="menu-item" onClick={() => { close(); navigate('/upgrade'); }}>
+            <Sparkles size={16} aria-hidden="true" /> Premium
+          </button>
           <button type="button" role="menuitem" className="menu-item" onClick={() => { close(); navigate('/settings'); }}>
             <Settings size={16} aria-hidden="true" /> Settings
           </button>
@@ -179,8 +184,10 @@ export function AppShell() {
       </dialog>
 
       <main id="main" tabIndex={-1} className="min-w-0 flex-1 focus:outline-none">
+        <ExpiryBanner />
         <Outlet />
       </main>
+      <SignInExpiryDialog />
     </div>
   );
 }

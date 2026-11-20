@@ -22,6 +22,7 @@ const FilesPage = lazy(() => import('@/features/repository/files/FilesPage'));
 const RelationshipsPage = lazy(() => import('@/features/repository/relationships/RelationshipsPage'));
 const AskAiPage = lazy(() => import('@/features/repository/ask-ai/AskAiPage'));
 const SettingsPage = lazy(() => import('@/features/settings/SettingsPage'));
+const UpgradePage = lazy(() => import('@/features/billing/UpgradePage'));
 const DeleteConfirmPage = lazy(() => import('@/features/settings/DeleteConfirmPage'));
 const AdminStatsPage = lazy(() => import('@/features/admin/AdminStatsPage'));
 const AdminUsersPage = lazy(() => import('@/features/admin/AdminUsersPage'));
@@ -67,6 +68,7 @@ export const router = createBrowserRouter([
                     ],
                   },
                   { path: '/settings', element: <Page><SettingsPage /></Page> },
+                  { path: '/upgrade', element: <Page><UpgradePage /></Page> },
                   { path: '/settings/delete-confirm', element: <Page><DeleteConfirmPage /></Page> },
                 ],
               },

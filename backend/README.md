@@ -49,6 +49,10 @@ Everything is in `src/main/resources/application.properties`; secrets come from 
 | `NVIDIA_NIM_ENABLED`, `KILO_ENABLED`, `GONKA_ENABLED` (+ `*_API_KEY`) | no | Opt-in providers, off unless `true` (see *Ask AI*) |
 | `AI_PROVIDER_ORDER` | no | Comma-separated provider ids, the order they are tried in. Default `gemini,groq,openrouter,cloudflare,zai,cohere,ovh,llm7` |
 | `<PROVIDER>_MODEL`, `<PROVIDER>_BASE_URL`, `GROQ_REASONING_EFFORT` | no | Model id and endpoint of a provider (`GEMINI_MODEL`, `OPENROUTER_MODEL`, ...). Defaults, and every local limit, are in `application.properties`. A base URL is what the tests point at a fake server. OpenRouter's model must end in `:free` |
+| `RAZORPAY_KEY_ID`, `RAZORPAY_KEY_SECRET` | no | Razorpay API keys (test or live). Without both, billing is off: the app starts, and billing endpoints other than the plans and the status answer `503 BILLING_UNAVAILABLE` (see *Payments*) |
+| `RAZORPAY_WEBHOOK_SECRET` | no | The secret of the Razorpay webhook; without it the webhook refuses every delivery |
+| `RAZORPAY_PLAN_MONTHLY`, `RAZORPAY_PLAN_YEARLY` | no | Ids of the Razorpay Plans for auto-renew; without them only one-time payments are offered |
+| `BILLING_ZONE` | no | IANA zone of billing periods (calendar months and years) and of the dates in billing emails, default `Asia/Kolkata`. An unknown zone fails startup |
 | `EMBEDDING_CACHE_DIR`, `EMBEDDING_MODEL_URI`, `EMBEDDING_TOKENIZER_URI` | no | Where the embedding model is cached (default `models`) and where it comes from |
 
 Fixed behaviour you can tune in `application.properties`: access token 15 min, refresh token 7 days, verification link
@@ -148,6 +152,61 @@ A signed-in user can delete their account from Settings (`POST /api/v1/users/me/
 **Upgrading a database.** Hibernate's `ddl-auto=update` creates the new `usage_ledger_repository` table but never relaxes the `CHECK` it created on `analyses.status`; the application widens it at startup (`AnalysisSchemaUpgrade`, idempotent) so the new `NOT_ANALYZED` status can be stored.
 
 Keep `USAGE_LEDGER_SECRET` stable and secret: changing it makes existing ledger entries unmatchable, and losing the database together with the secret would let someone test guessed emails against it. The ledger has no admin UI.
+
+## Payments (Premium through Razorpay)
+
+Spec: `spec/razorpay-premium/spec.md`. A signed-in user buys Premium on `/upgrade`: **700 INR a month or 7000 INR a year** (inclusive of
+taxes; `archyra.billing.prices.*`, the client never sends an amount), as a **one-time payment** (a Razorpay Order: one period, renewed by
+hand) or **auto-renew** (a Razorpay Subscription on a Plan). Razorpay's Standard Checkout shows the payment methods enabled on the account
+(cards, UPI, netbanking, wallets). A paid period moves `users.plan_expires_at` to `max(now, current end)` plus one calendar month or year in
+`BILLING_ZONE` (default `Asia/Kolkata`), so renewing early never loses days.
+
+- **Confirmation.** The signed webhook (`POST /api/v1/billing/webhook`) is the source of truth; the checkout's verify call does the same
+  idempotent work, and whichever comes first extends Premium, exactly once per payment.
+- **The end of Premium.** Three days before the end, a user who will not auto-renew gets a reminder email (and the app shows a banner and a
+  dialog after sign-in). At the end they are FREE (as before) and get an "expired" email with the deletion date. **Three days after the end**,
+  if they did not renew, only their **5 most recently used repositories** are kept (used = created, completed, re-analysed, asked about in
+  Ask AI, opened); the rest, and every failed analysis, are deleted with their graphs and conversations. No credit is returned. Five or fewer
+  lose nothing. Refunds are recorded but never shorten Premium by themselves: an administrator uses `PUT /api/v1/admin/users/{id}/plan`.
+- **Without keys** the application starts normally, `GET /billing/plans` and `/billing/status` answer, every other billing endpoint is
+  `503 BILLING_UNAVAILABLE`, and the payment screen says payments are not available.
+- Keys, the webhook secret and plan ids are environment variables (below); nothing is committed and nothing about a payment (keys,
+  signatures, bodies, emails, amounts) is logged.
+
+### Razorpay dashboard set-up (done by the owner, not the code)
+
+**Test mode and live mode are separate in Razorpay**: each has its own API keys, webhooks with their own secrets, and Plans with their own
+ids. The variable names stay the same; only the values change. Use test values everywhere until live mode is activated.
+
+1. **API keys**: Dashboard → Account & Settings → API Keys → generate a key (test, and later live). Put the key id in `RAZORPAY_KEY_ID` and the
+   secret in `RAZORPAY_KEY_SECRET`. The key id reaches the browser (Checkout needs it); the secret never leaves the server.
+2. **Auto-capture**: Account & Settings → Payment capture → automatic capture, so a payment is captured (and `payment.captured` sent) at once.
+3. **Plans** (Subscriptions → Plans → Create): monthly: period `monthly`, interval 1, amount 70000 paise INR; yearly: period `yearly`,
+   interval 1, amount 700000 paise INR. Put their ids in `RAZORPAY_PLAN_MONTHLY` and `RAZORPAY_PLAN_YEARLY`. Without them auto-renew is not
+   offered (one-time payments still work). Subscriptions and recurring payment methods must be enabled on the account.
+4. **Webhook** (Account & Settings → Webhooks → Add): URL `https://<host>/api/v1/billing/webhook` (public HTTPS; in development use a tunnel
+   such as `cloudflared tunnel --url http://localhost:8080` or `ngrok http 8080`), a secret of your choice in `RAZORPAY_WEBHOOK_SECRET`, and these
+   events: `payment.captured`, `payment.failed`, `order.paid`, `subscription.authenticated`, `subscription.activated`, `subscription.charged`,
+   `subscription.pending`, `subscription.halted`, `subscription.cancelled`, `subscription.completed`, `refund.processed`.
+5. **Payment methods**: check which methods are enabled on the account (Account & Settings → Payment methods); Checkout shows exactly those.
+6. **Live mode** needs Razorpay's account activation (KYC), then live keys, a live webhook (with its own secret) and live Plans.
+
+### Manual test-mode checklist
+
+With test keys, a tunnel to the webhook and the frontend on `http://localhost:5173`:
+
+- [ ] `/upgrade` shows 700 INR and 7000 INR, the saving, and the comparison; Monthly/Annual and One-time/Auto-renew change the button.
+- [ ] **Card success**: pay monthly with Razorpay's test card (`4111 1111 1111 1111`, any future expiry, any CVV, OTP as the test page says).
+      The screen says "Premium is active until ..."; Settings shows the exact end; the "Premium is active" email arrives; the dashboard shows
+      the `payment.captured` and `order.paid` deliveries as 200 and Premium moved only once.
+- [ ] **UPI success**: pay with the test VPA `success@razorpay`. **UPI failure**: `failure@razorpay` shows Razorpay's reason and changes nothing.
+- [ ] **Dismiss**: closing the Checkout window says nothing was charged.
+- [ ] **Subscription, first charge**: Auto-renew monthly with the test card; Premium starts, Settings says auto-renew is on with the next
+      charge date, `subscription.activated` and `subscription.charged` are 200, and Premium moved once. *Cancel auto-renew* keeps Premium until
+      the end and Settings says it will not be charged again.
+- [ ] **Halt**: in the dashboard, make a test subscription's charge fail until it is halted (or use Razorpay's subscription test tools);
+      `subscription.halted` is 200, the subscription shows as not renewing, and the reminder banner appears near the end.
+- [ ] A webhook resent from the dashboard (same event id) changes nothing.
 
 ## For the frontend
 

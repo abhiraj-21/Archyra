@@ -37,7 +37,8 @@ import lombok.extern.slf4j.Slf4j;
  * <li>delete the refresh, one-time and link-intent tokens, the linked identities, the counters and the user.</li>
  * </ol>
  * After the commit ({@link #afterDeletion}, called by the caller outside any transaction): the account's access token
- * stops working, the graphs are dropped, an audit line (user id, no email) is written and a "your account was deleted"
+ * stops working, the graphs are dropped, an audit line (user id, no email) is written, an {@code AccountDeleted} event lets
+ * billing cancel a live Razorpay subscription, and a "your account was deleted"
  * email goes to the address held before the deletion. None of those can fail the deletion. Only keyed hashes, counts and
  * repository links remain; nothing logged here names a key or an email.
  */
@@ -65,6 +66,7 @@ public class AccountDeletionService {
 	private final RevokedSubjects revokedSubjects;
 	private final SecurityAuditLogger audit;
 	private final Clock clock;
+	private final org.springframework.context.ApplicationEventPublisher events;
 
 	/**
 	 * @param ip the client address, for the audit line only
@@ -115,6 +117,12 @@ public class AccountDeletionService {
 		revokedSubjects.revoke(deleted.userId());
 		analyses.dropGraphs(deleted.analysisIds());
 		audit.event("ACCOUNT_DELETED", deleted.userId(), deleted.ip());
+		try {
+			events.publishEvent(new com.abhiraj.archyra.common.AccountDeleted(deleted.userId())); // billing: cancel a live subscription
+		}
+		catch (RuntimeException ex) {
+			log.warn("A listener of the account deletion failed; the account is deleted ({})", ex.getClass().getSimpleName());
+		}
 		try {
 			emailService.sendAccountDeletedNotice(deleted.email(), deleted.name(), deleted.at());
 		}

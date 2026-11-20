@@ -104,6 +104,30 @@ public class AdminUserService {
 	}
 
 	/**
+	 * Sets a user's plan by hand: a refund or chargeback (Razorpay never shortens Premium by itself), or a manual grant. The
+	 * user row is locked, so this serialises with a payment being applied. PREMIUM may end at a future instant or never (null);
+	 * FREE takes no end. Audited as {@code PLAN_CHANGED} with the administrator as actor.
+	 *
+	 * @throws InvalidRequestException for an end in the past, or an end with FREE
+	 */
+	@Transactional
+	public AdminUserResponse setPlan(String userId, Plan plan, Instant expiresAt, String ip) {
+		UUID caller = requireActiveAdmin();
+		UUID targetId = parse(userId);
+		Instant now = clock.instant();
+		if (plan == Plan.FREE && expiresAt != null) {
+			throw new InvalidRequestException("expiresAt must be empty for the FREE plan");
+		}
+		if (plan == Plan.PREMIUM && expiresAt != null && !expiresAt.isAfter(now)) {
+			throw new InvalidRequestException("expiresAt must be in the future");
+		}
+		User target = userRepository.findByIdForUpdate(targetId).orElseThrow(UserNotFoundException::new);
+		target.changePlan(plan, expiresAt);
+		audit.event("PLAN_CHANGED", target.getId(), ip, caller);
+		return toResponse(target);
+	}
+
+	/**
 	 * The database check behind every admin route (the token's role is not trusted on its own): the caller must be an enabled
 	 * administrator. Public so other features' admin endpoints re-check the same way.
 	 *

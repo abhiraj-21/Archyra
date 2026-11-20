@@ -70,6 +70,14 @@ public interface AnalysisRepository extends JpaRepository<Analysis, UUID> {
 	@Query("select a.ownerId from Analysis a where a.id = :id")
 	Optional<UUID> findOwnerId(@Param("id") UUID id);
 
+	/**
+	 * Records "used now" unless it was recorded less than the touch interval ago ({@code threshold = now - interval}), so a
+	 * repository opened on every request writes at most once per interval. 0 rows: throttled, or no such analysis.
+	 */
+	@Modifying
+	@Query("update Analysis a set a.lastActivityAt = :now where a.id = :id and (a.lastActivityAt is null or a.lastActivityAt <= :threshold)")
+	int touch(@Param("id") UUID id, @Param("now") java.time.Instant now, @Param("threshold") java.time.Instant threshold);
+
 	/** Failed analyses whose unit was never returned, for the startup repair. */
 	List<Analysis> findByStatusAndQuotaChargedTrueAndQuotaRefundedFalse(AnalysisStatus status);
 }

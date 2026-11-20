@@ -108,7 +108,7 @@ class AnalysisPipelineTest {
 				technologyDetector, metadataRepository, graphBuilder, registrar, cleanup, event -> {
 					events.add(event.getClass().getSimpleName() + "@" + analysis.getStatus());
 					eventListener.accept(event);
-				});
+				}, org.mockito.Mockito.mock(AnalysisActivity.class));
 	}
 
 	@Test

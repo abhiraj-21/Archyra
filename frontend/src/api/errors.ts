@@ -41,6 +41,11 @@ export const SERVER_ERROR_CODES = [
   'CONVERSATION_FULL',
   'CONVERSATION_BUSY',
   'TOO_MANY_CONVERSATIONS',
+  'BILLING_UNAVAILABLE',
+  'PAYMENT_VERIFICATION_FAILED',
+  'SUBSCRIPTION_ACTIVE',
+  'NO_ACTIVE_SUBSCRIPTION',
+  'INVALID_PERIOD',
 ] as const;
 
 /** Codes the client assigns when no backend answer could be read. */

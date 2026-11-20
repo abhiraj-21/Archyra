@@ -86,6 +86,41 @@ public class RecordingEmailService implements EmailService {
 		sent.add(new Sent("ACCOUNT_DELETED", to, name, ""));
 	}
 
+	/** The billing emails, with what they said ({@code mail} is one of the {@link BillingMails} records). */
+	public record BillingSent(String kind, String to, Object mail) {
+	}
+
+	private final List<BillingSent> billing = new CopyOnWriteArrayList<>();
+
+	@Override
+	public void sendPremiumActivated(String to, String name, BillingMails.PremiumActivated mail) {
+		billing.add(new BillingSent("PREMIUM_ACTIVATED", to, mail));
+	}
+
+	@Override
+	public void sendPremiumReminder(String to, String name, BillingMails.PremiumEnding mail) {
+		billing.add(new BillingSent("PREMIUM_REMINDER", to, mail));
+	}
+
+	@Override
+	public void sendPremiumExpired(String to, String name, BillingMails.PremiumEnding mail) {
+		billing.add(new BillingSent("PREMIUM_EXPIRED", to, mail));
+	}
+
+	@Override
+	public void sendRepositoriesDeleted(String to, String name, BillingMails.RepositoriesDeleted mail) {
+		billing.add(new BillingSent("REPOSITORIES_DELETED", to, mail));
+	}
+
+	/** The billing emails sent to an address, oldest first. */
+	public List<BillingSent> billingTo(String address) {
+		return billing.stream().filter(mail -> mail.to().equals(address)).toList();
+	}
+
+	public List<BillingSent> billingTo(String address, String kind) {
+		return billingTo(address).stream().filter(mail -> mail.kind().equals(kind)).toList();
+	}
+
 	private void identityNotice(String kind, String to, String name, String provider, String resetLink) {
 		if (failIdentityNotices) {
 			throw new IllegalStateException("simulated mail failure");

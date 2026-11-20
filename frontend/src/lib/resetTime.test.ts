@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { DAY_MS, msUntilReset, outOfCreditsMessage, resetWait } from './resetTime';
+import { DAY_MS, msUntilReset, outOfCreditsMessage, resetWait, timeUntil, whenPhrase } from './resetTime';
 
 const KOLKATA = 'Asia/Kolkata';
 const NEW_YORK = 'America/New_York';
@@ -133,5 +133,59 @@ describe('msUntilReset', () => {
     expect(msUntilReset('2026-11-22T18:30:00Z', at('2026-11-23T00:00:00Z'))).toBe(0);
     expect(msUntilReset('garbage')).toBeNull();
     expect(msUntilReset(undefined)).toBeNull();
+  });
+});
+
+describe('timeUntil: the general helper, the same answers as resetWait', () => {
+  const now = at('2026-11-20T10:00:00Z');
+  const cases = [
+    new Date(now + DAY_MS).toISOString(), // exactly 24 hours: "1 day"
+    new Date(now + DAY_MS - 1).toISOString(), // just under: a clock time
+    '2026-11-20T10:00:30Z', // under a minute
+    '2026-11-21T03:00:00Z', // the next local day
+    '2026-11-25T00:00:00Z', // days
+    '2026-11-19T00:00:00Z', // past: due
+    'garbage',
+  ];
+
+  it('gives exactly what resetWait gives, in several zones', () => {
+    for (const iso of cases) {
+      for (const zone of ['UTC', KOLKATA, NEW_YORK]) {
+        expect(timeUntil(iso, now, zone), `${iso} ${zone}`).toEqual(resetWait(iso, now, zone));
+      }
+    }
+  });
+
+  it('exactly 24 hours is 1 day, under a minute is the clock time', () => {
+    expect(timeUntil(new Date(now + DAY_MS).toISOString(), now, 'UTC')).toMatchObject({ text: '1 day', kind: 'days' });
+    expect(timeUntil('2026-11-20T10:00:30Z', now, 'UTC')).toMatchObject({ text: 'till 10:00', kind: 'time', msUntil: 30_000 });
+  });
+
+  it('writes the clock time in the reader\'s zone', () => {
+    // 2026-11-20 18:30 UTC is midnight in Kolkata and 13:30 in New York
+    expect(timeUntil('2026-11-20T18:30:00Z', now, KOLKATA)?.text).toBe('till 00:00');
+    expect(timeUntil('2026-11-20T18:30:00Z', now, NEW_YORK)?.text).toBe('till 13:30');
+  });
+});
+
+describe('whenPhrase: "today at", "tomorrow at" or "in N days"', () => {
+  const now = at('2026-11-20T10:00:00Z'); // 15:30 in Kolkata
+
+  it('names today when the moment is later the same local day', () => {
+    expect(whenPhrase('2026-11-20T12:00:00Z', now, KOLKATA)).toBe('today at 17:30');
+  });
+
+  it('names tomorrow when the clock time falls on the next local day', () => {
+    // 00:30 the next day in Kolkata, 14.5 hours away
+    expect(whenPhrase('2026-11-20T19:00:00Z', now, KOLKATA)).toBe('tomorrow at 00:30');
+    // the same instant is still today in New York
+    expect(whenPhrase('2026-11-20T19:00:00Z', now, NEW_YORK)).toBe('today at 14:00');
+  });
+
+  it('counts whole days from 24 hours on, rounded up, and says now for a past moment', () => {
+    expect(whenPhrase('2026-11-23T10:00:00Z', now, KOLKATA)).toBe('in 3 days');
+    expect(whenPhrase('2026-11-23T10:00:01Z', now, KOLKATA)).toBe('in 4 days');
+    expect(whenPhrase('2026-11-19T10:00:00Z', now, KOLKATA)).toBe('now');
+    expect(whenPhrase(null, now, KOLKATA)).toBeNull();
   });
 });

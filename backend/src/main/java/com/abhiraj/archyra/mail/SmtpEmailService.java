@@ -149,6 +149,109 @@ class SmtpEmailService implements EmailService {
 				""".formatted(greeting(name), WHEN.format(at)));
 	}
 
+	/** "Friday 27 November 2026, 11:58 IST": the exact time in the billing zone, with the zone's label. */
+	static String exactTime(Instant at, java.time.ZoneId zone) {
+		return DateTimeFormatter.ofPattern("EEEE d MMMM uuuu, HH:mm zzz", Locale.ENGLISH).withZone(zone).format(at);
+	}
+
+	@Async(MailConfig.MAIL_EXECUTOR)
+	@Override
+	public void sendPremiumActivated(String to, String name, BillingMails.PremiumActivated mail) {
+		String renewal = mail.autoRenew()
+				? "It renews automatically at the end of each period. You can cancel auto-renew at any time in Settings; Premium then stays until the end of the period you paid for."
+				: "It does not renew by itself. We will remind you a few days before it ends.";
+		send(to, "Archyra Premium is active", """
+				Hi %s,
+
+				Thank you. Your %s Premium payment of %s went through.
+
+				Premium is active until %s.
+
+				%s
+
+				Manage your plan:
+
+				%s
+				""".formatted(greeting(name), mail.period(), mail.amount(), exactTime(mail.expiresAt(), mail.zone()), renewal, mail.manageLink()));
+	}
+
+	@Async(MailConfig.MAIL_EXECUTOR)
+	@Override
+	public void sendPremiumReminder(String to, String name, BillingMails.PremiumEnding mail) {
+		send(to, "Your Archyra Premium ends on " + exactTime(mail.endsAt(), mail.zone()), """
+				Hi %s,
+
+				Your Archyra Premium ends on %s. It does not renew by itself.
+				%s
+				Renew now to keep Premium:
+
+				%s
+				""".formatted(greeting(name), exactTime(mail.endsAt(), mail.zone()), atRisk(mail), mail.renewLink()));
+	}
+
+	@Async(MailConfig.MAIL_EXECUTOR)
+	@Override
+	public void sendPremiumExpired(String to, String name, BillingMails.PremiumEnding mail) {
+		String keep = mail.atRiskTotal() > 0
+				? "Renew by " + exactTime(mail.deletionAt(), mail.zone()) + " to keep all of your repositories."
+				: "Renew whenever you like; your repositories are not affected.";
+		send(to, "Your Archyra Premium has ended", """
+				Hi %s,
+
+				Your Archyra Premium ended on %s. Your account is on the Free plan now.
+
+				%s
+				%s
+				Renew Premium:
+
+				%s
+				""".formatted(greeting(name), exactTime(mail.endsAt(), mail.zone()), keep, atRisk(mail), mail.renewLink()));
+	}
+
+	@Async(MailConfig.MAIL_EXECUTOR)
+	@Override
+	public void sendRepositoriesDeleted(String to, String name, BillingMails.RepositoriesDeleted mail) {
+		send(to, "Repositories were removed from your Archyra account", """
+				Hi %s,
+
+				Your Archyra Premium ended and was not renewed during the grace period, so your account kept only its %d most recently used repositories. %d %s deleted, together with their graphs and Ask AI conversations. No credits were returned.
+
+				Kept:
+				%s
+
+				Premium is available again at any time:
+
+				%s
+				""".formatted(greeting(name), mail.kept().size(), mail.deletedCount(), mail.deletedCount() == 1 ? "repository was" : "repositories were",
+				bullets(mail.kept(), mail.kept().size()), mail.renewLink()));
+	}
+
+	/** Empty when nothing would be deleted; otherwise the deletion time and the names, cut at ten. */
+	private static String atRisk(BillingMails.PremiumEnding mail) {
+		if (mail.atRiskTotal() <= 0) {
+			return "";
+		}
+		return """
+
+				On %s only your %d most recently used repositories are kept. These would be deleted, with their graphs and Ask AI conversations:
+				%s
+				""".formatted(exactTime(mail.deletionAt(), mail.zone()), mail.keep(), bullets(mail.atRisk(), mail.atRiskTotal()));
+	}
+
+	private static String bullets(List<String> names, int total) {
+		StringBuilder text = new StringBuilder();
+		names.stream().limit(BillingMails.MAX_LISTED).forEach(repository -> text.append("- ").append(oneLine(repository)).append('\n'));
+		int more = total - (int) Math.min(names.size(), BillingMails.MAX_LISTED);
+		if (more > 0) {
+			text.append("and ").append(more).append(" more\n");
+		}
+		return text.toString().stripTrailing();
+	}
+
+	private static String oneLine(String value) {
+		return value == null ? "" : value.replaceAll("[\\r\\n\\p{Cntrl}]", " ").trim();
+	}
+
 	private void send(String to, String subject, String text) {
 		try {
 			SimpleMailMessage message = new SimpleMailMessage();

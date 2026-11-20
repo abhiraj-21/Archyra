@@ -8,6 +8,7 @@ import { queryKeys } from '@/api/queryKeys';
 import { clearAccessToken, onSessionExpired } from '@/api/session';
 import type { UserProfile } from '@/api/types';
 import { canSeeAdmin } from '@/lib/roles';
+import { markSignedIn } from '@/lib/signInNotice';
 import { SessionContext, type SessionStatus, type SessionValue } from './sessionContext';
 
 /**
@@ -108,6 +109,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       // Start the new session from an empty cache, then seed it with the new user's profile.
       queryClient.clear();
       queryClient.setQueryData(queryKeys.me, profile);
+      markSignedIn(); // an interactive sign-in finished: the Premium expiry dialog may show once
       setEndReason(null);
       setStatus('authenticated');
     },

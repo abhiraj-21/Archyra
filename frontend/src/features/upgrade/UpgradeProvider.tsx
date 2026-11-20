@@ -1,6 +1,6 @@
 import { useCallback, useMemo, useState, type ReactNode } from 'react';
 import { Check, Minus } from 'lucide-react';
-import { Button } from '@/components/ui/Button';
+import { Button, ButtonLink } from '@/components/ui/Button';
 import { Dialog } from '@/components/ui/Dialog';
 import { useAnalysisUsage } from '@/hooks/useAccount';
 import { AVAILABILITY_LABEL, PLAN_ROWS, type Availability } from '@/lib/plans';
@@ -49,7 +49,7 @@ export function PlanComparisonTable({ caption }: { caption?: string }) {
   );
 }
 
-/** One upgrade dialog for the whole app. Payments are not built, so it says so instead of offering a checkout. */
+/** One upgrade dialog for the whole app: why Premium, and a link to the payment screen (`/upgrade`), where the checkout is. */
 export function UpgradeProvider({ children }: { children: ReactNode }) {
   const [feature, setFeature] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
@@ -74,17 +74,17 @@ export function UpgradeProvider({ children }: { children: ReactNode }) {
             <Button variant="quiet" onClick={() => setOpen(false)}>
               Close
             </Button>
-            <Button variant="primary" disabled aria-describedby="premium-soon">
-              Premium is coming soon
-            </Button>
+            <ButtonLink to="/upgrade" variant="primary" onClick={() => setOpen(false)}>
+              {plan === 'PREMIUM' ? 'Manage Premium' : 'See prices and upgrade'}
+            </ButtonLink>
           </>
         }
       >
         <div className="grid gap-md">
-          <p id="premium-soon">
+          <p>
             {plan === 'PREMIUM'
               ? 'You are on Premium. Features marked coming soon are not built yet for any plan.'
-              : 'Payments are not open yet, so Premium cannot be bought today. Here is what each plan will include.'}
+              : 'Premium removes the analysis and Ask AI limits. Features marked coming soon are not built yet for any plan.'}
           </p>
           <div className="overflow-x-auto">
             <PlanComparisonTable caption="Free and Premium compared" />

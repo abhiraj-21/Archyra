@@ -38,6 +38,7 @@ import lombok.RequiredArgsConstructor;
  * /api/v1/auth/me      authenticated
  * /api/v1/auth/**      public (refresh and logout are guarded by cookie + CSRF, not by the token)
  * /api/v1/admin/**     ADMIN
+ * /api/v1/billing/webhook  public: Razorpay calls it, its signature is checked first (billing/BillingWebhookController); CSRF-exempt
  * /error               public
  * /api/v1/users/me/delete, /delete-request, /delete-confirm   authenticated, then the password or the emailed token (auth/)
  * /api/v1/**           authenticated (ownership and premium checks happen in the services)
@@ -64,6 +65,7 @@ public class SecurityConfig {
 						.requestMatchers("/api/v1/auth/me").authenticated()
 						.requestMatchers("/api/v1/auth/**").permitAll()
 						.requestMatchers("/api/v1/admin/**").hasRole("ADMIN")
+						.requestMatchers(HttpMethod.POST, "/api/v1/billing/webhook").permitAll()
 						.requestMatchers("/error").permitAll()
 						.requestMatchers("/api/v1/**").authenticated()
 						.anyRequest().denyAll())
@@ -79,7 +81,9 @@ public class SecurityConfig {
 				// by the refresh cookie are protected. SameSite=Strict on the cookie is a second layer.
 				// The plain handler, not csrf.spa(): spa() writes the XSRF-TOKEN cookie on every response, even plain
 				// bearer API calls. Here only GET /api/v1/auth/csrf writes it, and the header carries the raw token.
-				.csrf(csrf -> csrf.csrfTokenRequestHandler(new CsrfTokenRequestAttributeHandler())
+				// The Razorpay webhook is a server-to-server call with no cookie; it is exempt by name, so a later, wider matcher cannot catch it.
+				.csrf(csrf -> csrf.ignoringRequestMatchers(PathPatternRequestMatcher.pathPattern(HttpMethod.POST, "/api/v1/billing/webhook"))
+						.csrfTokenRequestHandler(new CsrfTokenRequestAttributeHandler())
 						.csrfTokenRepository(csrfTokenRepository())
 						.requireCsrfProtectionMatcher(new OrRequestMatcher(
 								PathPatternRequestMatcher.pathPattern(HttpMethod.POST, "/api/v1/auth/refresh"),
@@ -118,7 +122,7 @@ public class SecurityConfig {
 	CorsConfigurationSource corsConfigurationSource() {
 		CorsConfiguration cors = new CorsConfiguration();
 		cors.setAllowedOrigins(properties.cors().allowedOrigins());
-		cors.setAllowedMethods(List.of("GET", "POST", "PATCH", "DELETE", "OPTIONS"));
+		cors.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
 		cors.setAllowedHeaders(List.of("Authorization", "Content-Type", "X-XSRF-TOKEN"));
 		cors.setExposedHeaders(List.of("Retry-After"));
 		cors.setAllowCredentials(true);

@@ -24,11 +24,11 @@ import io.github.bucket4j.ConsumptionProbe;
 public class RateLimiter {
 
 	/**
-	 * What is limited. The key is the client IP, except for {@link #CREATE_ANALYSIS}, {@link #LINK_INTENT} and
-	 * {@link #AI_CHAT}, which are per user id.
+	 * What is limited. The key is the client IP, except for {@link #CREATE_ANALYSIS}, {@link #LINK_INTENT},
+	 * {@link #AI_CHAT}, {@link #BILLING_CREATE} and {@link #BILLING_VERIFY}, which are per user id.
 	 */
 	public enum Rule {
-		LOGIN, SENSITIVE, CREATE_ANALYSIS, LINK_INTENT, AI_CHAT
+		LOGIN, SENSITIVE, CREATE_ANALYSIS, LINK_INTENT, AI_CHAT, BILLING_CREATE, BILLING_VERIFY, BILLING_WEBHOOK
 	}
 
 	/** @param retryAfterSeconds how long until a request would be let through; 0 when allowed */
@@ -49,6 +49,9 @@ public class RateLimiter {
 		add(Rule.CREATE_ANALYSIS, config.createAnalysisPerUserPerHour(), Duration.ofHours(1));
 		add(Rule.LINK_INTENT, config.linkIntentPerUserPerHour(), Duration.ofHours(1));
 		add(Rule.AI_CHAT, config.aiChatPerUserPerMinute(), Duration.ofMinutes(1));
+		add(Rule.BILLING_CREATE, config.billingCreatePerUserPerHour(), Duration.ofHours(1));
+		add(Rule.BILLING_VERIFY, config.billingVerifyPerUserPerHour(), Duration.ofHours(1));
+		add(Rule.BILLING_WEBHOOK, config.billingWebhookPerIpPerMinute(), Duration.ofMinutes(1));
 	}
 
 	private void add(Rule rule, long capacity, Duration period) {

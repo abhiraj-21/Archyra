@@ -330,3 +330,118 @@ export interface AdminUser {
   lastLoginAt: string | null;
   linkedProviders: Provider[];
 }
+
+// ---- Billing (Premium through Razorpay; backend billing/, spec/razorpay-premium) ---------------------------------
+
+export type BillingPeriod = 'MONTHLY' | 'YEARLY';
+export type BillingState = 'NONE' | 'ACTIVE' | 'EXPIRING' | 'GRACE' | 'LAPSED';
+
+export interface BillingPrice {
+  period: BillingPeriod;
+  amountPaise: number;
+  /** "700 INR", formatted by the server. */
+  display: string;
+  /** A Razorpay Plan is configured for this period, so auto-renew can be offered. */
+  autoRenewAvailable: boolean;
+}
+
+/** A null limit is unlimited. */
+export interface BillingLimits {
+  repositoryAnalyses: number | null;
+  aiQuestionsPerWeek: number | null;
+}
+
+/** GET /billing/plans: every number the payment screen shows. `keyId` (Razorpay's public key) is null while billing is off. */
+export interface BillingPlans {
+  enabled: boolean;
+  keyId: string | null;
+  currency: string;
+  prices: BillingPrice[];
+  free: BillingLimits;
+  premium: BillingLimits;
+  aiQuestionsPerMinute: number;
+  keepRepositories: number;
+  graceDays: number;
+  reminderDays: number;
+}
+
+export interface BillingAutoRenew {
+  /** The subscription is live at Razorpay (it may already be cancelled at the end of the cycle). */
+  active: boolean;
+  period: BillingPeriod | null;
+  cancelAtCycleEnd: boolean;
+  nextChargeAt: string | null;
+}
+
+/** GET /billing/status. Times are ISO-8601 instants. */
+export interface BillingStatus {
+  plan: Plan;
+  effectivePlan: Plan;
+  planExpiresAt: string | null;
+  state: BillingState;
+  autoRenew: BillingAutoRenew;
+  /** Only for EXPIRING and GRACE: when the repositories beyond the kept ones are deleted, and how many that is. */
+  grace: { endsAt: string; repositoriesAtRisk: number } | null;
+}
+
+export interface RetentionItem {
+  analysisId: string;
+  repositoryUrl: string;
+  lastActivityAt: string;
+  status: AnalysisStatus;
+}
+
+/** GET /billing/retention: what stays and what would be deleted if Premium lapsed now (the same choice the deletion makes). */
+export interface BillingRetention {
+  keep: number;
+  kept: RetentionItem[];
+  atRisk: RetentionItem[];
+}
+
+export interface PaymentItem {
+  id: string;
+  mode: 'ORDER' | 'SUBSCRIPTION';
+  period: BillingPeriod;
+  amountPaise: number;
+  currency: string;
+  status: 'CREATED' | 'PAID' | 'FAILED' | 'REFUNDED';
+  createdAt: string;
+  paidAt: string | null;
+  extendedTo: string | null;
+}
+
+export interface PaymentPage {
+  items: PaymentItem[];
+  page: number;
+  size: number;
+  totalElements: number;
+  totalPages: number;
+}
+
+export interface CreatedOrder {
+  orderId: string;
+  amount: number;
+  currency: string;
+  keyId: string;
+  paymentId: string;
+}
+
+export interface CreatedSubscription {
+  subscriptionId: string;
+  keyId: string;
+  period: BillingPeriod;
+  amount: number;
+  currency: string;
+}
+
+export interface OrderVerification {
+  razorpayOrderId: string;
+  razorpayPaymentId: string;
+  razorpaySignature: string;
+}
+
+export interface SubscriptionVerification {
+  razorpaySubscriptionId: string;
+  razorpayPaymentId: string;
+  razorpaySignature: string;
+}

@@ -80,6 +80,15 @@ public class Analysis {
 	@Column(name = "replaces_analysis_id", updatable = false)
 	private UUID replacesAnalysisId;
 
+	/**
+	 * When the owner last used this repository: created or completed, re-analysed, asked about in Ask AI, or opened. Written
+	 * only by {@link AnalysisActivity#touch} (at most once per {@code archyra.billing.touch-interval}); null for a row nothing
+	 * touched yet, which ranks by {@code updated_at}/{@code created_at} instead. When Premium lapses, the least recently
+	 * used repositories beyond the kept ones are deleted ({@link AnalysisRetention}).
+	 */
+	@Column(name = "last_activity_at")
+	private Instant lastActivityAt;
+
 	@CreationTimestamp
 	@Column(name = "created_at", nullable = false, updatable = false)
 	private Instant createdAt;
@@ -128,6 +137,14 @@ public class Analysis {
 	/** Only the registrar sets this, before the first save. */
 	void replaces(UUID analysisId) {
 		this.replacesAnalysisId = analysisId;
+	}
+
+	/** The last time the owner used it, falling back to the last change and then the creation for a row never touched. */
+	public Instant lastUsedAt() {
+		if (lastActivityAt != null) {
+			return lastActivityAt;
+		}
+		return updatedAt != null ? updatedAt : createdAt;
 	}
 
 	/** COMPLETED and FAILED are final; nothing changes after them. */

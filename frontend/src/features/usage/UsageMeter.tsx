@@ -1,5 +1,7 @@
 import { useAnalysisUsage } from '@/hooks/useAccount';
 import { useUpgrade } from '@/hooks/upgradeContext';
+import { useBillingStatus } from '@/hooks/useBilling';
+import { shortDateTime } from '@/lib/billing';
 import { formatNumber } from '@/lib/format';
 import { Skeleton } from '@/components/ui/Skeleton';
 
@@ -10,6 +12,7 @@ import { Skeleton } from '@/components/ui/Skeleton';
 export function UsageMeter({ variant = 'full' }: { variant?: 'full' | 'compact' }) {
   const { entry, isPending, isError } = useAnalysisUsage();
   const { openUpgrade } = useUpgrade();
+  const billing = useBillingStatus();
 
   if (isPending) return <Skeleton className="h-10 w-full" />;
   if (isError || !entry) return <p className="text-xs text-muted">Usage is not available right now.</p>;
@@ -17,6 +20,11 @@ export function UsageMeter({ variant = 'full' }: { variant?: 'full' | 'compact' 
   if (entry.limit === null) {
     return (
       <div className="grid gap-2xs text-sm">
+        {billing.data?.effectivePlan === 'PREMIUM' ? (
+          <p className="text-xs text-ink-2" data-testid="premium-until">
+            {billing.data.planExpiresAt ? `Premium until ${shortDateTime(billing.data.planExpiresAt)}` : 'Premium, no end date'}
+          </p>
+        ) : null}
         <p className="font-medium text-ink">Unlimited analyses</p>
         <p className="text-xs text-muted">
           <span className="num">{formatNumber(entry.used)}</span> run so far on Premium

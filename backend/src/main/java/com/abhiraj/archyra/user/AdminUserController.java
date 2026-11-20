@@ -25,6 +25,13 @@ public class AdminUserController {
 	public record StatusRequest(@NotNull(message = "enabled must be true or false") Boolean enabled) {
 	}
 
+	/**
+	 * {@code plan} is FREE or PREMIUM; {@code expiresAt} is when PREMIUM ends (null: no end). FREE takes no end. Used for refunds,
+	 * chargebacks and manual grants: Razorpay refunds never shorten Premium by themselves.
+	 */
+	public record PlanRequest(@NotNull(message = "plan must be FREE or PREMIUM") Plan plan, java.time.Instant expiresAt) {
+	}
+
 	private final AdminUserService adminUsers;
 	private final ClientIpResolver clientIps;
 
@@ -36,6 +43,11 @@ public class AdminUserController {
 	@GetMapping("/{userId}")
 	public AdminUserResponse get(@PathVariable String userId) {
 		return adminUsers.get(userId);
+	}
+
+	@org.springframework.web.bind.annotation.PutMapping("/{userId}/plan")
+	public AdminUserResponse setPlan(@PathVariable String userId, @Valid @RequestBody PlanRequest request, HttpServletRequest http) {
+		return adminUsers.setPlan(userId, request.plan(), request.expiresAt(), clientIps.resolve(http));
 	}
 
 	@PatchMapping("/{userId}/status")

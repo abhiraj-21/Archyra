@@ -55,6 +55,7 @@ public class AnalysisPipeline {
 	private final AnalysisRegistrar registrar;
 	private final AnalysisCleanup cleanup;
 	private final ApplicationEventPublisher events;
+	private final AnalysisActivity activity;
 
 	/** Starts the pipeline for an already persisted analysis on the analysis executor. */
 	@Async(AsyncConfig.ANALYSIS_EXECUTOR)
@@ -89,6 +90,7 @@ public class AnalysisPipeline {
 			publishQuietly(new AnalysisGraphBuilt(analysisId, ingestion.root(), graph));
 
 			update(analysisId, Analysis::markCompleted);
+			activity.touch(analysisId); // never throws
 			log.info("Analysis {} completed for {}", analysisId, analysis.getRepositoryUrl());
 			publishQuietly(new AnalysisCompleted(analysisId)); // hand-off for work that must not delay completion
 			cleanup.deleteReplaced(analysis); // a re-run replaces its predecessor only now; never throws

@@ -36,6 +36,7 @@ public class AnalysisService {
 	private final AnalysisCleanup cleanup;
 	private final AnalysisRegistrar registrar;
 	private final RateLimiter rateLimiter;
+	private final AnalysisActivity activity;
 
 	/**
 	 * Registers a new {@link AnalysisStatus#QUEUED} analysis owned by the signed-in caller, hands it to the
@@ -94,6 +95,7 @@ public class AnalysisService {
 		}
 		log.info("Analysis {} created with status {} for {}",
 				analysis.getId(), analysis.getStatus(), analysis.getRepositoryUrl());
+		activity.touch(analysis.getId()); // a new analysis (or a re-run) is a use of the repository
 
 		try {
 			analysisPipeline.run(analysis.getId());
@@ -139,6 +141,7 @@ public class AnalysisService {
 			throw new AnalysisNotRestorableException("Only a repository that has not been analysed yet can be analysed this way");
 		}
 		log.info("Restored analysis {} is being analysed; its credit was already spent", entry.getId());
+		activity.touch(entry.getId());
 		try {
 			analysisPipeline.run(entry.getId());
 		}
@@ -208,7 +211,8 @@ public class AnalysisService {
 
 	/**
 	 * Checks that the caller owns an analysis and that it has finished successfully, for endpoints that serve its
-	 * results. Every such endpoint goes through here, so this is where ownership is enforced.
+	 * results. Every such endpoint goes through here, so this is where ownership is enforced. A completed analysis the
+	 * owner opens is recorded as used ({@link AnalysisActivity}, at most once per touch interval).
 	 *
 	 * @return the analysis id, which is also the {@code analysisId} of its graph
 	 * @throws AnalysisNotFoundException     if the id is malformed, no such analysis exists, or it is someone else's
@@ -217,7 +221,10 @@ public class AnalysisService {
 	public UUID requireCompleted(String analysisId) {
 		Analysis analysis = findOwned(analysisId);
 		return switch (analysis.getStatus()) {
-			case COMPLETED -> analysis.getId();
+			case COMPLETED -> {
+				activity.touch(analysis.getId()); // the owner opened it; never reached for someone else's id
+				yield analysis.getId();
+			}
 			case FAILED -> throw new AnalysisNotCompletedException("The analysis failed, so it has no results");
 			case NOT_ANALYZED -> throw new AnalysisNotCompletedException(
 					"This repository has not been analysed yet. Analyse it to see its results");

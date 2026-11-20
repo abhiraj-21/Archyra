@@ -5,7 +5,6 @@ import { RouterProvider } from 'react-router';
 import { createQueryClient } from '@/hooks/queryClient';
 import { SessionProvider } from '@/hooks/session';
 import { ToastProvider } from '@/components/ui/ToastProvider';
-import { UpgradeProvider } from '@/features/upgrade/UpgradeProvider';
 import { router } from '@/routes/router';
 import '@/styles/index.css';
 
@@ -19,9 +18,8 @@ createRoot(root).render(
     <QueryClientProvider client={queryClient}>
       <SessionProvider>
         <ToastProvider>
-          <UpgradeProvider>
-            <RouterProvider router={router} />
-          </UpgradeProvider>
+          {/* the upgrade dialog lives inside the router (routes/RouteParts Root), so it can link to /upgrade */}
+          <RouterProvider router={router} />
         </ToastProvider>
       </SessionProvider>
     </QueryClientProvider>

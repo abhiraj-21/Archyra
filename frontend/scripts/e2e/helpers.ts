@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process';
 import { expect, type APIRequestContext, type Page, type TestInfo } from '@playwright/test';
 // @ts-expect-error: plain ESM helper shared with the capture script
 import { loadEnv } from '../lib/env.mjs';
@@ -55,4 +56,24 @@ export async function registerAndVerify(page: Page, request: APIRequestContext, 
   expect(link, 'the verification link').toBeTruthy();
   await page.goto(new URL(link?.[0] as string).pathname + new URL(link?.[0] as string).search);
   await expect(page.getByRole('heading', { name: 'Email verified' })).toBeVisible();
+}
+
+/**
+ * The e2e database helper: runs one SQL statement against the development PostgreSQL through `docker exec ... psql`, for
+ * seeding rows a test needs (a Premium end date, a subscription) without any test-only endpoint in the backend. Opt-in: the
+ * test skips unless ARCHYRA_E2E_DB_CONTAINER names the container (e.g. archyra-postgres); ARCHYRA_E2E_DB_USER and
+ * ARCHYRA_E2E_DB_NAME default to postgres and archyra. Values come from the test itself, never from a page.
+ */
+export function sql(statement: string): string {
+  return execFileSync(
+    'docker',
+    ['exec', env.ARCHYRA_E2E_DB_CONTAINER as string, 'psql', '-U', env.ARCHYRA_E2E_DB_USER || 'postgres', '-d', env.ARCHYRA_E2E_DB_NAME || 'archyra',
+      '-v', 'ON_ERROR_STOP=1', '-At', '-c', statement],
+    { encoding: 'utf8' },
+  ).trim();
+}
+
+/** SQL string literal: the e2e values are our own, but quote them properly anyway. */
+export function literal(value: string): string {
+  return `'${value.replace(/'/g, "''")}'`;
 }

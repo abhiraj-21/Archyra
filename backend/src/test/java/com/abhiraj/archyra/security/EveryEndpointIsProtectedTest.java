@@ -48,7 +48,9 @@ class EveryEndpointIsProtectedTest {
 			"POST /api/v1/auth/verify-email",
 			"POST /api/v1/auth/resend-verification",
 			"POST /api/v1/auth/forgot-password",
-			"POST /api/v1/auth/reset-password");
+			"POST /api/v1/auth/reset-password",
+			// Razorpay calls it with no token; its HMAC signature is checked before anything is read (billing/BillingWebhookController)
+			"POST /api/v1/billing/webhook");
 
 	@Autowired
 	MockMvc mockMvc;

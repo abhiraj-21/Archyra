@@ -41,4 +41,12 @@ interface UserRepository extends JpaRepository<User, UUID> {
 	/** Accounts on a PREMIUM plan that has not expired at {@code now}, the same rule as {@link User#effectivePlan}. */
 	@Query("select count(u) from User u where u.plan = com.abhiraj.archyra.user.Plan.PREMIUM and (u.planExpiresAt is null or u.planExpiresAt > :now)")
 	long countEffectivePremium(@Param("now") Instant now);
+
+	/** PREMIUM plans that end after {@code from} and at or before {@code to} (the reminder window). */
+	@Query("select u from User u where u.plan = com.abhiraj.archyra.user.Plan.PREMIUM and u.planExpiresAt > :from and u.planExpiresAt <= :to")
+	List<User> findPremiumEndingBetween(@Param("from") Instant from, @Param("to") Instant to);
+
+	/** PREMIUM plans whose end has passed: ended, and not yet put back to FREE by the lifecycle job. */
+	@Query("select u from User u where u.plan = com.abhiraj.archyra.user.Plan.PREMIUM and u.planExpiresAt <= :now")
+	List<User> findPremiumEndedBy(@Param("now") Instant now);
 }

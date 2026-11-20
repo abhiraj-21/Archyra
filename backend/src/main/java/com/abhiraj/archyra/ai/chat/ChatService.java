@@ -80,6 +80,7 @@ public class ChatService {
 	private final PromptBuilder prompts;
 	private final RateLimiter rateLimiter;
 	private final AiProperties properties;
+	private final com.abhiraj.archyra.analysis.AnalysisActivity activity;
 
 	public ChatAnswer ask(String analysisIdText, ChatQuestion question) {
 		long started = System.nanoTime();
@@ -121,6 +122,7 @@ public class ChatService {
 					ChatTransactions.Saved saved = storeCached(userId, analysisId, conversationId, message, entry);
 					outcome = "OK";
 					cached = true;
+					activity.touch(analysisId); // a free cached answer is a use of the repository too
 					provider = entry.provider();
 					return new ChatAnswer(saved.conversationId().toString(), saved.assistantMessageId().toString(), entry.answer(),
 							entry.sources(), true, entry.provider(), providers.displayName(entry.provider()));
@@ -155,6 +157,7 @@ public class ChatService {
 					throw failure;
 				}
 				cache.put(key, new ChatAnswerCache.Entry(answer.answer(), answer.sources(), answer.provider()));
+				activity.touch(analysisId); // asked about: the repository was used
 				outcome = "OK";
 				return answer;
 			}

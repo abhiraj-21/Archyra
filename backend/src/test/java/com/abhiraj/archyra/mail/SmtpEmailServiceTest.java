@@ -105,4 +105,58 @@ class SmtpEmailServiceTest {
 		assertThatCode(() -> failing.sendVerificationEmail("ada@example.com", "Ada", "http://x/y?token=t"))
 				.doesNotThrowAnyException();
 	}
+
+	// ---- Premium (spec/razorpay-premium) --------------------------------------------------------------------------
+
+	private static final java.time.ZoneId KOLKATA = java.time.ZoneId.of("Asia/Kolkata");
+
+	@Test
+	void thePremiumEmailGivesTheExactEndInTheBillingZoneWithItsLabel() throws Exception {
+		service.sendPremiumActivated("ada@example.com", "Ada", new BillingMails.PremiumActivated("monthly", "700 INR",
+				java.time.Instant.parse("2026-11-27T06:28:00Z"), KOLKATA, false, "http://localhost:5173/settings#subscription"));
+
+		MimeMessage message = GREEN_MAIL.getReceivedMessages()[0];
+		assertThat(message.getSubject()).isEqualTo("Archyra Premium is active");
+		String body = GreenMailUtil.getBody(message);
+		assertThat(body).contains("Hi Ada,", "monthly Premium payment of 700 INR", "Friday 27 November 2026, 11:58 IST",
+				"does not renew by itself", "http://localhost:5173/settings#subscription");
+	}
+
+	@Test
+	void theReminderNamesTheRepositoriesAtRiskCappedAtTenWithAndMore() throws Exception {
+		List<String> twelve = java.util.stream.IntStream.rangeClosed(1, 12).mapToObj(i -> "example/repo-" + i).toList();
+		service.sendPremiumReminder("ada@example.com", "Ada", new BillingMails.PremiumEnding(java.time.Instant.parse("2026-11-27T06:28:00Z"),
+				java.time.Instant.parse("2026-11-30T06:28:00Z"), KOLKATA, 5, twelve.subList(0, 10), 12, "http://localhost:5173/upgrade"));
+
+		MimeMessage message = GREEN_MAIL.getReceivedMessages()[0];
+		assertThat(message.getSubject()).isEqualTo("Your Archyra Premium ends on Friday 27 November 2026, 11:58 IST");
+		String body = GreenMailUtil.getBody(message);
+		assertThat(body).contains("ends on Friday 27 November 2026, 11:58 IST", "On Monday 30 November 2026, 11:58 IST only your 5 most recently used",
+				"- example/repo-1", "- example/repo-10", "and 2 more", "http://localhost:5173/upgrade");
+		assertThat(body).doesNotContain("example/repo-11");
+	}
+
+	@Test
+	void aReminderToSomeoneWithFiveOrFewerRepositoriesSaysNothingAboutDeleting() throws Exception {
+		service.sendPremiumReminder("ada@example.com", "Ada", new BillingMails.PremiumEnding(java.time.Instant.parse("2026-11-27T06:28:00Z"),
+				java.time.Instant.parse("2026-11-30T06:28:00Z"), KOLKATA, 5, List.of(), 0, "http://localhost:5173/upgrade"));
+
+		String body = GreenMailUtil.getBody(GREEN_MAIL.getReceivedMessages()[0]);
+		assertThat(body).doesNotContain("delete", "Monday 30 November");
+	}
+
+	@Test
+	void theExpiryNoticeSaysWhenToRenewByAndTheDeletedNoticeWhatWasKept() throws Exception {
+		service.sendPremiumExpired("ada@example.com", "Ada", new BillingMails.PremiumEnding(java.time.Instant.parse("2026-11-27T06:28:00Z"),
+				java.time.Instant.parse("2026-11-30T06:28:00Z"), KOLKATA, 5, List.of("example/old"), 1, "http://localhost:5173/upgrade"));
+		service.sendRepositoriesDeleted("ada@example.com", "Ada", new BillingMails.RepositoriesDeleted(7,
+				List.of("example/a", "example/b", "example/c", "example/d", "example/e"), "http://localhost:5173/upgrade"));
+
+		MimeMessage[] received = GREEN_MAIL.getReceivedMessages();
+		assertThat(received[0].getSubject()).isEqualTo("Your Archyra Premium has ended");
+		assertThat(GreenMailUtil.getBody(received[0])).contains("ended on Friday 27 November 2026, 11:58 IST",
+				"Renew by Monday 30 November 2026, 11:58 IST", "- example/old");
+		assertThat(received[1].getSubject()).isEqualTo("Repositories were removed from your Archyra account");
+		assertThat(GreenMailUtil.getBody(received[1])).contains("7 repositories were deleted", "No credits were returned", "- example/a", "- example/e");
+	}
 }

@@ -13,6 +13,7 @@
 - **The only token file is `src/styles/tokens.css`**: Coral's tokens from `theme.mjs scaffold coral` (the light `:root` block), the self-hosted `@font-face` rules, the graph semantic colours, and the `:root[data-theme="dark"]` override block. No other file in `src/` may contain a colour value or a font name; `npm run check:tokens` enforces it (hex, `rgb()`/`hsl()`/`oklch()` and kin, `font-family` literals, stock Tailwind palette classes, arbitrary colour utilities).
 - **Tailwind** reads the tokens through `@theme inline reference` in `src/styles/index.css`: the stock palette, fonts, radii and shadows are reset, so `bg-paper`, `text-muted`, `p-lg`, `rounded-card` and so on are the only colour, spacing and radius utilities. `reference` stops Tailwind from re-emitting the variables, so the token file stays their single definition.
 - **Fonts** are self-hosted in `src/styles/fonts/`: General Sans variable (ITF Free Font License) and Geist Mono 400/500 (SIL OFL). No third-party font request at runtime.
+- **Third-party script: the one exception.** Razorpay's Standard Checkout (`https://checkout.razorpay.com/v1/checkout.js`) is the only third-party request the app makes. It is loaded **lazily, only on the payment screen (`/upgrade`) and only when the user presses the pay button** (`lib/razorpayCheckout.ts`, once per page load), never on another page; `scripts/e2e/billing.spec.ts` checks that it is absent before. Its window is Razorpay's own UI: no `theme.color` is passed (no colour literal may live in `src/`, and Razorpay's default is fine), so its look is not ours to tune. A future Content-Security-Policy must allow `checkout.razorpay.com` for scripts and frames on that route.
 - **Two type scales:** the page scale (fluid, the landing page) and Hallmark's fixed app scale (ratio 1.2) under `[data-scope="app"]` for the signed-in screens and auth.
 
 ## Deviations from the Coral theme file, with reasons
@@ -21,6 +22,12 @@
 - **Selection uses the deep coral (`--color-accent-2`)** as an outline. Coral reserves coral for the settled state, links and focus; Hallmark's app rules let the accent mark the current selection, and a selected node needs a signal that is not one of the graph's semantic inks.
 - **Graph semantic inks** are added to the token file: plum (class), moss (interface), ochre (method), slate-teal at low chroma (function), umber (module), warm grey (file). Each is 4.5:1 or better on cotton. Coral forbids a blue *signal*; the function ink is a muted teal used as an identifying ink, never as a signal. Colour is never the only cue: node types also differ by glyph shape, edges by dash pattern and end marker.
 - **Textures** (`src/styles/textures/cotton.svg`, `felt.svg`) are generated SVG filters tinted by a colour matrix, used only on the landing hero desk, the landing sheets and the auth sheet. App screens stay plain. In dark both are off (`--tex-cotton: none; --tex-desk: none`): the tinted noise turns muddy on a dark ground, so those surfaces are plain token colours.
+
+## Premium screens
+
+- **`/upgrade`** uses the existing parts only: two `.segmented` radio groups (period: Monthly / Annual with the price; type: One-time payment / Auto-renew, one honest sentence under it), a `.btn-primary btn-lg` pay button ("Pay 700 INR" or "Start auto-renew", `aria-busy` while working), a polite live region for the payment's progress, and a `.table` comparison where included is a check and not included a dash, each with its word (never colour alone). Every number comes from `GET /billing/plans`.
+- **The expiry banner** is a `Notice` (warn before the end, error once repositories are at risk) in a `paper-2` strip at the top of `main`; it is not dismissible while the state lasts. The **dialog after sign-in** is the ordinary `Dialog`. Kept and at-risk repositories are told apart by a heading and a screen-reader word, not by colour.
+- No new colour token was needed; the light baseline changes only where the Settings page gains its Subscription section (and wherever a Premium banner shows, which the baseline account never has).
 
 ## Graph layout
 

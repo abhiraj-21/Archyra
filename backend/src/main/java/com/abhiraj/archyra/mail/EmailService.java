@@ -57,4 +57,19 @@ public interface EmailService {
 	 * not mention the usage ledger.
 	 */
 	void sendAccountDeletedNotice(String to, String name, Instant at);
+
+	/** Premium started or was extended: the period, the amount, the exact new end and whether it renews by itself. */
+	void sendPremiumActivated(String to, String name, BillingMails.PremiumActivated mail);
+
+	/**
+	 * A few days before Premium ends, to a user who will not auto-renew: the exact end, a Renew link and, only when they
+	 * have more repositories than are kept, when the others would be deleted and which.
+	 */
+	void sendPremiumReminder(String to, String name, BillingMails.PremiumEnding mail);
+
+	/** Premium has ended: renew by the deletion date to keep everything (the repositories at risk, as in the reminder). */
+	void sendPremiumExpired(String to, String name, BillingMails.PremiumEnding mail);
+
+	/** The grace period is over: how many repositories were deleted and which were kept. */
+	void sendRepositoriesDeleted(String to, String name, BillingMails.RepositoriesDeleted mail);
 }

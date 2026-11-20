@@ -53,11 +53,14 @@ class AnalysisServiceTest {
 	@Mock
 	private com.abhiraj.archyra.security.RateLimiter rateLimiter;
 
+	@Mock
+	private AnalysisActivity activity;
+
 	private AnalysisService service;
 
 	@BeforeEach
 	void setUp() {
-		service = new AnalysisService(analysisRepository, analysisPipeline, access, cleanup, registrar, rateLimiter);
+		service = new AnalysisService(analysisRepository, analysisPipeline, access, cleanup, registrar, rateLimiter, activity);
 		lenient().when(access.callerId()).thenReturn(CALLER);
 		lenient().when(rateLimiter.tryConsume(any(), any()))
 				.thenReturn(new com.abhiraj.archyra.security.RateLimiter.Decision(true, 0));

@@ -56,6 +56,26 @@ class ChatFlowIntegrationTest extends ChatIntegrationSupport {
 	}
 
 	@Test
+	void anAnsweredQuestionAndAFreeCachedOneBothRecordThatTheRepositoryWasUsed() throws Exception {
+		Ready shop = readyShop();
+		GEMINI.answerWith("It stores the order.");
+		java.time.Instant longAgo = java.time.Instant.parse("2026-01-01T00:00:00Z");
+		jdbc.update("UPDATE analyses SET last_activity_at = ? WHERE id = ?", java.sql.Timestamp.from(longAgo), shop.analysisId());
+
+		ask(shop.user(), shop.analysisId(), PLACE_QUESTION, null);
+		assertThat(lastActivity(shop.analysisId())).isAfter(longAgo);
+
+		jdbc.update("UPDATE analyses SET last_activity_at = ? WHERE id = ?", java.sql.Timestamp.from(longAgo), shop.analysisId());
+		String cached = ask(shop.user(), shop.analysisId(), PLACE_QUESTION, null);
+		assertThat((Boolean) read(cached, "$.cached")).isTrue();
+		assertThat(lastActivity(shop.analysisId())).isAfter(longAgo);
+	}
+
+	private java.time.Instant lastActivity(UUID analysisId) {
+		return jdbc.queryForObject("SELECT last_activity_at FROM analyses WHERE id = ?", java.sql.Timestamp.class, analysisId).toInstant();
+	}
+
+	@Test
 	void anAnswerWithoutCitationsHasNoSourcesAndIsNotAnError() throws Exception {
 		Ready shop = readyShop();
 		GEMINI.answerWith("It stores the order.");
